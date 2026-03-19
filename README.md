@@ -32,26 +32,28 @@ pip install soft-ue-cli
 
 ### Step 2 — Install the plugin into your UE project
 
+Open your LLM coding client (Claude Code, Cursor, Windsurf, etc.) in your UE project directory and ask it:
+
+> Install the SoftUEBridge plugin using soft-ue-cli setup
+
+The `setup` command is designed for LLM clients. It prints machine-readable instructions that your LLM client will automatically follow — copying the plugin files, editing your `.uproject`, and creating a `CLAUDE.md` with the CLI reference.
+
+If you prefer to do it manually:
+
 ```bash
 soft-ue-cli setup /path/to/YourProject
 ```
 
-Follow the printed instructions: copy the plugin, enable it in `.uproject`, rebuild, and launch.
+Then follow the printed steps: copy the plugin, enable it in `.uproject`, rebuild, and launch.
 
-### Step 3 — Verify
+### Step 3 — Rebuild and launch UE
+
+After the plugin is installed, rebuild your project and launch the editor. The bridge server starts automatically when UE loads.
+
+### Step 4 — Verify
 
 ```bash
 soft-ue-cli check-setup
-```
-
-### Step 4 — Tell Claude to use it
-
-Add a `CLAUDE.md` to your UE project root:
-```markdown
-## Unreal Engine control
-
-Run `soft-ue-cli --help` to see available UE control commands.
-The game must be running with SoftUEBridge plugin enabled.
 ```
 
 ---

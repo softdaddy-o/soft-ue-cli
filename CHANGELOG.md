@@ -2,6 +2,14 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.3.0] - 2026-03-22
+
+### Changed
+- `trigger-live-coding` now waits for compilation by default and returns the actual result (success, failure, cancelled). Use `--no-wait` for fire-and-forget.
+
+### Added
+- `build-and-relaunch --wait` — monitors build progress, waits for the editor to come back up, and returns build result with duration. On failure, returns compiler errors directly.
+
 ## [1.2.0] - 2026-03-20
 
 ### Added

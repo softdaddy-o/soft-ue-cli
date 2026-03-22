@@ -20,9 +20,11 @@ public class SoftUEBridge : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			// HTTP Server
+			// HTTP Server & Sockets
 			"HTTP",
 			"HTTPServer",
+			"Sockets",
+			"Networking",
 
 			// JSON
 			"Json",

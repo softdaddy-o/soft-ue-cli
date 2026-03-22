@@ -68,7 +68,7 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 			AActor* Actor = *It;
 			if (!Actor) continue;
 			if (MatchesWildcard(Actor->GetName(), ActorName) ||
-				MatchesWildcard(Actor->GetActorLabel(), ActorName))
+				MatchesWildcard(GetActorLabelSafe(Actor), ActorName))
 			{
 				return FBridgeToolResult::Json(ActorToJson(Actor, true, true));
 			}
@@ -101,7 +101,7 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 
 		if (!SearchFilter.IsEmpty() &&
 			!MatchesWildcard(Actor->GetName(), SearchFilter) &&
-			!MatchesWildcard(Actor->GetActorLabel(), SearchFilter))
+			!MatchesWildcard(GetActorLabelSafe(Actor), SearchFilter))
 		{
 			continue;
 		}
@@ -125,7 +125,7 @@ TSharedPtr<FJsonObject> UQueryLevelTool::ActorToJson(AActor* Actor, bool bCompon
 {
 	TSharedPtr<FJsonObject> J = MakeShareable(new FJsonObject);
 	J->SetStringField(TEXT("name"), Actor->GetName());
-	J->SetStringField(TEXT("label"), Actor->GetActorLabel());
+	J->SetStringField(TEXT("label"), GetActorLabelSafe(Actor));
 	J->SetStringField(TEXT("class"), Actor->GetClass()->GetName());
 	J->SetBoolField(TEXT("is_hidden"), Actor->IsHidden());
 

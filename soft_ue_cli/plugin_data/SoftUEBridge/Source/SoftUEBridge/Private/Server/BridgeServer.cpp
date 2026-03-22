@@ -7,6 +7,8 @@
 #include "HttpPath.h"
 #include "Async/Async.h"
 #include "Serialization/JsonSerializer.h"
+#include "SocketSubsystem.h"
+#include "Sockets.h"
 
 FBridgeServer::FBridgeServer() = default;
 
@@ -23,6 +25,34 @@ bool FBridgeServer::Start(int32 Port, const FString& BindAddress)
 	}
 
 	ServerPort = Port;
+
+	// Pre-check port availability to avoid UE's HttpListener error log.
+	// On Windows, SO_REUSEADDR allows binding to an occupied port, so we
+	// must NOT set it — the raw bind will then correctly fail when the
+	// port is already in use by the editor or another process.
+	{
+		ISocketSubsystem* SocketSub = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+		if (SocketSub)
+		{
+			FSocket* TestSocket = SocketSub->CreateSocket(NAME_Stream, TEXT("PortCheck"), false);
+			if (TestSocket)
+			{
+				TSharedRef<FInternetAddr> Addr = SocketSub->CreateInternetAddr();
+				bool bIsValid = false;
+				Addr->SetIp(*BindAddress, bIsValid);
+				Addr->SetPort(ServerPort);
+
+				bool bBound = TestSocket->Bind(*Addr);
+				TestSocket->Close();
+				SocketSub->DestroySocket(TestSocket);
+
+				if (!bBound)
+				{
+					return false;
+				}
+			}
+		}
+	}
 
 	FHttpServerModule& HttpServerModule = FHttpServerModule::Get();
 	HttpRouter = HttpServerModule.GetHttpRouter(ServerPort);

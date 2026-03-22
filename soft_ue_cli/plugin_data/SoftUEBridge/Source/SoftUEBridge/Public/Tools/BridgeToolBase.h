@@ -54,6 +54,9 @@ protected:
 	/** Wildcard match: *suffix, prefix*, *substring*, or exact */
 	static bool MatchesWildcard(const FString& Name, const FString& Pattern);
 
+	/** Get actor label (editor) or name (runtime) — safe for non-editor builds */
+	static FString GetActorLabelSafe(const AActor* Actor);
+
 	/** Find a world by type: "editor", "pie", or "game". Empty string returns the first available. */
 	static UWorld* FindWorldByType(const FString& WorldType);
 };

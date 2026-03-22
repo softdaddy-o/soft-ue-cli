@@ -239,12 +239,126 @@ def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
         arguments["build_config"] = args.config
     if args.skip_relaunch:
         arguments["skip_relaunch"] = True
-    _print_json(call_tool("build-and-relaunch", arguments))
+    result = call_tool("build-and-relaunch", arguments)
+
+    if not args.wait:
+        _print_json(result)
+        return
+
+    _wait_for_build_and_relaunch(result, skip_relaunch=args.skip_relaunch)
+
+
+def _wait_for_build_and_relaunch(
+    initiation_result: dict,
+    *,
+    skip_relaunch: bool,
+    poll_interval: float = 3.0,
+    build_timeout: float = 600.0,
+    relaunch_timeout: float = 120.0,
+) -> None:
+    """Poll for build completion and (optionally) editor relaunch."""
+    import json as _json
+    import time
+    from pathlib import Path
+
+    from .client import health_check
+
+    status_path = Path(initiation_result.get("build_status_path", ""))
+    log_path = Path(initiation_result.get("build_log_path", ""))
+
+    if not status_path.name:
+        # Fallback: old plugin without status file support
+        _print_json(initiation_result)
+        return
+
+    project = initiation_result.get("project", "")
+    print(f"Build initiated for {project}. Waiting for completion...", file=sys.stderr)
+
+    # --- Phase 1: wait for build to finish (status file appears) ---
+    start = time.monotonic()
+    build_status: dict = {}
+    while time.monotonic() - start < build_timeout:
+        time.sleep(poll_interval)
+        if status_path.exists():
+            try:
+                build_status = _json.loads(status_path.read_text().strip())
+            except (_json.JSONDecodeError, OSError):
+                continue
+            break
+    else:
+        print(
+            f"error: build did not finish within {build_timeout:.0f}s",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    build_elapsed = time.monotonic() - start
+    build_success = build_status.get("success", False)
+
+    if not build_success:
+        # Read compiler output from log
+        errors = ""
+        if log_path.exists():
+            try:
+                errors = log_path.read_text(errors="replace")
+            except OSError:
+                pass
+        result: dict = {
+            "success": False,
+            "status": "build_failed",
+            "exit_code": build_status.get("exit_code", 1),
+            "build_time_seconds": round(build_elapsed, 1),
+            "message": "Build failed. See build_output for compiler errors.",
+        }
+        if errors:
+            result["build_output"] = errors
+        _print_json(result)
+        sys.exit(1)
+
+    print(
+        f"Build succeeded in {build_elapsed:.0f}s.",
+        file=sys.stderr,
+    )
+
+    if skip_relaunch:
+        _print_json({
+            "success": True,
+            "status": "build_succeeded",
+            "build_time_seconds": round(build_elapsed, 1),
+            "message": "Build completed successfully (editor not relaunched).",
+        })
+        return
+
+    # --- Phase 2: wait for editor to come back (bridge health) ---
+    print("Waiting for editor to relaunch...", file=sys.stderr)
+    relaunch_start = time.monotonic()
+    while time.monotonic() - relaunch_start < relaunch_timeout:
+        time.sleep(poll_interval)
+        hc = health_check()
+        if "error" not in hc and hc.get("running"):
+            total = time.monotonic() - start
+            _print_json({
+                "success": True,
+                "status": "ready",
+                "build_time_seconds": round(build_elapsed, 1),
+                "total_time_seconds": round(total, 1),
+                "message": f"Build succeeded and editor is ready ({total:.0f}s total).",
+            })
+            return
+
+    total = time.monotonic() - start
+    _print_json({
+        "success": True,
+        "status": "build_succeeded_relaunch_pending",
+        "build_time_seconds": round(build_elapsed, 1),
+        "total_time_seconds": round(total, 1),
+        "message": f"Build succeeded but editor did not respond within {relaunch_timeout:.0f}s. It may still be loading.",
+    })
 
 
 def cmd_trigger_live_coding(args: argparse.Namespace) -> None:
     arguments: dict = {}
-    if args.wait:
+    if not args.no_wait:
         arguments["wait_for_completion"] = True
     _print_json(call_tool("trigger-live-coding", arguments))
 
@@ -851,9 +965,8 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
 
 
 def cmd_knowledge(args: argparse.Namespace) -> None:
-    """Query the optional knowledge server (RAG/PageIndex/Skills)."""
-    print("Coming soon", file=sys.stderr)
-    sys.exit(0)
+    """Query the optional knowledge server (RAG)."""
+    print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
 
 
 # -- Argument parser -----------------------------------------------------------
@@ -1297,13 +1410,15 @@ def build_parser() -> argparse.ArgumentParser:
         "build-and-relaunch",
         help="Trigger a C++ build and relaunch the editor.",
         description=(
-            "Initiates a full C++ build of the project and relaunches the UE editor.\n"
-            "Build times vary but are typically 1-5 minutes. Use --timeout to increase\n"
-            "the HTTP timeout so the request does not expire before the build finishes.\n\n"
+            "Initiates a full C++ build of the project and relaunches the UE editor.\n\n"
+            "With --wait, the CLI monitors build progress and waits for the editor to\n"
+            "come back up. Returns build result, duration, and compiler errors on failure.\n"
+            "Without --wait, returns immediately after initiating the workflow.\n\n"
             "EXAMPLES:\n"
-            "  soft-ue-cli --timeout 300 build-and-relaunch\n"
-            "  soft-ue-cli --timeout 300 build-and-relaunch --config Debug\n"
-            "  soft-ue-cli --timeout 300 build-and-relaunch --skip-relaunch"
+            "  soft-ue-cli build-and-relaunch --wait\n"
+            "  soft-ue-cli build-and-relaunch --wait --config Debug\n"
+            "  soft-ue-cli build-and-relaunch --wait --skip-relaunch\n"
+            "  soft-ue-cli --timeout 300 build-and-relaunch"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1311,6 +1426,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--config", choices=["Development", "Debug", "Shipping"], help="Build configuration (default: Development)"
     )
     p_bar.add_argument("--skip-relaunch", action="store_true", help="Build only, do not relaunch the editor")
+    p_bar.add_argument("--wait", action="store_true", help="Wait for build to complete and editor to relaunch, then return the result")
     p_bar.set_defaults(func=cmd_build_and_relaunch)
 
     p_tlc = sub.add_parser(
@@ -1319,13 +1435,15 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Triggers the UE Live Coding compiler to pick up C++ source changes without\n"
             "a full editor restart. Requires Live Coding to be enabled in editor preferences.\n\n"
+            "By default, waits for compilation to complete and returns the result\n"
+            "(success, failure, cancelled, etc.). Use --no-wait for fire-and-forget.\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli trigger-live-coding\n"
-            "  soft-ue-cli --timeout 120 trigger-live-coding --wait"
+            "  soft-ue-cli trigger-live-coding --no-wait"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_tlc.add_argument("--wait", action="store_true", help="Wait for compilation to finish before returning")
+    p_tlc.add_argument("--no-wait", action="store_true", help="Return immediately without waiting for compilation result")
     p_tlc.set_defaults(func=cmd_trigger_live_coding)
 
     # -------------------------------------------------------------------------
@@ -1999,18 +2117,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_k = sub.add_parser(
         "query-ue-knowledge",
         help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
-        description=(
-            "Queries the soft-ue-expert knowledge server for expert UE answers\n"
-            "and workflow skills. Uses hybrid RAG + PageIndex + SkillIndex.\n\n"
-            "Requires environment variables:\n"
-            "  SOFT_UE_EXPERT_SERVER_URL  (default: http://localhost:8000)\n"
-            "  SOFT_UE_EXPERT_API_KEY     (default: dev)\n\n"
-            "EXAMPLES:\n"
-            '  soft-ue-cli query-ue-knowledge "How do custom movement modes work in CMC?"\n'
-            '  soft-ue-cli query-ue-knowledge "UCharacterMovementComponent MaxWalkSpeed"\n'
-            '  soft-ue-cli query-ue-knowledge "graph cleanup" --type skill\n'
-            "  soft-ue-cli query-ue-knowledge --list-skills"
-        ),
+        description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")

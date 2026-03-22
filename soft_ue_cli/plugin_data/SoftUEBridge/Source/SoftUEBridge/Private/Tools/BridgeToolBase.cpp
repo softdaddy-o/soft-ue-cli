@@ -3,6 +3,7 @@
 #include "Tools/BridgeToolBase.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
+#include "GameFramework/Actor.h"
 
 FBridgeToolDefinition UBridgeToolBase::GetDefinition() const
 {
@@ -97,6 +98,15 @@ bool UBridgeToolBase::MatchesWildcard(const FString& Name, const FString& Patter
 
 	// No wildcards — substring match (also covers exact match)
 	return NameLower.Contains(PatternLower);
+}
+
+FString UBridgeToolBase::GetActorLabelSafe(const AActor* Actor)
+{
+#if WITH_EDITOR
+	return Actor->GetActorLabel();
+#else
+	return Actor->GetName();
+#endif
 }
 
 UWorld* UBridgeToolBase::FindWorldByType(const FString& WorldType)

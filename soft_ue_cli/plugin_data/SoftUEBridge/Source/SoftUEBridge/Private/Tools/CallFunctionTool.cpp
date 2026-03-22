@@ -58,7 +58,7 @@ FBridgeToolResult UCallFunctionTool::Execute(const TSharedPtr<FJsonObject>& Args
 	{
 		AActor* A = *It;
 		if (!A) continue;
-		if (MatchesWildcard(A->GetName(), ActorName) || MatchesWildcard(A->GetActorLabel(), ActorName))
+		if (MatchesWildcard(A->GetName(), ActorName) || MatchesWildcard(GetActorLabelSafe(A), ActorName))
 		{
 			TargetActor = A;
 			break;

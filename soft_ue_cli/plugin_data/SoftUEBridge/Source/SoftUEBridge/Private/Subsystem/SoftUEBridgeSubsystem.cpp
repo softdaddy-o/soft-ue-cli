@@ -15,6 +15,16 @@ void USoftUEBridgeSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
+	// Skip non-interactive processes:
+	//  - Commandlets: cooking, automation (UnrealEditor-Cmd.exe)
+	//  - Dedicated servers: no client to bridge with
+	//  - Unattended: Project Launcher cook/stage/deploy steps (UAT passes -unattended)
+	if (IsRunningCommandlet() || IsRunningDedicatedServer() || FApp::IsUnattended())
+	{
+		UE_LOG(LogSoftUEBridge, Log, TEXT("SoftUEBridgeSubsystem: skipping server start (non-interactive)"));
+		return;
+	}
+
 	UE_LOG(LogSoftUEBridge, Log, TEXT("SoftUEBridgeSubsystem initializing"));
 
 	FBridgeLogCapture::Get().Start();

@@ -335,7 +335,7 @@ Developers who need the bridge set `SOFT_UE_BRIDGE=1` in their environment. Ever
 
 | Requirement | Supported Versions |
 |-------------|--------------------|
-| **Unreal Engine** | 5.3, 5.4, 5.5 |
+| **Unreal Engine** | 5.7 |
 | **Python** | 3.10+ |
 | **Platforms** | Windows, macOS, Linux |
 | **Build types** | Editor, Development, Shipping (cooked/packaged) |
@@ -374,7 +374,7 @@ Yes. The SoftUEBridge plugin works in both the UE editor and in cooked/packaged 
 
 ### What Unreal Engine versions are supported?
 
-soft-ue-cli supports Unreal Engine 5.3, 5.4, and 5.5. The C++ plugin uses stable engine APIs and is compatible across these versions without modification.
+soft-ue-cli is actively developed against Unreal Engine 5.7.
 
 ### Is there any runtime performance impact?
 

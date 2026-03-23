@@ -2,6 +2,11 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.3.2] - 2026-03-23
+
+### Changed
+- Updated supported UE version to 5.7 (active development target)
+
 ## [1.3.1] - 2026-03-23
 
 ### Fixed

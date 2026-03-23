@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 3,
-	"VersionName": "1.3.1",
+	"VersionName": "1.3.2",
 	"FriendlyName": "SoftUE Bridge",
 	"Description": "HTTP bridge server for soft-ue-cli. Exposes UE operations (spawn actor, query level, call function, etc.) over HTTP/JSON-RPC. Active in editor and packaged builds.",
 	"Category": "Scripting",

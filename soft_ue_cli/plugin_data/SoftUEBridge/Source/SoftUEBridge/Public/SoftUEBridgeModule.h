@@ -8,7 +8,7 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LogSoftUEBridge, Log, All);
 
-#define SOFTUEBRIDGE_VERSION TEXT("1.3.1")
+#define SOFTUEBRIDGE_VERSION TEXT("1.3.2")
 
 class FSoftUEBridgeModule : public IModuleInterface
 {

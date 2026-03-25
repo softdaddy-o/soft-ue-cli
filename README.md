@@ -124,8 +124,11 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `modify-interface` | Add or remove an implemented interface on a Blueprint or AnimBlueprint |
 | `remove-graph-node` | Remove a node from a graph |
 | `connect-graph-pins` | Connect two pins between graph nodes |
-| `disconnect-graph-pin` | Disconnect a specific pin |
+| `disconnect-graph-pin` | Disconnect pin connections (all or specific with `--target-node`/`--target-pin`) |
+| `insert-graph-node` | Atomically insert a node between two connected nodes |
 | `set-node-position` | Batch-set node positions for graph layout |
+| `compile-blueprint` | Compile a Blueprint or AnimBlueprint and return the result |
+| `save-asset` | Save a modified asset to disk |
 
 ### Asset Management
 
@@ -283,6 +286,27 @@ soft-ue-cli query-blueprint /Game/ABP_Character --include interfaces
 
 ```bash
 soft-ue-cli add-graph-node /Game/ALI_Locomotion AnimLayerFunction --graph-name FullBody
+```
+
+### Insert a node between two connected nodes
+
+```bash
+soft-ue-cli insert-graph-node /Game/ABP_Hero AnimGraphNode_LinkedAnimLayer \
+  {source-guid} OutputPose {target-guid} InputPose --graph-name AnimGraph
+```
+
+### Save and compile after edits
+
+```bash
+soft-ue-cli compile-blueprint /Game/ABP_Hero
+soft-ue-cli save-asset /Game/ABP_Hero
+```
+
+### Disconnect a specific wire (preserving others)
+
+```bash
+soft-ue-cli disconnect-graph-pin /Game/ABP_Hero {node-guid} OutputPose \
+  --target-node {other-guid} --target-pin InputPose
 ```
 
 ### Profile with UE Insights

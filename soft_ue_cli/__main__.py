@@ -789,16 +789,16 @@ def cmd_connect_graph_pins(args: argparse.Namespace) -> None:
 
 
 def cmd_disconnect_graph_pin(args: argparse.Namespace) -> None:
-    _print_json(
-        call_tool(
-            "disconnect-graph-pin",
-            {
-                "asset_path": args.asset_path,
-                "node_id": args.node_id,
-                "pin_name": args.pin_name,
-            },
-        )
-    )
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "node_id": args.node_id,
+        "pin_name": args.pin_name,
+    }
+    if args.target_node:
+        arguments["target_node"] = args.target_node
+    if args.target_pin:
+        arguments["target_pin"] = args.target_pin
+    _print_json(call_tool("disconnect-graph-pin", arguments))
 
 
 def cmd_set_node_position(args: argparse.Namespace) -> None:
@@ -823,6 +823,34 @@ def cmd_create_asset(args: argparse.Namespace) -> None:
     if args.row_struct:
         arguments["row_struct"] = args.row_struct
     _print_json(call_tool("create-asset", arguments))
+
+
+def cmd_save_asset(args: argparse.Namespace) -> None:
+    _print_json(call_tool("save-asset", {"asset_path": args.asset_path}))
+
+
+def cmd_compile_blueprint(args: argparse.Namespace) -> None:
+    _print_json(call_tool("compile-blueprint", {"asset_path": args.asset_path}))
+
+
+def cmd_insert_graph_node(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "node_class": args.node_class,
+        "source_node": args.source_node,
+        "source_pin": args.source_pin,
+        "target_node": args.target_node,
+        "target_pin": args.target_pin,
+    }
+    if args.graph_name:
+        arguments["graph_name"] = args.graph_name
+    if args.new_input_pin:
+        arguments["new_input_pin"] = args.new_input_pin
+    if args.new_output_pin:
+        arguments["new_output_pin"] = args.new_output_pin
+    if args.properties:
+        arguments["properties"] = _parse_json_arg(args.properties, "--properties")
+    _print_json(call_tool("insert-graph-node", arguments))
 
 
 def _gather_system_info() -> str:
@@ -2119,12 +2147,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_dgp = sub.add_parser(
         "disconnect-graph-pin",
-        help="Disconnect all connections from a pin in a Blueprint or Material graph.",
+        help="Disconnect connections from a pin in a Blueprint or Material graph.",
         description=(
-            "Removes all wires connected to a specific pin on a node.\n"
-            "Use query-blueprint-graph to find node GUIDs and pin names.\n\n"
+            "Removes wires connected to a specific pin on a node.\n"
+            "By default, disconnects ALL connections from the pin.\n"
+            "With --target-node and --target-pin, disconnects only the specific\n"
+            "connection to that target, preserving other wires.\n\n"
             "EXAMPLES:\n"
-            "  soft-ue-cli disconnect-graph-pin /Game/Blueprints/BP_Player {node-guid} execute\n"
+            "  soft-ue-cli disconnect-graph-pin /Game/BP_Player {guid} execute\n"
+            "  soft-ue-cli disconnect-graph-pin /Game/BP_Player {src-guid} OutputPose --target-node {tgt-guid} --target-pin InputPose\n"
             "  soft-ue-cli disconnect-graph-pin /Game/Materials/M_Rock Add_0 A"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2132,6 +2163,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_dgp.add_argument("asset_path", help="Blueprint or Material asset path")
     p_dgp.add_argument("node_id", help="Node GUID or expression name")
     p_dgp.add_argument("pin_name", help="Pin name to disconnect")
+    p_dgp.add_argument("--target-node", metavar="GUID", help="Target node GUID (disconnect only this specific connection)")
+    p_dgp.add_argument("--target-pin", metavar="PIN", help="Target pin name (required with --target-node)")
     p_dgp.set_defaults(func=cmd_disconnect_graph_pin)
 
     p_snp = sub.add_parser(
@@ -2170,17 +2203,81 @@ def build_parser() -> argparse.ArgumentParser:
     p_cas.add_argument("--row-struct", metavar="PATH", help="Row struct path for DataTables")
     p_cas.set_defaults(func=cmd_create_asset)
 
+    p_sa = sub.add_parser(
+        "save-asset",
+        help="Save a modified asset to disk.",
+        description=(
+            "Saves an in-memory asset to its .uasset file on disk.\n"
+            "Use after mutation commands (add-graph-node, modify-interface, etc.)\n"
+            "to persist changes and prevent data loss from editor crashes.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli save-asset /Game/Blueprints/BP_Player\n"
+            "  soft-ue-cli save-asset /Game/Animation/ABP_Hero"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_sa.add_argument("asset_path", help="Asset path to save")
+    p_sa.set_defaults(func=cmd_save_asset)
+
+    p_cb = sub.add_parser(
+        "compile-blueprint",
+        help="Compile a Blueprint or AnimBlueprint.",
+        description=(
+            "Triggers compilation of a Blueprint and returns the result.\n"
+            "Use after graph modifications to validate changes and generate\n"
+            "CDO properties for runtime.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli compile-blueprint /Game/Blueprints/BP_Player\n"
+            "  soft-ue-cli compile-blueprint /Game/Animation/ABP_Hero"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_cb.add_argument("asset_path", help="Blueprint or AnimBlueprint asset path")
+    p_cb.set_defaults(func=cmd_compile_blueprint)
+
+    p_ign = sub.add_parser(
+        "insert-graph-node",
+        help="Insert a node between two connected nodes in a Blueprint graph.",
+        description=(
+            "Atomically inserts a new node between two already-connected nodes.\n"
+            "Disconnects source→target, creates the new node, and wires\n"
+            "source→new→target in a single undo transaction.\n\n"
+            "Pin auto-detection: if --new-input-pin and --new-output-pin are\n"
+            "not specified, the tool finds the first compatible pins.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli insert-graph-node /Game/ABP_Hero AnimGraphNode_LinkedAnimLayer \\\n"
+            "    {src-guid} OutputPose {tgt-guid} InputPose --graph-name AnimGraph\n"
+            "  soft-ue-cli insert-graph-node /Game/BP_Player K2Node_CallFunction \\\n"
+            "    {src-guid} then {tgt-guid} execute"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_ign.add_argument("asset_path", help="Blueprint or AnimBlueprint asset path")
+    p_ign.add_argument("node_class", help="Node class to insert (e.g. AnimGraphNode_LinkedAnimLayer)")
+    p_ign.add_argument("source_node", help="Source (upstream) node GUID")
+    p_ign.add_argument("source_pin", help="Source node output pin name")
+    p_ign.add_argument("target_node", help="Target (downstream) node GUID")
+    p_ign.add_argument("target_pin", help="Target node input pin name")
+    p_ign.add_argument("--graph-name", metavar="NAME", help="Graph name (default: EventGraph)")
+    p_ign.add_argument("--new-input-pin", metavar="PIN", help="Input pin on the new node (auto-detected if omitted)")
+    p_ign.add_argument("--new-output-pin", metavar="PIN", help="Output pin on the new node (auto-detected if omitted)")
+    p_ign.add_argument("--properties", metavar="JSON", help="JSON object of properties to set on the new node")
+    p_ign.set_defaults(func=cmd_insert_graph_node)
+
     # -------------------------------------------------------------------------
     # Knowledge
     # -------------------------------------------------------------------------
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query the knowledge server for UE API docs and tutorials.",
+        help="Query the knowledge server for UE API docs and workflow skills.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")
+    p_k.add_argument("--max-results", type=int, default=5, metavar="N", help="Max results to return (default: 5)")
+    p_k.add_argument("--type", choices=["skill"], metavar="TYPE", help="Filter by type: 'skill' for workflow skills")
+    p_k.add_argument("--list-skills", action="store_true", help="List all available workflow skills")
     p_k.set_defaults(func=cmd_knowledge)
 
     # -------------------------------------------------------------------------

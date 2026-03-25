@@ -14,7 +14,10 @@
 
 FString UDisconnectGraphPinTool::GetToolDescription() const
 {
-	return TEXT("Break all connections from a pin in a Blueprint or Material graph. For AnimBlueprints, also supports blend_stack, state_machine, and other animation graphs.");
+	return TEXT("Break connections from a pin in a Blueprint or Material graph. "
+		"By default, disconnects ALL connections from the pin. "
+		"With optional target_node and target_pin, disconnects only the specific connection to that target, preserving other wires. "
+		"For AnimBlueprints, also supports blend_stack, state_machine, and other animation graphs.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UDisconnectGraphPinTool::GetInputSchema() const
@@ -39,6 +42,18 @@ TMap<FString, FBridgeSchemaProperty> UDisconnectGraphPinTool::GetInputSchema() c
 	PinName.bRequired = true;
 	Schema.Add(TEXT("pin_name"), PinName);
 
+	FBridgeSchemaProperty TargetNodeId;
+	TargetNodeId.Type = TEXT("string");
+	TargetNodeId.Description = TEXT("Target node GUID to disconnect from (optional). When specified with target_pin, only the specific connection to this node/pin is broken.");
+	TargetNodeId.bRequired = false;
+	Schema.Add(TEXT("target_node"), TargetNodeId);
+
+	FBridgeSchemaProperty TargetPinName;
+	TargetPinName.Type = TEXT("string");
+	TargetPinName.Description = TEXT("Target pin name to disconnect from (optional). Must be specified together with target_node.");
+	TargetPinName.bRequired = false;
+	Schema.Add(TEXT("target_pin"), TargetPinName);
+
 	return Schema;
 }
 
@@ -54,10 +69,19 @@ FBridgeToolResult UDisconnectGraphPinTool::Execute(
 	FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
 	FString NodeId = GetStringArgOrDefault(Arguments, TEXT("node_id"));
 	FString PinName = GetStringArgOrDefault(Arguments, TEXT("pin_name"));
+	FString TargetNodeId = GetStringArgOrDefault(Arguments, TEXT("target_node"));
+	FString TargetPinName = GetStringArgOrDefault(Arguments, TEXT("target_pin"));
 
 	if (AssetPath.IsEmpty() || NodeId.IsEmpty() || PinName.IsEmpty())
 	{
-		return FBridgeToolResult::Error(TEXT("All parameters are required"));
+		return FBridgeToolResult::Error(TEXT("asset_path, node_id, and pin_name are required"));
+	}
+
+	// Validate target params are either both present or both absent
+	bool bSpecificTarget = !TargetNodeId.IsEmpty() || !TargetPinName.IsEmpty();
+	if (bSpecificTarget && (TargetNodeId.IsEmpty() || TargetPinName.IsEmpty()))
+	{
+		return FBridgeToolResult::Error(TEXT("target_node and target_pin must both be specified together"));
 	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("disconnect-graph-pin: %s.%s in %s"), *NodeId, *PinName, *AssetPath);
@@ -114,19 +138,73 @@ FBridgeToolResult UDisconnectGraphPinTool::Execute(
 			return FBridgeToolResult::Error(FString::Printf(TEXT("Pin not found: %s"), *PinName));
 		}
 
-		// Break all connections
-		int32 ConnectionsCount = FoundPin->LinkedTo.Num();
-		FoundPin->BreakAllPinLinks();
+		if (bSpecificTarget)
+		{
+			// Disconnect a specific pin-to-pin connection
+			FGuid TargetGuid;
+			if (!FGuid::Parse(TargetNodeId, TargetGuid))
+			{
+				return FBridgeToolResult::Error(TEXT("Invalid target_node GUID format"));
+			}
 
-		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
-		FBridgeAssetModifier::MarkPackageDirty(Blueprint);
+			UEdGraphNode* TargetNode = FBridgeAssetModifier::FindNodeByGuid(Blueprint, TargetGuid);
+			if (!TargetNode)
+			{
+				return FBridgeToolResult::Error(FString::Printf(TEXT("Target node not found: %s"), *TargetNodeId));
+			}
 
-		Result->SetBoolField(TEXT("success"), true);
-		Result->SetNumberField(TEXT("connections_broken"), ConnectionsCount);
-		Result->SetBoolField(TEXT("needs_compile"), true);
-		Result->SetBoolField(TEXT("needs_save"), true);
+			UEdGraphPin* TargetPin = nullptr;
+			for (UEdGraphPin* Pin : TargetNode->Pins)
+			{
+				if (Pin && Pin->PinName.ToString().Equals(TargetPinName, ESearchCase::IgnoreCase))
+				{
+					TargetPin = Pin;
+					break;
+				}
+			}
 
-		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("disconnect-graph-pin: Broke %d connections"), ConnectionsCount);
+			if (!TargetPin)
+			{
+				return FBridgeToolResult::Error(FString::Printf(TEXT("Target pin not found: %s"), *TargetPinName));
+			}
+
+			if (!FoundPin->LinkedTo.Contains(TargetPin))
+			{
+				return FBridgeToolResult::Error(FString::Printf(
+					TEXT("No connection exists between %s.%s and %s.%s"),
+					*NodeId, *PinName, *TargetNodeId, *TargetPinName));
+			}
+
+			FoundPin->BreakLinkTo(TargetPin);
+
+			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+			FBridgeAssetModifier::MarkPackageDirty(Blueprint);
+
+			Result->SetBoolField(TEXT("success"), true);
+			Result->SetNumberField(TEXT("connections_broken"), 1);
+			Result->SetStringField(TEXT("target_node"), TargetNodeId);
+			Result->SetStringField(TEXT("target_pin"), TargetPinName);
+			Result->SetBoolField(TEXT("needs_compile"), true);
+			Result->SetBoolField(TEXT("needs_save"), true);
+
+			UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("disconnect-graph-pin: Broke specific connection to %s.%s"), *TargetNodeId, *TargetPinName);
+		}
+		else
+		{
+			// Break all connections (original behavior)
+			int32 ConnectionsCount = FoundPin->LinkedTo.Num();
+			FoundPin->BreakAllPinLinks();
+
+			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+			FBridgeAssetModifier::MarkPackageDirty(Blueprint);
+
+			Result->SetBoolField(TEXT("success"), true);
+			Result->SetNumberField(TEXT("connections_broken"), ConnectionsCount);
+			Result->SetBoolField(TEXT("needs_compile"), true);
+			Result->SetBoolField(TEXT("needs_save"), true);
+
+			UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("disconnect-graph-pin: Broke %d connections"), ConnectionsCount);
+		}
 
 		return FBridgeToolResult::Json(Result);
 	}

@@ -69,6 +69,9 @@
 #include "Tools/Write/SetNodePositionTool.h"
 #include "Tools/Write/CreateAssetTool.h"
 #include "Tools/Write/ModifyInterfaceTool.h"
+#include "Tools/Write/SaveAssetTool.h"
+#include "Tools/Write/CompileBlueprintTool.h"
+#include "Tools/Write/InsertGraphNodeTool.h"
 
 DEFINE_LOG_CATEGORY(LogSoftUEBridgeEditor);
 
@@ -143,6 +146,9 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<USetNodePositionTool>();
 	Registry.RegisterToolClass<UCreateAssetTool>();
 	Registry.RegisterToolClass<UModifyInterfaceTool>();
+	Registry.RegisterToolClass<USaveAssetTool>();
+	Registry.RegisterToolClass<UCompileBlueprintTool>();
+	Registry.RegisterToolClass<UInsertGraphNodeTool>();
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("Registered %d editor bridge tools"), Registry.GetToolCount());
 

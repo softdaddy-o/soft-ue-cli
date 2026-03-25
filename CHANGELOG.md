@@ -2,6 +2,14 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.5.0] - 2026-03-25
+
+### Added
+- `save-asset` command — save modified assets to disk after mutations, preventing data loss from editor crashes
+- `compile-blueprint` command — trigger Blueprint/AnimBlueprint compilation and return status (success, warnings, errors)
+- `insert-graph-node` command — atomically insert a new node between two connected nodes with auto pin detection, single undo transaction, and rollback on failure
+- `disconnect-graph-pin --target-node --target-pin` — disconnect a specific pin-to-pin connection while preserving other wires (without these flags, existing break-all behavior is unchanged)
+
 ## [1.4.0] - 2026-03-24
 
 ### Added

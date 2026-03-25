@@ -48,10 +48,13 @@ public class SoftUEBridge : ModuleRules
 			"NavigationSystem"
 		});
 
-		// Editor viewport capture (only available in editor builds)
+		// Editor-only modules (viewport capture + foliage/landscape queries)
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");
+			PrivateDependencyModuleNames.Add("Foliage");
+			PrivateDependencyModuleNames.Add("Landscape");
+			PrivateDependencyModuleNames.Add("LandscapeEditor");
 		}
 	}
 }

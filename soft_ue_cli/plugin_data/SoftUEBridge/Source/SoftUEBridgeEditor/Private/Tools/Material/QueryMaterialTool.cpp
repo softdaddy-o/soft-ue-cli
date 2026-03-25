@@ -54,6 +54,12 @@ TMap<FString, FBridgeSchemaProperty> UQueryMaterialTool::GetInputSchema() const
 	ParameterFilter.bRequired = false;
 	Schema.Add(TEXT("parameter_filter"), ParameterFilter);
 
+	FBridgeSchemaProperty ParentChain;
+	ParentChain.Type = TEXT("boolean");
+	ParentChain.Description = TEXT("Include full parent material chain from leaf to root (default: false)");
+	ParentChain.bRequired = false;
+	Schema.Add(TEXT("parent_chain"), ParentChain);
+
 	return Schema;
 }
 
@@ -76,6 +82,7 @@ FBridgeToolResult UQueryMaterialTool::Execute(
 	bool bIncludePositions = GetBoolArgOrDefault(Arguments, TEXT("include_positions"), false);
 	bool bIncludeDefaults = GetBoolArgOrDefault(Arguments, TEXT("include_defaults"), true);
 	FString ParameterFilter = GetStringArgOrDefault(Arguments, TEXT("parameter_filter"), TEXT(""));
+	bool bParentChain = GetBoolArgOrDefault(Arguments, TEXT("parent_chain"), false);
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("query-material: path='%s', include='%s'"), *AssetPath, *Include);
 
@@ -105,6 +112,11 @@ FBridgeToolResult UQueryMaterialTool::Execute(
 			Result->SetObjectField(TEXT("parameters"), ExtractParameters(MatInstance, bIncludeDefaults, ParameterFilter));
 		}
 
+		if (bParentChain)
+		{
+			Result->SetArrayField(TEXT("parent_chain"), ExtractParentChain(MatInstance));
+		}
+
 		return FBridgeToolResult::Json(Result);
 	}
 
@@ -125,6 +137,11 @@ FBridgeToolResult UQueryMaterialTool::Execute(
 	if (bIncludeParams)
 	{
 		Result->SetObjectField(TEXT("parameters"), ExtractParameters(Material, bIncludeDefaults, ParameterFilter));
+	}
+
+	if (bParentChain)
+	{
+		Result->SetArrayField(TEXT("parent_chain"), ExtractParentChain(Material));
 	}
 
 	return FBridgeToolResult::Json(Result);
@@ -326,4 +343,27 @@ void UQueryMaterialTool::ExtractStaticSwitchParameters(UMaterialInterface* Mater
 
 		OutArray.Add(MakeShareable(new FJsonValueObject(ParamJson)));
 	}
+}
+
+TArray<TSharedPtr<FJsonValue>> UQueryMaterialTool::ExtractParentChain(UMaterialInterface* Material) const
+{
+	TArray<TSharedPtr<FJsonValue>> Chain;
+	UMaterialInterface* Current = Material;
+	while (Current)
+	{
+		TSharedPtr<FJsonObject> Entry = MakeShareable(new FJsonObject);
+		Entry->SetStringField(TEXT("name"), Current->GetName());
+		Entry->SetStringField(TEXT("path"), Current->GetPathName());
+		Entry->SetStringField(TEXT("class"), Current->GetClass()->GetName());
+		Chain.Add(MakeShareable(new FJsonValueObject(Entry)));
+		if (UMaterialInstance* MI = Cast<UMaterialInstance>(Current))
+		{
+			Current = MI->Parent;
+		}
+		else
+		{
+			break;
+		}
+	}
+	return Chain;
 }

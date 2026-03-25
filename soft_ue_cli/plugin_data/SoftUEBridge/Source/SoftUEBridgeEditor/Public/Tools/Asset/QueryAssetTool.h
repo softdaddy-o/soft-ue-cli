@@ -49,6 +49,9 @@ private:
 	/** Inspect DataAsset */
 	TSharedPtr<FJsonObject> InspectDataAsset(class UDataAsset* DataAsset) const;
 
+	/** Inspect LandscapeGrassType */
+	TSharedPtr<FJsonObject> InspectGrassType(class ULandscapeGrassType* GrassType) const;
+
 	/** Inspect general UObject */
 	TSharedPtr<FJsonObject> InspectObject(UObject* Object, int32 MaxDepth,
 		bool bIncludeDefaults, const FString& PropertyFilter, const FString& CategoryFilter) const;

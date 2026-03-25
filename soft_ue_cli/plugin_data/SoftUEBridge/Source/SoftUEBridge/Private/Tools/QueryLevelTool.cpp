@@ -9,6 +9,13 @@
 #include "EngineUtils.h"
 #include "UObject/UnrealType.h"
 
+#if WITH_EDITOR
+#include "InstancedFoliageActor.h"
+#include "FoliageType.h"
+#include "LandscapeProxy.h"
+#include "LandscapeComponent.h"
+#endif
+
 #if !WITH_EDITOR
 REGISTER_BRIDGE_TOOL(UQueryLevelTool)
 #endif
@@ -43,6 +50,8 @@ TMap<FString, FBridgeSchemaProperty> UQueryLevelTool::GetInputSchema() const
 	S.Add(TEXT("property_filter"),   Prop(TEXT("string"),  TEXT("Filter properties by name (wildcards supported, e.g., '*Health*'). Only used when include_properties is true.")));
 	S.Add(TEXT("limit"),             Prop(TEXT("integer"), TEXT("Max results (default: 100)")));
 	S.Add(TEXT("world"),             Prop(TEXT("string"),  TEXT("World context: 'editor' (editor scene), 'pie' (Play-In-Editor), 'game' (packaged build only). Omit to use the first available world.")));
+	S.Add(TEXT("include_foliage"),   Prop(TEXT("boolean"), TEXT("Include FoliageType instance counts from InstancedFoliageActors (default: false)")));
+	S.Add(TEXT("include_grass"),     Prop(TEXT("boolean"), TEXT("Include LandscapeProxy grass/material info (default: false)")));
 
 	return S;
 }
@@ -65,6 +74,8 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 	const bool bHidden         = GetBoolArgOrDefault(Args, TEXT("include_hidden"), false);
 	const FString PropertyFilter = GetStringArgOrDefault(Args, TEXT("property_filter"));
 	const int32 Limit          = GetIntArgOrDefault(Args, TEXT("limit"), 100);
+	const bool bFoliage        = GetBoolArgOrDefault(Args, TEXT("include_foliage"), false);
+	const bool bGrass          = GetBoolArgOrDefault(Args, TEXT("include_grass"), false);
 
 	// Detail mode: find one specific actor
 	if (!ActorName.IsEmpty())
@@ -123,6 +134,15 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 	Result->SetArrayField(TEXT("actors"), ActorsArr);
 	Result->SetNumberField(TEXT("actor_count"), ActorsArr.Num());
 	Result->SetBoolField(TEXT("limit_reached"), bLimitReached);
+
+	if (bFoliage)
+	{
+		Result->SetObjectField(TEXT("foliage"), CollectFoliageInfo(World));
+	}
+	if (bGrass)
+	{
+		Result->SetObjectField(TEXT("landscape_grass"), CollectLandscapeGrassInfo(World));
+	}
 
 	return FBridgeToolResult::Json(Result);
 }
@@ -289,4 +309,97 @@ FString UQueryLevelTool::GetPropertyTypeString(FProperty* Property) const
 	}
 
 	return Property->GetClass()->GetName();
+}
+
+TSharedPtr<FJsonObject> UQueryLevelTool::CollectFoliageInfo(UWorld* World) const
+{
+	TSharedPtr<FJsonObject> FoliageJson = MakeShareable(new FJsonObject);
+	TArray<TSharedPtr<FJsonValue>> TypesArray;
+	int32 TotalInstances = 0;
+
+#if WITH_EDITOR
+	for (TActorIterator<AInstancedFoliageActor> It(World); It; ++It)
+	{
+		AInstancedFoliageActor* IFA = *It;
+		if (!IFA) continue;
+
+		for (auto& Pair : IFA->GetFoliageInfos())
+		{
+			const UFoliageType* FoliageType = Pair.Key;
+			const FFoliageInfo& Info = *Pair.Value;
+
+			if (!FoliageType) continue;
+
+			TSharedPtr<FJsonObject> TypeJson = MakeShareable(new FJsonObject);
+			TypeJson->SetStringField(TEXT("name"), FoliageType->GetName());
+			TypeJson->SetStringField(TEXT("path"), FoliageType->GetPathName());
+
+			int32 InstanceCount = Info.Instances.Num();
+			TypeJson->SetNumberField(TEXT("instance_count"), InstanceCount);
+			TotalInstances += InstanceCount;
+
+			if (FoliageType->GetSource())
+			{
+				TypeJson->SetStringField(TEXT("source_mesh"), FoliageType->GetSource()->GetPathName());
+			}
+
+			TypesArray.Add(MakeShareable(new FJsonValueObject(TypeJson)));
+		}
+	}
+#else
+	FoliageJson->SetStringField(TEXT("note"), TEXT("Foliage data is only available in editor builds."));
+#endif
+
+	FoliageJson->SetArrayField(TEXT("foliage_types"), TypesArray);
+	FoliageJson->SetNumberField(TEXT("type_count"), TypesArray.Num());
+	FoliageJson->SetNumberField(TEXT("total_instances"), TotalInstances);
+
+	return FoliageJson;
+}
+
+TSharedPtr<FJsonObject> UQueryLevelTool::CollectLandscapeGrassInfo(UWorld* World) const
+{
+	TSharedPtr<FJsonObject> GrassJson = MakeShareable(new FJsonObject);
+	TArray<TSharedPtr<FJsonValue>> ProxiesArray;
+
+#if WITH_EDITOR
+	for (TActorIterator<ALandscapeProxy> It(World); It; ++It)
+	{
+		ALandscapeProxy* Proxy = *It;
+		if (!Proxy) continue;
+
+		TSharedPtr<FJsonObject> ProxyJson = MakeShareable(new FJsonObject);
+		ProxyJson->SetStringField(TEXT("name"), Proxy->GetName());
+		ProxyJson->SetStringField(TEXT("label"), GetActorLabelSafe(Proxy));
+		ProxyJson->SetStringField(TEXT("class"), Proxy->GetClass()->GetName());
+		ProxyJson->SetNumberField(TEXT("component_count"), Proxy->LandscapeComponents.Num());
+
+		TSet<FString> SeenMaterials;
+		TArray<TSharedPtr<FJsonValue>> MaterialsArray;
+		for (ULandscapeComponent* Comp : Proxy->LandscapeComponents)
+		{
+			if (!Comp) continue;
+			TArray<UMaterialInterface*> CompMaterials;
+			Comp->GetUsedMaterials(CompMaterials);
+			for (UMaterialInterface* Mat : CompMaterials)
+			{
+				if (Mat && !SeenMaterials.Contains(Mat->GetPathName()))
+				{
+					SeenMaterials.Add(Mat->GetPathName());
+					MaterialsArray.Add(MakeShareable(new FJsonValueString(Mat->GetPathName())));
+				}
+			}
+		}
+		ProxyJson->SetArrayField(TEXT("materials"), MaterialsArray);
+
+		ProxiesArray.Add(MakeShareable(new FJsonValueObject(ProxyJson)));
+	}
+#else
+	GrassJson->SetStringField(TEXT("note"), TEXT("Landscape grass data is only available in editor builds."));
+#endif
+
+	GrassJson->SetArrayField(TEXT("landscape_proxies"), ProxiesArray);
+	GrassJson->SetNumberField(TEXT("proxy_count"), ProxiesArray.Num());
+
+	return GrassJson;
 }

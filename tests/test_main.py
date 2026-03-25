@@ -585,3 +585,165 @@ def test_parser_inspect_runtime_widgets_all_args():
     assert args.no_geometry is True
     assert args.no_properties is True
     assert args.root_widget == "WBP_HUD_C_0"
+
+
+# -- set-node-property (issue #28) --------------------------------------------
+
+
+def test_parser_set_node_property_positional_args():
+    parser = build_parser()
+    args = parser.parse_args([
+        "set-node-property",
+        "/Game/ABP_Hero",
+        "AABB1122-CCDD-EEFF-0011-223344556677",
+        '{"SpringStiffness": 450}',
+    ])
+    assert args.asset_path == "/Game/ABP_Hero"
+    assert args.node_guid == "AABB1122-CCDD-EEFF-0011-223344556677"
+    assert args.properties == '{"SpringStiffness": 450}'
+
+
+def test_parser_set_node_property_alpha():
+    parser = build_parser()
+    args = parser.parse_args([
+        "set-node-property",
+        "/Game/ABP_Hero",
+        "GUID-0001",
+        '{"Alpha": 0.08}',
+    ])
+    assert args.asset_path == "/Game/ABP_Hero"
+    assert args.node_guid == "GUID-0001"
+    assert args.properties == '{"Alpha": 0.08}'
+
+
+# -- query-mpc (issue #32) ----------------------------------------------------
+
+
+def test_parser_query_mpc_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["query-mpc", "/Game/Materials/MPC_GlobalParams"])
+    assert args.asset_path == "/Game/Materials/MPC_GlobalParams"
+    assert args.action is None
+    assert args.parameter_name is None
+    assert args.value is None
+    assert args.world is None
+
+
+def test_parser_query_mpc_read_action():
+    parser = build_parser()
+    args = parser.parse_args(["query-mpc", "/Game/Materials/MPC_Wind", "--action", "read"])
+    assert args.action == "read"
+
+
+def test_parser_query_mpc_write_action():
+    parser = build_parser()
+    args = parser.parse_args([
+        "query-mpc",
+        "/Game/Materials/MPC_Wind",
+        "--action", "write",
+        "--parameter-name", "WindIntensity",
+        "--value", "0.5",
+    ])
+    assert args.action == "write"
+    assert args.parameter_name == "WindIntensity"
+    assert args.value == "0.5"
+
+
+def test_parser_query_mpc_write_vector():
+    parser = build_parser()
+    args = parser.parse_args([
+        "query-mpc",
+        "/Game/Materials/MPC_Wind",
+        "--action", "write",
+        "--parameter-name", "WindColor",
+        "--value", "[1.0,0.5,0.0,1.0]",
+    ])
+    assert args.parameter_name == "WindColor"
+    assert args.value == "[1.0,0.5,0.0,1.0]"
+
+
+def test_parser_query_mpc_world():
+    parser = build_parser()
+    args = parser.parse_args(["query-mpc", "/Game/Materials/MPC_Wind", "--world", "pie"])
+    assert args.world == "pie"
+
+
+def test_parser_query_mpc_invalid_action_exits():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["query-mpc", "/Game/Materials/MPC_Wind", "--action", "delete"])
+
+
+def test_parser_query_mpc_invalid_world_exits():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["query-mpc", "/Game/Materials/MPC_Wind", "--world", "server"])
+
+
+# -- save-asset --checkout (issue #30) ----------------------------------------
+
+
+def test_parser_save_asset_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["save-asset", "/Game/Blueprints/BP_Player"])
+    assert args.asset_path == "/Game/Blueprints/BP_Player"
+    assert args.checkout is False
+
+
+def test_parser_save_asset_checkout_flag():
+    parser = build_parser()
+    args = parser.parse_args(["save-asset", "/Game/Blueprints/BP_Player", "--checkout"])
+    assert args.asset_path == "/Game/Blueprints/BP_Player"
+    assert args.checkout is True
+
+
+# -- query-material --parent-chain (issue #31) --------------------------------
+
+
+def test_parser_query_material_parent_chain_default():
+    parser = build_parser()
+    args = parser.parse_args(["query-material", "/Game/Materials/M_Rock"])
+    assert args.parent_chain is False
+
+
+def test_parser_query_material_parent_chain_flag():
+    parser = build_parser()
+    args = parser.parse_args(["query-material", "/Game/Materials/MI_Rock", "--parent-chain"])
+    assert args.asset_path == "/Game/Materials/MI_Rock"
+    assert args.parent_chain is True
+
+
+# -- query-level --include-foliage / --include-grass (issue #34) --------------
+
+
+def test_parser_query_level_include_foliage_default():
+    parser = build_parser()
+    args = parser.parse_args(["query-level"])
+    assert args.include_foliage is False
+
+
+def test_parser_query_level_include_grass_default():
+    parser = build_parser()
+    args = parser.parse_args(["query-level"])
+    assert args.include_grass is False
+
+
+def test_parser_query_level_include_foliage_flag():
+    parser = build_parser()
+    args = parser.parse_args(["query-level", "--include-foliage"])
+    assert args.include_foliage is True
+    assert args.include_grass is False
+
+
+def test_parser_query_level_include_grass_flag():
+    parser = build_parser()
+    args = parser.parse_args(["query-level", "--include-grass"])
+    assert args.include_grass is True
+    assert args.include_foliage is False
+
+
+def test_parser_query_level_both_foliage_and_grass():
+    parser = build_parser()
+    args = parser.parse_args(["query-level", "--include-foliage", "--include-grass"])
+    assert args.include_foliage is True
+    assert args.include_grass is True

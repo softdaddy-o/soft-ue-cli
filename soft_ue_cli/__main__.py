@@ -71,6 +71,10 @@ def cmd_query_level(args: argparse.Namespace) -> None:
         arguments["include_properties"] = True
     if args.property_filter:
         arguments["property_filter"] = args.property_filter
+    if args.include_foliage:
+        arguments["include_foliage"] = True
+    if args.include_grass:
+        arguments["include_grass"] = True
     _print_json(call_tool("query-level", arguments))
 
 
@@ -411,7 +415,26 @@ def cmd_query_material(args: argparse.Namespace) -> None:
         arguments["include_defaults"] = False
     if args.parameter_filter:
         arguments["parameter_filter"] = args.parameter_filter
+    if args.parent_chain:
+        arguments["parent_chain"] = True
     _print_json(call_tool("query-material", arguments))
+
+
+def cmd_query_mpc(args: argparse.Namespace) -> None:
+    arguments: dict = {"asset_path": args.asset_path}
+    if args.action:
+        arguments["action"] = args.action
+    if args.parameter_name:
+        arguments["parameter_name"] = args.parameter_name
+    if args.value is not None:
+        val = args.value.strip()
+        if val.startswith("["):
+            arguments["value"] = _parse_json_arg(val, "--value")
+        else:
+            arguments["value"] = float(val)
+    if args.world:
+        arguments["world"] = args.world
+    _print_json(call_tool("query-mpc", arguments))
 
 
 def cmd_pie_session(args: argparse.Namespace) -> None:
@@ -826,7 +849,10 @@ def cmd_create_asset(args: argparse.Namespace) -> None:
 
 
 def cmd_save_asset(args: argparse.Namespace) -> None:
-    _print_json(call_tool("save-asset", {"asset_path": args.asset_path}))
+    arguments: dict = {"asset_path": args.asset_path}
+    if args.checkout:
+        arguments["checkout"] = True
+    _print_json(call_tool("save-asset", arguments))
 
 
 def cmd_compile_blueprint(args: argparse.Namespace) -> None:
@@ -851,6 +877,15 @@ def cmd_insert_graph_node(args: argparse.Namespace) -> None:
     if args.properties:
         arguments["properties"] = _parse_json_arg(args.properties, "--properties")
     _print_json(call_tool("insert-graph-node", arguments))
+
+
+def cmd_set_node_property(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "node_guid": args.node_guid,
+        "properties": _parse_json_arg(args.properties, "--properties"),
+    }
+    _print_json(call_tool("set-node-property", arguments))
 
 
 def _gather_system_info() -> str:
@@ -1170,6 +1205,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter properties by name (wildcards supported, e.g., '*Health*'). Requires --include-properties.",
     )
     p_ql.add_argument("--limit", type=int, default=100, metavar="N", help="Max actors to return (default: 100)")
+    p_ql.add_argument("--include-foliage", action="store_true", help="Include FoliageType instance counts")
+    p_ql.add_argument("--include-grass", action="store_true", help="Include LandscapeProxy grass/material info")
     p_ql.set_defaults(func=cmd_query_level)
 
     # call-function
@@ -1592,7 +1629,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_qm.add_argument("--include-positions", action="store_true", help="Include expression X/Y positions")
     p_qm.add_argument("--no-defaults", action="store_true", help="Exclude default parameter values")
     p_qm.add_argument("--parameter-filter", metavar="PATTERN", help="Filter parameters by name (wildcards)")
+    p_qm.add_argument("--parent-chain", action="store_true", help="Include full parent material chain from leaf to root")
     p_qm.set_defaults(func=cmd_query_material)
+
+    p_qmpc = sub.add_parser(
+        "query-mpc",
+        help="Read or write Material Parameter Collection values.",
+        description=(
+            "Read or write MPC scalar/vector parameter values.\n"
+            "Read mode returns both default (asset) and runtime (world) values.\n"
+            "Write mode sets runtime values in the current world.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli query-mpc /Game/Materials/MPC_GlobalParams\n"
+            '  soft-ue-cli query-mpc /Game/Materials/MPC_Wind --action write --parameter-name WindIntensity --value 0.5\n'
+            '  soft-ue-cli query-mpc /Game/Materials/MPC_Wind --action write --parameter-name WindColor --value "[1.0,0.5,0.0,1.0]"'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_qmpc.add_argument("asset_path", help="MPC asset path")
+    p_qmpc.add_argument("--action", choices=["read", "write"], help="Action (default: read)")
+    p_qmpc.add_argument("--parameter-name", metavar="NAME", dest="parameter_name", help="Parameter name (required for write)")
+    p_qmpc.add_argument("--value", metavar="VALUE", help="Value for write: number or JSON array [r,g,b,a]")
+    p_qmpc.add_argument("--world", choices=["editor", "pie", "game"], help="World context")
+    p_qmpc.set_defaults(func=cmd_query_mpc)
 
     # -------------------------------------------------------------------------
     # Editor tools — PIE
@@ -2217,6 +2276,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_sa.add_argument("asset_path", help="Asset path to save")
+    p_sa.add_argument("--checkout", action="store_true", help="Check out from source control before saving")
     p_sa.set_defaults(func=cmd_save_asset)
 
     p_cb = sub.add_parser(
@@ -2264,13 +2324,31 @@ def build_parser() -> argparse.ArgumentParser:
     p_ign.add_argument("--properties", metavar="JSON", help="JSON object of properties to set on the new node")
     p_ign.set_defaults(func=cmd_insert_graph_node)
 
+    p_snpr = sub.add_parser(
+        "set-node-property",
+        help="Set properties on a graph node by GUID.",
+        description=(
+            "Set properties on an existing graph node identified by GUID.\n"
+            "Supports UPROPERTY members, inner anim node struct properties,\n"
+            "and pin defaults (e.g. Alpha on SpringBone).\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli set-node-property /Game/ABP_Hero {node-guid} '{\"SpringStiffness\": 450}'\n"
+            "  soft-ue-cli set-node-property /Game/ABP_Hero {node-guid} '{\"Alpha\": 0.08}'"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_snpr.add_argument("asset_path", help="Blueprint or AnimBlueprint asset path")
+    p_snpr.add_argument("node_guid", help="Node GUID (from query-blueprint-graph)")
+    p_snpr.add_argument("properties", help="Properties as JSON object")
+    p_snpr.set_defaults(func=cmd_set_node_property)
+
     # -------------------------------------------------------------------------
     # Knowledge
     # -------------------------------------------------------------------------
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query the knowledge server for UE API docs and workflow skills.",
+        help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

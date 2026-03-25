@@ -14,6 +14,9 @@
 #include "EdGraph/EdGraphNode.h"
 #include "Animation/AnimBlueprint.h"
 #include "Materials/Material.h"
+#include "ISourceControlModule.h"
+#include "ISourceControlProvider.h"
+#include "SourceControlOperations.h"
 
 TSharedPtr<FScopedTransaction> FBridgeAssetModifier::BeginTransaction(const FText& Description)
 {
@@ -125,6 +128,48 @@ bool FBridgeAssetModifier::SaveAsset(UObject* Object, bool bPromptUser, FString&
 		break;
 	}
 	return false;
+}
+
+bool FBridgeAssetModifier::CheckoutFile(const FString& PackageFileName, FString& OutError)
+{
+	ISourceControlModule& SCM = ISourceControlModule::Get();
+	ISourceControlProvider& Provider = SCM.GetProvider();
+
+	if (!Provider.IsEnabled())
+	{
+		OutError = TEXT("Source control is not enabled");
+		return false;
+	}
+
+	FSourceControlStatePtr State = Provider.GetState(PackageFileName, EStateCacheUsage::ForceUpdate);
+	if (!State.IsValid())
+	{
+		OutError = TEXT("Could not get source control state");
+		return false;
+	}
+
+	if (State->IsCheckedOut() || State->IsAdded())
+	{
+		return true; // Already checked out
+	}
+
+	if (!State->CanCheckout())
+	{
+		OutError = FString::Printf(TEXT("Cannot check out '%s' (may be locked by another user)"), *FPaths::GetCleanFilename(PackageFileName));
+		return false;
+	}
+
+	ECommandResult::Type Result = Provider.Execute(
+		ISourceControlOperation::Create<FCheckOut>(),
+		PackageFileName);
+
+	if (Result != ECommandResult::Succeeded)
+	{
+		OutError = FString::Printf(TEXT("Source control checkout failed for '%s'"), *FPaths::GetCleanFilename(PackageFileName));
+		return false;
+	}
+
+	return true;
 }
 
 bool FBridgeAssetModifier::CompileBlueprint(UBlueprint* Blueprint, FString& OutError)

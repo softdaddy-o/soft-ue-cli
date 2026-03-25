@@ -19,6 +19,12 @@ TMap<FString, FBridgeSchemaProperty> USaveAssetTool::GetInputSchema() const
 	AssetPath.bRequired = true;
 	Schema.Add(TEXT("asset_path"), AssetPath);
 
+	FBridgeSchemaProperty Checkout;
+	Checkout.Type = TEXT("boolean");
+	Checkout.Description = TEXT("Attempt to check out the file from source control before saving (default: false)");
+	Checkout.bRequired = false;
+	Schema.Add(TEXT("checkout"), Checkout);
+
 	return Schema;
 }
 
@@ -48,6 +54,32 @@ FBridgeToolResult USaveAssetTool::Execute(
 		return FBridgeToolResult::Error(LoadError);
 	}
 
+	// Optionally check out from source control before saving
+	bool bCheckout = GetBoolArgOrDefault(Arguments, TEXT("checkout"), false);
+	bool bCheckedOut = false;
+
+	if (bCheckout)
+	{
+		UPackage* Package = Object->GetOutermost();
+		FString PackageFileName = FPackageName::LongPackageNameToFilename(
+			Package->GetName(),
+			FPackageName::GetAssetPackageExtension());
+
+		if (IFileManager::Get().FileExists(*PackageFileName) && IFileManager::Get().IsReadOnly(*PackageFileName))
+		{
+			FString CheckoutError;
+			if (FBridgeAssetModifier::CheckoutFile(PackageFileName, CheckoutError))
+			{
+				bCheckedOut = true;
+				UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("save-asset: Checked out %s"), *PackageFileName);
+			}
+			else
+			{
+				return FBridgeToolResult::Error(FString::Printf(TEXT("Checkout failed: %s"), *CheckoutError));
+			}
+		}
+	}
+
 	// Save
 	FString SaveError;
 	bool bSaved = FBridgeAssetModifier::SaveAsset(Object, false, SaveError);
@@ -55,6 +87,11 @@ FBridgeToolResult USaveAssetTool::Execute(
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetStringField(TEXT("asset"), AssetPath);
 	Result->SetBoolField(TEXT("success"), bSaved);
+
+	if (bCheckout)
+	{
+		Result->SetBoolField(TEXT("checked_out"), bCheckedOut);
+	}
 
 	if (!bSaved)
 	{

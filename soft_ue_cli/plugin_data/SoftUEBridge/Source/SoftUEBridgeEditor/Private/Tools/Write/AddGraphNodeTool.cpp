@@ -24,6 +24,7 @@
 #include "AnimGraphNode_Root.h"
 #include "AnimGraphNode_LinkedInputPose.h"
 #include "Animation/AnimBlueprint.h"
+#include "AnimGraphNode_LinkedAnimLayer.h"
 
 FString UAddGraphNodeTool::GetToolDescription() const
 {
@@ -575,23 +576,81 @@ UEdGraphNode* UAddGraphNodeTool::CreateBlueprintNode(
 	// for nodes like LinkedAnimLayer that require prior interface setup.
 	Graph->AddNode(NewNode, false, false);
 
+	// Extract LinkedAnimLayer pseudo-properties before stripping them from Properties.
+	// "Layer" and "Interface" are not regular UPROPERTYs — they configure the inner
+	// FAnimNode_LinkedAnimLayer struct and must be handled separately below.
+	FString LinkedLayerName;
+	FString LinkedInterfaceName;
+	if (Properties.IsValid() && NodeClassName.Contains(TEXT("LinkedAnimLayer")))
+	{
+		Properties->TryGetStringField(TEXT("Layer"), LinkedLayerName);
+		Properties->TryGetStringField(TEXT("Interface"), LinkedInterfaceName);
+		Properties->RemoveField(TEXT("Layer"));
+		Properties->RemoveField(TEXT("Interface"));
+	}
+
 	// Apply properties AFTER pins are allocated and node is added to the graph.
 	// Animation graph nodes (e.g. AnimGraphNode_SpringBone) require pins to exist
 	// before properties can be applied successfully.
 	if (Properties.IsValid())
 	{
 		TArray<FString> PropertyErrors = ApplyNodeProperties(NewNode, Properties);
-		for (const FString& Err : PropertyErrors)
+		if (PropertyErrors.Num() > 0)
 		{
-			OutError += (OutError.IsEmpty() ? TEXT("") : TEXT("; ")) + Err;
+			OutError = FString::Join(PropertyErrors, TEXT("; "));
 		}
 	}
 
-	// LinkedAnimLayer nodes need pin reconstruction after properties are set,
-	// since the interface/layer function determines the pin layout.
-	if (NodeClassName.Contains(TEXT("LinkedAnimLayer")))
+	// LinkedAnimLayer: wire up the layer function reference programmatically.
+	// "Layer" and "Interface" pseudo-properties configure FunctionName on
+	// the inner FAnimNode_LinkedAnimLayer, not regular UPROPERTY reflection.
+	if (UAnimGraphNode_LinkedAnimLayer* LayerNode = Cast<UAnimGraphNode_LinkedAnimLayer>(NewNode))
 	{
-		NewNode->ReconstructNode();
+		if (!LinkedLayerName.IsEmpty())
+		{
+			bool bFound = false;
+			for (const FBPInterfaceDescription& Iface : Blueprint->ImplementedInterfaces)
+			{
+				if (!LinkedInterfaceName.IsEmpty())
+				{
+					FString IfaceName = Iface.Interface ? Iface.Interface->GetName() : TEXT("");
+					IfaceName.RemoveFromEnd(TEXT("_C"));
+					if (!IfaceName.Contains(LinkedInterfaceName))
+					{
+						continue;
+					}
+				}
+
+				for (const UEdGraph* IfaceGraph : Iface.Graphs)
+				{
+					if (IfaceGraph && IfaceGraph->GetFName() == FName(*LinkedLayerName))
+					{
+						LayerNode->Node.Interface = Iface.Interface;
+						LayerNode->Node.Layer = FName(*LinkedLayerName);
+						bFound = true;
+						break;
+					}
+				}
+				if (bFound) break;
+			}
+
+			if (!bFound)
+			{
+				FString Msg = FString::Printf(TEXT("Layer function '%s' not found in Blueprint interfaces"), *LinkedLayerName);
+				UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("%s"), *Msg);
+				if (OutError.IsEmpty())
+				{
+					OutError = Msg;
+				}
+				else
+				{
+					OutError += TEXT("; ") + Msg;
+				}
+			}
+		}
+
+		// Always reconstruct to update pins based on the configured layer
+		LayerNode->ReconstructNode();
 	}
 
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
@@ -663,6 +722,62 @@ TArray<FString> UAddGraphNodeTool::ApplyNodeProperties(UObject* Node, const TSha
 			FString Msg = FString::Printf(TEXT("Failed to set property %s: %s"), *PropertyName, *SetError);
 			UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("%s"), *Msg);
 			Errors.Add(Msg);
+		}
+	}
+
+	// Second pass: try unresolved properties as pin default values.
+	// Anim graph nodes expose some values (Alpha, BlendWeight, etc.) as pins
+	// with DefaultValue strings, not as UPROPERTY members.
+	UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Node);
+	if (GraphNode)
+	{
+		TArray<FString> ResolvedByPin;
+		for (const FString& ErrMsg : Errors)
+		{
+			// Extract property name from "Property not found: X"
+			if (!ErrMsg.StartsWith(TEXT("Property not found: ")))
+			{
+				continue;
+			}
+			FString PropName = ErrMsg.RightChop(20);
+			if (PropName.IsEmpty()) continue;
+
+			// Look for a matching pin
+			for (UEdGraphPin* Pin : GraphNode->Pins)
+			{
+				if (Pin && Pin->PinName.ToString() == PropName)
+				{
+					const TSharedPtr<FJsonValue>* ValuePtr = Properties->Values.Find(PropName);
+					if (ValuePtr && ValuePtr->IsValid())
+					{
+						FString StringValue;
+						if ((*ValuePtr)->Type == EJson::Number)
+						{
+							StringValue = FString::Printf(TEXT("%g"), (*ValuePtr)->AsNumber());
+						}
+						else if ((*ValuePtr)->Type == EJson::Boolean)
+						{
+							StringValue = (*ValuePtr)->AsBool() ? TEXT("true") : TEXT("false");
+						}
+						else
+						{
+							StringValue = (*ValuePtr)->AsString();
+						}
+
+						Pin->DefaultValue = StringValue;
+						ResolvedByPin.Add(PropName);
+						UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("Set pin default %s = %s"), *PropName, *StringValue);
+					}
+					break;
+				}
+			}
+		}
+
+		// Remove errors for properties resolved as pin defaults
+		for (const FString& Resolved : ResolvedByPin)
+		{
+			FString ErrToRemove = FString::Printf(TEXT("Property not found: %s"), *Resolved);
+			Errors.Remove(ErrToRemove);
 		}
 	}
 

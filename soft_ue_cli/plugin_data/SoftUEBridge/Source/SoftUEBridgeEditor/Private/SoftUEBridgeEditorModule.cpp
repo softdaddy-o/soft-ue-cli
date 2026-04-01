@@ -27,6 +27,7 @@
 
 // Material
 #include "Tools/Material/QueryMaterialTool.h"
+#include "Tools/Material/CompileMaterialTool.h"
 #include "Tools/Material/QueryMPCTool.h"
 
 // PIE
@@ -106,6 +107,7 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 	// Material
 	Registry.RegisterToolClass<UQueryMaterialTool>();
+	Registry.RegisterToolClass<UCompileMaterialTool>();
 	Registry.RegisterToolClass<UQueryMPCTool>();
 
 	// PIE

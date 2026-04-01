@@ -128,6 +128,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `insert-graph-node` | Atomically insert a node between two connected nodes |
 | `set-node-position` | Batch-set node positions for graph layout |
 | `compile-blueprint` | Compile a Blueprint or AnimBlueprint and return the result |
+| `compile-material` | Compile a Material, MaterialInstance, or MaterialFunction |
 | `save-asset` | Save a modified asset to disk (with optional `--checkout` for source control) |
 | `set-node-property` | Set properties on a graph node by GUID (UPROPERTY, inner structs, pin defaults) |
 

@@ -722,6 +722,26 @@ def test_parser_query_material_function_path():
     assert args.include == "graph"
 
 
+# -- compile-material (issue #43) ---------------------------------------------
+
+
+def test_parser_compile_material():
+    parser = build_parser()
+    args = parser.parse_args(["compile-material", "/Game/Materials/M_Rock"])
+    assert args.asset_path == "/Game/Materials/M_Rock"
+
+
+# -- get-logs Unicode encoding (issue #40) ------------------------------------
+
+
+def test_print_json_unicode_survives_replace_encoding(capsys):
+    """Ensure _print_json doesn't crash on chars outside the current locale."""
+    from soft_ue_cli.__main__ import _print_json
+    _print_json({"msg": "hello \u2014 world"})
+    captured = capsys.readouterr()
+    assert "hello" in captured.out
+
+
 # -- query-level --include-foliage / --include-grass (issue #34) --------------
 
 
@@ -756,3 +776,19 @@ def test_parser_query_level_both_foliage_and_grass():
     args = parser.parse_args(["query-level", "--include-foliage", "--include-grass"])
     assert args.include_foliage is True
     assert args.include_grass is True
+
+
+# -- MSYS path mangling fix (issue #44) ---------------------------------------
+
+
+def test_fix_msys_path_mangling():
+    from soft_ue_cli.__main__ import _fix_msys_asset_path
+    # Mangled by Git Bash
+    assert _fix_msys_asset_path("C:/Program Files/Git/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
+    assert _fix_msys_asset_path("C:/Program Files/Git/Engine/Content/Foo") == "/Engine/Content/Foo"
+    # Already correct — pass through
+    assert _fix_msys_asset_path("/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
+    # No mount point — pass through
+    assert _fix_msys_asset_path("some/local/path") == "some/local/path"
+    # Empty/None
+    assert _fix_msys_asset_path("") == ""

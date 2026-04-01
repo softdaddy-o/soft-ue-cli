@@ -13,6 +13,24 @@ from .client import call_tool, health_check
 from .discovery import get_server_url
 
 
+def _fix_msys_asset_path(path: str) -> str:
+    """Reverse MSYS/Git Bash path mangling for UE asset paths.
+
+    Git Bash on Windows converts /Game/Foo to C:/Program Files/Git/Game/Foo.
+    Detect and reverse this for common UE mount points.
+    """
+    if not path or "/" not in path:
+        return path
+    # Known UE asset mount points that MSYS will mangle
+    mount_points = ("/Game/", "/Engine/", "/Script/", "/Temp/", "/Niagara/", "/Paper2D/")
+    for mp in mount_points:
+        # MSYS converts /Game/ → C:/Program Files/Git/Game/ (or similar Git install path)
+        idx = path.find(mp[1:])  # Find "Game/" anywhere in the mangled path
+        if idx > 0 and path[0] != "/":
+            return mp + path[idx + len(mp) - 1:]
+    return path
+
+
 def _print_json(data: object) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
@@ -857,6 +875,10 @@ def cmd_save_asset(args: argparse.Namespace) -> None:
 
 def cmd_compile_blueprint(args: argparse.Namespace) -> None:
     _print_json(call_tool("compile-blueprint", {"asset_path": args.asset_path}))
+
+
+def cmd_compile_material(args: argparse.Namespace) -> None:
+    _print_json(call_tool("compile-material", {"asset_path": args.asset_path}))
 
 
 def cmd_insert_graph_node(args: argparse.Namespace) -> None:
@@ -2296,6 +2318,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_cb.add_argument("asset_path", help="Blueprint or AnimBlueprint asset path")
     p_cb.set_defaults(func=cmd_compile_blueprint)
 
+    p_cm = sub.add_parser(
+        "compile-material",
+        help="Compile a Material, MaterialInstance, or MaterialFunction.",
+        description=(
+            "Triggers recompilation of a material asset and returns the result.\n"
+            "Use after modifying material graphs or parameters.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli compile-material /Game/Materials/M_Rock\n"
+            "  soft-ue-cli compile-material /Game/Functions/MF_DistanceFade"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_cm.add_argument("asset_path", help="Material, MaterialInstance, or MaterialFunction asset path")
+    p_cm.set_defaults(func=cmd_compile_material)
+
     p_ign = sub.add_parser(
         "insert-graph-node",
         help="Insert a node between two connected nodes in a Blueprint graph.",
@@ -2423,6 +2460,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Ensure stdout/stderr can handle all Unicode (fixes cp949 crash on Korean Windows)
+    import io
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+        sys.stderr.reconfigure(errors="replace")
+
     parser = build_parser()
     args = parser.parse_args()
 
@@ -2430,6 +2473,10 @@ def main() -> None:
         os.environ["SOFT_UE_BRIDGE_URL"] = args.server
     if args.timeout:
         os.environ["SOFT_UE_BRIDGE_TIMEOUT"] = str(args.timeout)
+
+    # Reverse MSYS/Git Bash path mangling for asset paths
+    if hasattr(args, "asset_path") and args.asset_path:
+        args.asset_path = _fix_msys_asset_path(args.asset_path)
 
     args.func(args)
 

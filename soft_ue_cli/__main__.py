@@ -478,6 +478,8 @@ def cmd_capture_screenshot(args: argparse.Namespace) -> None:
 
 def cmd_capture_viewport(args: argparse.Namespace) -> None:
     arguments: dict = {}
+    if args.source:
+        arguments["source"] = args.source
     if args.format:
         arguments["format"] = args.format
     if args.output:
@@ -1780,18 +1782,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_cv = sub.add_parser(
         "capture-viewport",
-        help="Capture the game viewport (PIE or standalone). Saves to temp file.",
+        help="Capture the current viewport (auto-detects PIE, standalone, or editor).",
         description=(
-            "Capture the game viewport screenshot.\n"
-            "Works in both PIE and standalone/packaged builds.\n"
-            "Returns a temp file path by default.\n\n"
+            "Capture a viewport screenshot.\n"
+            "By default, auto-detects: tries game viewport (PIE/standalone) first,\n"
+            "falls back to editor viewport. Use --source to force a specific target.\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli capture-viewport\n"
+            "  soft-ue-cli capture-viewport --source editor\n"
             "  soft-ue-cli capture-viewport --format jpeg\n"
             "  soft-ue-cli capture-viewport --output base64"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p_cv.add_argument("--source", choices=["auto", "game", "editor"],
+                       help="Viewport source: auto (default), game (PIE/standalone), editor")
     p_cv.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
     p_cv.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
     p_cv.set_defaults(func=cmd_capture_viewport)

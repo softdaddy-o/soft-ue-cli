@@ -84,6 +84,10 @@ FBridgeToolResult UBatchModifyActorTool::Execute(
 		const TSharedPtr<FJsonObject>* EntryObj;
 		if (!(*ModArray)[i]->TryGetObject(EntryObj))
 		{
+			TSharedPtr<FJsonObject> Fail = MakeShareable(new FJsonObject);
+			Fail->SetNumberField(TEXT("index"), i);
+			Fail->SetStringField(TEXT("error"), TEXT("Entry is not a JSON object"));
+			NotFoundArray.Add(MakeShareable(new FJsonValueObject(Fail)));
 			continue;
 		}
 

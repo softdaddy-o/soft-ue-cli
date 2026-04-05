@@ -81,15 +81,21 @@ FBridgeToolResult UBatchDeleteActorTool::Execute(
 		FString ActorName = (*ActorsArray)[i]->AsString();
 		if (ActorName.IsEmpty())
 		{
-			NotFoundArray.Add(MakeShareable(new FJsonValueString(
-				FString::Printf(TEXT("index %d: empty or non-string entry"), i))));
+			TSharedPtr<FJsonObject> Fail = MakeShareable(new FJsonObject);
+			Fail->SetNumberField(TEXT("index"), i);
+			Fail->SetStringField(TEXT("error"), TEXT("Empty or non-string entry"));
+			NotFoundArray.Add(MakeShareable(new FJsonValueObject(Fail)));
 			continue;
 		}
 
 		AActor* Actor = FindActorByNameOrLabel(World, ActorName);
 		if (!Actor)
 		{
-			NotFoundArray.Add(MakeShareable(new FJsonValueString(ActorName)));
+			TSharedPtr<FJsonObject> Fail = MakeShareable(new FJsonObject);
+			Fail->SetNumberField(TEXT("index"), i);
+			Fail->SetStringField(TEXT("actor"), ActorName);
+			Fail->SetStringField(TEXT("error"), TEXT("Actor not found"));
+			NotFoundArray.Add(MakeShareable(new FJsonValueObject(Fail)));
 			continue;
 		}
 
@@ -100,13 +106,18 @@ FBridgeToolResult UBatchDeleteActorTool::Execute(
 		if (bDestroyed)
 		{
 			TSharedPtr<FJsonObject> Entry = MakeShareable(new FJsonObject);
+			Entry->SetNumberField(TEXT("index"), i);
 			Entry->SetStringField(TEXT("actor_name"), DeletedName);
 			Entry->SetStringField(TEXT("actor_label"), DeletedLabel);
 			DeletedArray.Add(MakeShareable(new FJsonValueObject(Entry)));
 		}
 		else
 		{
-			NotFoundArray.Add(MakeShareable(new FJsonValueString(ActorName)));
+			TSharedPtr<FJsonObject> Fail = MakeShareable(new FJsonObject);
+			Fail->SetNumberField(TEXT("index"), i);
+			Fail->SetStringField(TEXT("actor"), ActorName);
+			Fail->SetStringField(TEXT("error"), TEXT("Actor found but could not be destroyed"));
+			NotFoundArray.Add(MakeShareable(new FJsonValueObject(Fail)));
 		}
 	}
 

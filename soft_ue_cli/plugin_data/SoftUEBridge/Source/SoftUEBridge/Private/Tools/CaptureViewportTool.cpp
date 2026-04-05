@@ -29,9 +29,9 @@ TMap<FString, FBridgeSchemaProperty> UCaptureViewportTool::GetInputSchema() cons
 
 	Schema.Add(TEXT("source"), FBridgeSchemaProperty{
 		TEXT("string"),
-		TEXT("Which viewport to capture: 'game' for PIE/standalone (default), 'editor' for the level editor viewport"),
+		TEXT("Which viewport to capture: 'auto' (default, tries game then editor), 'game' for PIE/standalone, 'editor' for the level editor viewport"),
 		false,
-		{TEXT("game"), TEXT("editor")}
+		{TEXT("auto"), TEXT("game"), TEXT("editor")}
 	});
 
 	Schema.Add(TEXT("format"), FBridgeSchemaProperty{
@@ -55,7 +55,7 @@ FBridgeToolResult UCaptureViewportTool::Execute(
 	const TSharedPtr<FJsonObject>& Arguments,
 	const FBridgeToolContext& Context)
 {
-	const FString Source = GetStringArgOrDefault(Arguments, TEXT("source"), TEXT("game"));
+	const FString Source = GetStringArgOrDefault(Arguments, TEXT("source"), TEXT("auto"));
 	const FString Format = GetStringArgOrDefault(Arguments, TEXT("format"), TEXT("png"));
 	const FString OutputMode = GetStringArgOrDefault(Arguments, TEXT("output"), TEXT("file"));
 
@@ -68,13 +68,29 @@ FBridgeToolResult UCaptureViewportTool::Execute(
 #endif
 	}
 
-	if (Source != TEXT("game"))
+	if (Source == TEXT("game"))
 	{
-		return FBridgeToolResult::Error(FString::Printf(
-			TEXT("Unknown source '%s'. Valid values: 'game', 'editor'"), *Source));
+		return CaptureGameViewport(Format, OutputMode);
 	}
 
-	return CaptureGameViewport(Format, OutputMode);
+	if (Source == TEXT("auto"))
+	{
+		// Auto-detect: try game viewport first, fall back to editor viewport
+		FBridgeToolResult GameResult = CaptureGameViewport(Format, OutputMode);
+		if (!GameResult.bIsError)
+		{
+			return GameResult;
+		}
+
+#if WITH_EDITOR
+		return CaptureEditorViewport(Format, OutputMode);
+#else
+		return GameResult; // Return the game viewport error in non-editor builds
+#endif
+	}
+
+	return FBridgeToolResult::Error(FString::Printf(
+		TEXT("Unknown source '%s'. Valid values: 'auto', 'game', 'editor'"), *Source));
 }
 
 FBridgeToolResult UCaptureViewportTool::CaptureGameViewport(const FString& Format, const FString& OutputMode)

@@ -3,7 +3,7 @@ type: skill
 name: level-from-image
 description: Populate a UE level with existing project assets based on a reference image
 tags: [level, placement, image, scene, layout, dressing, environment]
-required_tools: [query-asset, batch-spawn-actors, batch-modify-actors, batch-delete-actors, query-level, set-viewport-camera, capture-screenshot]
+required_tools: [query-asset, batch-spawn-actors, batch-modify-actors, batch-delete-actors, query-level, set-viewport-camera, capture-viewport]
 options:
   - name: iterate
     description: Enter refinement loop after initial placement
@@ -115,7 +115,7 @@ soft-ue-cli set-viewport-camera --location 0,-2000,1000 --rotation -30,90,0
 2. **Capture a screenshot** from the same angle:
 
 ```
-soft-ue-cli capture-screenshot window --output file
+soft-ue-cli capture-viewport --source editor --output file
 ```
 
 3. **Compare the screenshot to the reference image** focusing on spatial layout accuracy:
@@ -147,7 +147,7 @@ After 3 autonomous passes (or earlier if converged), always move to Phase B rega
 
 ```
 soft-ue-cli set-viewport-camera --location ... --rotation ...
-soft-ue-cli capture-screenshot window --output file
+soft-ue-cli capture-viewport --source editor --output file
 ```
 
 2. **Present the screenshot to the user** alongside a summary of what was placed:
@@ -174,7 +174,7 @@ What would you like to adjust?
 
 ```
 soft-ue-cli set-viewport-camera --location ... --rotation ...
-soft-ue-cli capture-screenshot window --output file
+soft-ue-cli capture-viewport --source editor --output file
 ```
 
 Show the updated screenshot and ask: **"Here's the updated layout. Anything else to adjust?"**

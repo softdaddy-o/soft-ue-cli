@@ -2,6 +2,12 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.11.1] - 2026-04-06
+
+### Fixed
+- Architecture diagram missing on GitHub — use relative path instead of absolute URL to private repo
+- Python version badge showing "missing" on PyPI — added Python 3.10–3.13 classifiers to pyproject.toml
+
 ## [1.11.0] - 2026-04-05
 
 ### Added

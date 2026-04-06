@@ -4,9 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soft-ue-cli"
-version = "1.11.0"
+version = "1.11.1"
 description = "CLI tool for controlling Unreal Engine via soft-ue-bridge plugin"
 requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "httpx>=0.27",
 ]
@@ -31,7 +38,6 @@ packages = ["soft_ue_cli"]
 # is included in the wheel.  Add a new line for each skill file you create.
 [tool.hatch.build.targets.wheel.force-include]
 "soft_ue_cli/skills/blueprint-to-cpp.md" = "soft_ue_cli/skills/blueprint-to-cpp.md"
-"soft_ue_cli/skills/level-from-image.md" = "soft_ue_cli/skills/level-from-image.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

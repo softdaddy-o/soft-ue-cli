@@ -2,6 +2,21 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.16.0] - 2026-04-07
+
+### Fixed
+- Plugin: bridge HTTP listener dropped after PIE startup — `USoftUEBridgeSubsystem` now registers a 10-second `FTSTicker` that calls `StartAllListeners()` to revive listeners silently stopped by PIE world initialization; subsequent bridge calls no longer fail with WinError 10054 after a PIE session
+- `test-tools` skill: teardown script called `AssetEditorSubsystem.close_all_asset_editors()` which does not exist in UE 5.7 — replaced with a `getattr` probe that tries `close_all_asset_editors` and `close_all_editors` in order; `SystemLibrary.collect_garbage()` now always runs regardless of whether an editor-close method is found
+
+## [1.15.0] - 2026-04-07
+
+### Fixed
+- MCP: `set-console-var` rejected integer/float values — MCP schema now declares `value` as `any` type so pydantic accepts strings, ints, and floats
+- MCP: `batch-delete-actors` rejected list for `actors` field — schema now declares `actors` as array type; same fix applied to `batch-spawn-actors.actors`, `batch-modify-actors.modifications`, `spawn-actor.location/rotation`, `add-graph-node.position`, and `set-node-position.positions`
+- MCP: `capture-screenshot` required `mode` field — schema now makes `mode` optional with default `"viewport"`
+- MCP: `report-bug` hung indefinitely via MCP transport — `gh auth token` subprocess was inheriting the MCP stdin pipe and blocking; fixed with `stdin=subprocess.DEVNULL`
+- MCP: `test-tools --mode mcp` queue desync after client-side timeout — `MCPClient._recv` now matches responses by ID, discarding stale responses from previous timed-out calls
+
 ## [1.14.0] - 2026-04-07
 
 ### Fixed

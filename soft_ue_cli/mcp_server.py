@@ -13,7 +13,7 @@ import inspect
 import io
 import json
 import sys
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 import argparse as _argparse
 
@@ -40,6 +40,7 @@ _JSON_TYPE_TO_PY: dict[str, type] = {
     "boolean": bool,
     "integer": int,
     "number": float,
+    "array": list,
 }
 
 
@@ -48,6 +49,10 @@ def _build_signature(params: dict | None) -> inspect.Signature:
 
     FastMCP introspects __signature__ to generate the MCP tool's JSON schema,
     so each parameter must be a proper named, typed, keyword-only Parameter.
+
+    Special types beyond standard JSON Schema:
+      "any"   — uses typing.Any so pydantic accepts any JSON value
+      "array" — uses list so pydantic accepts JSON arrays
     """
     if not params:
         return inspect.Signature([])
@@ -55,13 +60,23 @@ def _build_signature(params: dict | None) -> inspect.Signature:
     required_params = set(params.get("required", []))
     sig_params: list[inspect.Parameter] = []
     for param_name, prop in properties.items():
-        py_type = _JSON_TYPE_TO_PY.get(prop.get("type", "string"), str)
-        if param_name in required_params:
-            annotation: Any = py_type
-            default = inspect.Parameter.empty
+        json_type = prop.get("type", "string")
+        if json_type == "any":
+            # Accept any JSON value — no pydantic type constraint
+            if param_name in required_params:
+                annotation: Any = Any
+                default = inspect.Parameter.empty
+            else:
+                annotation = Optional[Any]
+                default = prop.get("default", None)
         else:
-            annotation = Optional[py_type]
-            default = prop.get("default", None)
+            py_type = _JSON_TYPE_TO_PY.get(json_type, str)
+            if param_name in required_params:
+                annotation = py_type
+                default = inspect.Parameter.empty
+            else:
+                annotation = Optional[py_type]
+                default = prop.get("default", None)
         sig_params.append(
             inspect.Parameter(
                 param_name,

@@ -26,6 +26,7 @@ def _resolve_token() -> str:
         result = subprocess.run(
             ["gh", "auth", "token"],
             capture_output=True,
+            stdin=subprocess.DEVNULL,
             text=True,
             check=True,
         )

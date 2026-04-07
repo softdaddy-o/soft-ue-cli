@@ -22,13 +22,64 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
 })
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.
-# Use to add pattern constraints, refine descriptions, or mark extra required fields.
+#
+# Supported override keys:
+#   "properties": dict of property overrides merged into auto-generated properties.
+#     Special types not in JSON Schema but handled by _build_signature:
+#       "any"   — accepts any JSON value (no pydantic type constraint)
+#       "array" — accepts a JSON array (maps to Python list)
+#   "required_remove": list of field names to remove from the required list.
+#     Use when a positional argparse arg should be optional in MCP.
 TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
+    # spawn-actor: location/rotation are X,Y,Z arrays in MCP (not comma strings)
     "spawn-actor": {
         "properties": {
-            "location": {"description": "Comma-separated X,Y,Z (e.g. 100,200,50)"},
-            "rotation": {"description": "Comma-separated Pitch,Yaw,Roll (e.g. 0,90,0)"},
+            "location": {"type": "array", "description": "[X, Y, Z] location in world space"},
+            "rotation": {"type": "array", "description": "[Pitch, Yaw, Roll] rotation in degrees"},
         },
+    },
+    # set-console-var: value can be string, int, or float
+    "set-console-var": {
+        "properties": {
+            "value": {"type": "any", "description": "New value (string, int, or float)"},
+        },
+    },
+    # batch-delete-actors: actors is a JSON array of name strings
+    "batch-delete-actors": {
+        "properties": {
+            "actors": {"type": "array", "description": "Array of actor names or labels to delete"},
+        },
+    },
+    # batch-spawn-actors: actors is a JSON array of actor spec objects
+    "batch-spawn-actors": {
+        "properties": {
+            "actors": {"type": "array", "description": "Array of actor spawn specs"},
+        },
+    },
+    # batch-modify-actors: modifications is a JSON array of modification objects
+    "batch-modify-actors": {
+        "properties": {
+            "modifications": {"type": "array", "description": "Array of actor modification specs"},
+        },
+    },
+    # add-graph-node: position is an [X, Y] array
+    "add-graph-node": {
+        "properties": {
+            "position": {"type": "array", "description": "[X, Y] node position"},
+        },
+    },
+    # set-node-position: positions is a JSON array of {guid, x, y} objects
+    "set-node-position": {
+        "properties": {
+            "positions": {"type": "array", "description": "Array of {guid, x, y} position specs"},
+        },
+    },
+    # capture-screenshot: mode is optional (default: viewport)
+    "capture-screenshot": {
+        "properties": {
+            "mode": {"type": "string", "default": "viewport"},
+        },
+        "required_remove": ["mode"],
     },
 }
 
@@ -137,6 +188,13 @@ def extract_tools() -> list[dict[str, Any]]:
             for prop_name, prop_override in override.get("properties", {}).items():
                 if prop_name in params["properties"]:
                     params["properties"][prop_name].update(prop_override)
+                else:
+                    # Allow overrides to add new properties not in argparse
+                    params["properties"][prop_name] = prop_override
+            # Remove fields from required list when the override marks them optional
+            if "required_remove" in override:
+                required = params.get("required", [])
+                params["required"] = [r for r in required if r not in override["required_remove"]]
 
         tools.append({
             "name": cmd_name,

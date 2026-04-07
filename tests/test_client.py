@@ -10,6 +10,7 @@ import pytest
 
 from soft_ue_cli import client as client_mod
 from soft_ue_cli.client import call_tool, health_check
+from soft_ue_cli.errors import BridgeError
 
 
 _DUMMY_REQUEST = httpx.Request("POST", "http://127.0.0.1:8080/bridge")
@@ -63,18 +64,16 @@ def test_call_tool_result_is_error(monkeypatch):
     }
     monkeypatch.setattr(httpx, "post", lambda url, **kw: _resp(200, payload))
     with _patch_url():
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(BridgeError, match="actor not found"):
             call_tool("spawn-actor", {"class": "BadClass"})
-    assert exc.value.code == 1
 
 
 def test_call_tool_jsonrpc_error(monkeypatch):
     payload = {"jsonrpc": "2.0", "id": "1", "error": {"code": -32601, "message": "Method not found"}}
     monkeypatch.setattr(httpx, "post", lambda url, **kw: _resp(200, payload))
     with _patch_url():
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(BridgeError, match="Method not found"):
             call_tool("unknown-tool", {})
-    assert exc.value.code == 1
 
 
 def test_call_tool_connect_error(monkeypatch):
@@ -83,9 +82,8 @@ def test_call_tool_connect_error(monkeypatch):
 
     monkeypatch.setattr(httpx, "post", raise_connect)
     with _patch_url():
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(BridgeError, match="cannot connect to SoftUEBridge"):
             call_tool("status", {})
-    assert exc.value.code == 1
 
 
 def test_call_tool_http_error(monkeypatch):
@@ -95,17 +93,15 @@ def test_call_tool_http_error(monkeypatch):
 
     monkeypatch.setattr(httpx, "post", raise_http)
     with _patch_url():
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(BridgeError, match="HTTP 500"):
             call_tool("status", {})
-    assert exc.value.code == 1
 
 
 def test_call_tool_non_json_response(monkeypatch):
     monkeypatch.setattr(httpx, "post", lambda url, **kw: _resp(200, text="<html>not json</html>"))
     with _patch_url():
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(BridgeError, match="server returned non-JSON response"):
             call_tool("status", {})
-    assert exc.value.code == 1
 
 
 def test_call_tool_empty_result(monkeypatch):

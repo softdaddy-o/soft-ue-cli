@@ -4,6 +4,7 @@
 #include "Server/BridgeServer.h"
 #include "SoftUEBridgeModule.h"
 #include "Tools/GetLogsTool.h"
+#include "HttpServerModule.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformFileManager.h"
@@ -30,16 +31,39 @@ void USoftUEBridgeSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	FBridgeLogCapture::Get().Start();
 	Server = MakeUnique<FBridgeServer>();
 	StartServer(ResolvePort());
+
+	// PIE world init can call HttpServerModule::StopAllListeners(), silently killing
+	// our listener without going through FBridgeServer::Stop().  Poll every 10 s and
+	// call StartAllListeners() to revive the listener if that happened.
+	TickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(this, &USoftUEBridgeSubsystem::OnTick),
+		10.0f
+	);
 }
 
 void USoftUEBridgeSubsystem::Deinitialize()
 {
+	if (TickerHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(TickerHandle);
+	}
 	StopServer();
 	Server.Reset();
 	FBridgeLogCapture::Get().Stop();
 
 	UE_LOG(LogSoftUEBridge, Log, TEXT("SoftUEBridgeSubsystem deinitialized"));
 	Super::Deinitialize();
+}
+
+bool USoftUEBridgeSubsystem::OnTick(float DeltaTime)
+{
+	if (Server.IsValid() && Server->IsRunning())
+	{
+		// Revive listeners silently stopped by PIE world init.
+		// StartAllListeners() is idempotent when listeners are already running.
+		FHttpServerModule::Get().StartAllListeners();
+	}
+	return true; // keep ticking
 }
 
 bool USoftUEBridgeSubsystem::StartServer(int32 Port)

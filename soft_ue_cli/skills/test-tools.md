@@ -124,24 +124,44 @@ class MCPClient:
     def _read_loop(self) -> None:
         try:
             for line in self._proc.stdout:
-                self._recv_q.put(line)
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                    msg_id = msg.get("id")
+                    self._recv_q.put((msg_id, msg))
+                except json.JSONDecodeError:
+                    pass  # ignore non-JSON lines (e.g. log output)
         finally:
-            self._recv_q.put(None)  # signal EOF
+            self._recv_q.put((None, None))  # signal EOF
 
     def _send(self, msg: dict) -> None:
         self._proc.stdin.write(json.dumps(msg) + "\n")
         self._proc.stdin.flush()
 
-    def _recv(self, timeout: float = 30.0) -> dict:
-        item = self._recv_q.get(timeout=timeout)
-        if item is None:
-            raise EOFError("MCP server closed stdout")
-        return json.loads(item.strip())
+    def _recv(self, expected_id: int, timeout: float = 30.0) -> dict:
+        """Receive a response matching expected_id, discarding any stale responses."""
+        deadline = time.time() + timeout
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                raise TimeoutError(f"MCP response timeout for id={expected_id}")
+            try:
+                msg_id, msg = self._recv_q.get(timeout=min(remaining, 1.0))
+            except queue.Empty:
+                continue
+            if msg is None:
+                raise EOFError("MCP server closed stdout")
+            if msg_id == expected_id:
+                return msg
+            # Stale response from a previous timed-out call — discard and keep waiting
 
     def _initialize(self) -> None:
+        init_id = next(self._ids)
         self._send({
             "jsonrpc": "2.0",
-            "id": next(self._ids),
+            "id": init_id,
             "method": "initialize",
             "params": {
                 "protocolVersion": "2024-11-05",
@@ -149,7 +169,7 @@ class MCPClient:
                 "clientInfo": {"name": "test-tools", "version": "2.0"},
             },
         })
-        self._recv(timeout=15.0)  # consume initialize result
+        self._recv(expected_id=init_id, timeout=15.0)
         # Notify server that initialization is complete (no response expected)
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
 
@@ -163,7 +183,7 @@ class MCPClient:
             "method": "tools/call",
             "params": {"name": mcp_name, "arguments": arguments},
         })
-        resp = self._recv(timeout=timeout or 30.0)
+        resp = self._recv(expected_id=call_id, timeout=timeout or 30.0)
         if "error" in resp:
             err = resp["error"]
             raise Exception(err.get("message", str(err)))
@@ -677,8 +697,12 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             caller("run-python-script", {
                 "script": (
                     "import unreal\n"
-                    "sub = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)\n"
-                    "sub.close_all_asset_editors()\n"
+                    "try:\n"
+                    "    sub = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)\n"
+                    "    close_fn = getattr(sub, 'close_all_asset_editors', None) or getattr(sub, 'close_all_editors', None)\n"
+                    "    if close_fn: close_fn()\n"
+                    "except Exception:\n"
+                    "    pass\n"
                     "unreal.SystemLibrary.collect_garbage()\n"
                 )
             }, None)

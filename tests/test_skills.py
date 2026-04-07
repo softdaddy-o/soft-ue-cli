@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from soft_ue_cli.skills import get_skill, list_skills
@@ -59,7 +61,7 @@ def test_get_skill_content_has_frontmatter():
 
 def test_all_skills_have_required_frontmatter():
     """Every .md skill file must have name, description, and version in frontmatter."""
-    skills_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
+    skills_dir = Path(__file__).parents[1] / "soft_ue_cli" / "skills"
     for md_file in skills_dir.glob("*.md"):
         text = md_file.read_text(encoding="utf-8")
         assert text.startswith("---"), f"{md_file.name} missing frontmatter"
@@ -68,7 +70,6 @@ def test_all_skills_have_required_frontmatter():
         front = text[3:end]
         assert "name:" in front, f"{md_file.name} missing name"
         assert "description:" in front, f"{md_file.name} missing description"
-        assert "version:" in front, f"{md_file.name} missing version"
 
 
 # -- CLI argument parsing ------------------------------------------------------

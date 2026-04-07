@@ -99,7 +99,7 @@ def call_tool(tool_name: str, arguments: dict[str, Any], timeout: float | None =
     # Parse text content as JSON when possible
     content = result.get("content", [])
     if content and content[0].get("type") == "text":
-        text = content[0]["text"]
+        text = content[0].get("text", "")
         try:
             return json.loads(text)
         except json.JSONDecodeError:

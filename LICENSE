@@ -1,21 +1,1027 @@
-MIT License
+﻿commit bb257fd7135750b985e6207fd00c4e63464562e2
+Author: softdaddy-o <softdaddy.official@gmail.com>
+Date:   Wed Apr 8 16:19:46 2026 +0900
 
-Copyright (c) 2026 soft-ue-expert
+    cli: release 1.17.0
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+diff --git a/cli/CHANGELOG.md b/cli/CHANGELOG.md
+index 51586e1..3d3a715 100644
+--- a/cli/CHANGELOG.md
++++ b/cli/CHANGELOG.md
+@@ -2,6 +2,22 @@
+ 
+ All notable changes to soft-ue-cli will be documented in this file.
+ 
++## [1.17.0] - 2026-04-08
++
++### Fixed
++- `report-bug` and `request-feature`: `gh auth token` lookup now times out cleanly instead of hanging indefinitely when GitHub CLI credentials are unavailable or blocked
++- MCP schema: `set-property` now accepts any JSON value for `value`, matching the CLI and bridge behavior for scalar, array, and object payloads
++- MCP server: `add-graph-node` now maps `--no-auto-position` correctly, surfaces normalized `node_guid` values for special node creation cases, and returns cleaner client-side command errors
++- MCP server: `pie-session start` now forwards tool-level timeout to the HTTP request and attempts a best-effort stop after startup timeouts to avoid leaving PIE half-initialized
++- `test-tools`: teardown now treats `delete-asset` reporting `Asset not found` as an idempotent success during cleanup, avoiding false failures after restore flows that already removed the temporary test asset
++- `test-tools`: `insights-capture stop` now treats already-idle or auto-stopped traces as a pass in both CLI and MCP paths, avoiding false failures when trace state changes between status polling and stop
++- `test-tools`: MCP all-mode now reads `mcp-serve` stdout as UTF-8 with replacement semantics, avoiding Windows `cp949` decode crashes on non-ASCII output
++- `test-tools`: setup now retries the first `open-asset` call for a freshly created temporary World asset, reducing false setup failures while the editor finishes registering the new level
++- `test-tools`: restore flow now saves the temporary test level before switching back, avoiding modal unsaved-level prompts that can block or crash automation
++- `open-asset`: World assets now load through the level editor path with extra GC passes, reducing map-switch crashes and stale-world failures during automation
++- `pie-session`: start/stop now return request-based transitional states instead of blocking the request thread while UE finishes entering or leaving PIE
++- `insights-capture`: trace start now uses the documented filename-first console command form and stop/status treat already-idle traces consistently, reducing false stop failures in automation
++
+ ## [1.16.0] - 2026-04-07
+ 
+ ### Fixed
+diff --git a/cli/pyproject.toml b/cli/pyproject.toml
+index a7d9bcb..b790c65 100644
+--- a/cli/pyproject.toml
++++ b/cli/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "soft-ue-cli"
+-version = "1.16.0"
++version = "1.17.0"
+ description = "CLI tool for controlling Unreal Engine via soft-ue-bridge plugin"
+ requires-python = ">=3.10"
+ classifiers = [
+diff --git a/cli/soft_ue_cli/__init__.py b/cli/soft_ue_cli/__init__.py
+index 1fd74d4..a7c17cf 100644
+--- a/cli/soft_ue_cli/__init__.py
++++ b/cli/soft_ue_cli/__init__.py
+@@ -1,3 +1,3 @@
+ """soft-ue-cli — CLI interface to the SoftUEBridge UE plugin."""
+ 
+-__version__ = "1.16.0"
++__version__ = "1.17.0"
+diff --git a/cli/soft_ue_cli/github.py b/cli/soft_ue_cli/github.py
+index ef9d1ff..0e1d4b4 100644
+--- a/cli/soft_ue_cli/github.py
++++ b/cli/soft_ue_cli/github.py
+@@ -28,11 +28,17 @@ def _resolve_token() -> str:
+             capture_output=True,
+             stdin=subprocess.DEVNULL,
+             text=True,
++            timeout=10.0,
+             check=True,
+         )
+         token = result.stdout.strip()
+         if token:
+             return token
++    except subprocess.TimeoutExpired:
++        print(
++            "error: 'gh auth token' timed out while reading credentials.",
++            file=sys.stderr,
++        )
+     except (FileNotFoundError, subprocess.CalledProcessError):
+         pass
+ 
+diff --git a/cli/soft_ue_cli/mcp_schema.py b/cli/soft_ue_cli/mcp_schema.py
+index 6ed7e06..67b9d27 100644
+--- a/cli/soft_ue_cli/mcp_schema.py
++++ b/cli/soft_ue_cli/mcp_schema.py
+@@ -44,6 +44,12 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
+             "value": {"type": "any", "description": "New value (string, int, or float)"},
+         },
+     },
++    # set-property: value can be any JSON scalar the bridge/tool can coerce
++    "set-property": {
++        "properties": {
++            "value": {"type": "any", "description": "New value (string, number, boolean, array, or object)"},
++        },
++    },
+     # batch-delete-actors: actors is a JSON array of name strings
+     "batch-delete-actors": {
+         "properties": {
+diff --git a/cli/soft_ue_cli/mcp_server.py b/cli/soft_ue_cli/mcp_server.py
+index 5134dcc..a98e31b 100644
+--- a/cli/soft_ue_cli/mcp_server.py
++++ b/cli/soft_ue_cli/mcp_server.py
+@@ -88,21 +88,76 @@ def _build_signature(params: dict | None) -> inspect.Signature:
+     return inspect.Signature(sig_params)
+ 
+ 
++def _normalize_add_graph_node_result(result: dict[str, Any]) -> dict[str, Any]:
++    """Normalize add-graph-node results to always include ``node_guid`` when available."""
++    if not isinstance(result, dict):
++        return result
++
++    node_guid = result.get("node_guid")
++    if isinstance(node_guid, str) and node_guid:
++        return result
++
++    # Blueprint tools return ``created_nodes`` for special cases (e.g. AnimLayerFunction),
++    # so extract the first available guid for compatibility.
++    candidates: list[Any] = []
++    created_nodes = result.get("created_nodes")
++    if isinstance(created_nodes, list):
++        candidates.extend(created_nodes)
++
++    if not isinstance(node_guid, str):
++        for candidate in candidates:
++            if not isinstance(candidate, dict):
++                continue
++            for guid_key in ("node_guid", "guid"):
++                value = candidate.get(guid_key)
++                if isinstance(value, str) and value:
++                    result["node_guid"] = value
++                    return result
++
++    return result
++
++
+ def _make_tool_fn(tool_name: str, params: dict | None = None):
+     """Create a bridge tool handler that forwards kwargs to call_tool()."""
+     bridge_name = _BRIDGE_TOOL_NAME_MAP.get(tool_name, tool_name)
+ 
+     def tool_fn(**kwargs: Any) -> str:
+-        # Filter out None and False (unset optional / store_true args)
+-        arguments = {k: v for k, v in kwargs.items() if v is not None and v is not False}
++        # Filter out None and falsey defaults for store_true-style args, while
++        # keeping explicit values that must be translated into bridge args.
++        arguments = {k: v for k, v in kwargs.items() if v is not None}
++
++        # MCP exposes argparse dest names (no_auto_position). The bridge expects
++        # auto_position=true/false, with false meaning "disable auto placement".
++        if arguments.pop("no_auto_position", False):
++            arguments["auto_position"] = False
++
+         # Apply any per-tool parameter renames
+         for mcp_name, bridge_name_param in _PARAM_RENAMES.get(tool_name, {}).items():
+             if mcp_name in arguments:
+                 arguments[bridge_name_param] = arguments.pop(mcp_name)
+ 
++        # Use tool-level timeout as HTTP timeout for pie-session start, to avoid
++        # MCP request timeout when PIE warmup needs longer.
++        http_timeout = None
++        if tool_name == "pie-session" and arguments.get("action") == "start":
++            timeout_arg = arguments.get("timeout")
++            if timeout_arg is not None:
++                try:
++                    http_timeout = float(timeout_arg)
++                except (TypeError, ValueError):
++                    http_timeout = None
++
+         try:
+-            result = _client.call_tool(bridge_name, arguments)
++            result = _client.call_tool(bridge_name, arguments, timeout=http_timeout)
+         except BridgeError as exc:
++            # If PIE startup times out, attempt a best-effort stop to avoid leaving
++            # the editor in a partially-initialized session state.
++            if tool_name == "pie-session" and arguments.get("action") == "start":
++                if "timed out" in exc.message.lower():
++                    try:
++                        _client.call_tool("pie-session", {"action": "stop"}, timeout=5.0)
++                    except Exception:
++                        pass
+             error_response = {"error": f"Tool '{tool_name}' failed: {exc.message}"}
+             if exc.kind == ErrorKind.UNEXPECTED:
+                 error_response["bug_report_hint"] = bug_nudge_payload(
+@@ -110,6 +165,12 @@ def _make_tool_fn(tool_name: str, params: dict | None = None):
+                 )
+             return json.dumps(error_response, indent=2, ensure_ascii=False)
+ 
++        if tool_name == "add-graph-node":
++            try:
++                result = _normalize_add_graph_node_result(result)
++            except Exception as exc:
++                return json.dumps({"error": f"Tool '{tool_name}' failed: {exc}"}, indent=2, ensure_ascii=False)
++
+         # Record streak (best-effort)
+         try:
+             _streak.record_success(tool_name)
+@@ -150,21 +211,26 @@ def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None):
+         buffer = io.StringIO()
+         old_stdout = sys.stdout
+         sys.stdout = buffer
++        output = ""
+         try:
+             cmd_fn(namespace)
++            output = buffer.getvalue().strip()
+         except SystemExit as exc:
+-            sys.stdout = old_stdout
+             output = buffer.getvalue().strip()
+-            if output:
+-                return output
+-            return json.dumps(
++            return output or json.dumps(
+                 {"error": f"Command '{tool_name}' exited with code {exc.code}"},
+                 indent=2,
+             )
++        except Exception as exc:
++            output = buffer.getvalue().strip()
++            return output or json.dumps(
++                {"error": f"Command '{tool_name}' failed: {exc}"},
++                indent=2,
++            )
+         finally:
+             sys.stdout = old_stdout
+ 
+-        output = buffer.getvalue().strip()
++        output = output or buffer.getvalue().strip()
+         return output or json.dumps({"status": "ok"}, indent=2)
+ 
+     tool_fn.__name__ = tool_name.replace("-", "_")
+diff --git a/cli/soft_ue_cli/skills/level-from-image.md b/cli/soft_ue_cli/skills/level-from-image.md
+index fe2f99f..5a5415a 100644
+--- a/cli/soft_ue_cli/skills/level-from-image.md
++++ b/cli/soft_ue_cli/skills/level-from-image.md
+@@ -2,6 +2,7 @@
+ type: skill
+ name: level-from-image
+ description: Populate a UE level with existing project assets based on a reference image
++version: 1.0.0
+ tags: [level, placement, image, scene, layout, dressing, environment]
+ required_tools: [query-asset, batch-spawn-actors, batch-modify-actors, batch-delete-actors, query-level, set-viewport-camera, capture-viewport]
+ options:
+diff --git a/cli/soft_ue_cli/skills/test-tools.md b/cli/soft_ue_cli/skills/test-tools.md
+index 367af40..5c354ee 100644
+--- a/cli/soft_ue_cli/skills/test-tools.md
++++ b/cli/soft_ue_cli/skills/test-tools.md
+@@ -113,6 +113,8 @@ class MCPClient:
+             stdout=subprocess.PIPE,
+             stderr=subprocess.DEVNULL,
+             text=True,
++            encoding="utf-8",
++            errors="replace",
+             bufsize=1,
+         )
+         self._ids = itertools.count(1)
+@@ -320,8 +322,13 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
+ 
+     run_test("create test level", "create-asset",
+              {"asset_path": test_level_path, "asset_class": "World"}, has("asset_path"))
+-    run_test("open test level", "open-asset",
+-             {"asset_path": test_level_path}, has("success"))
++    _open_level_args = {"asset_path": test_level_path}
++    _open_first = run_test("open test level", "open-asset",
++                           _open_level_args, has("success"))
++    if not _open_first["passed"]:
++        time.sleep(1)
++        run_test("open test level retry", "open-asset",
++                 _open_level_args, has("success"))
+     time.sleep(2)
+ 
+     # open-asset (level restore) is handled first in teardown to avoid
+@@ -613,19 +620,19 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
+     try:
+         _pie_status = caller("pie-session", {"action": "status"}, PIE_TIMEOUT)
+         if _pie_status.get("state") not in (None, "stopped", "not_running"):
+-            caller("pie-session", {"action": "stop"}, PIE_TIMEOUT)
++            caller("pie-session", {"action": "stop", "timeout": PIE_TIMEOUT}, PIE_TIMEOUT)
+             time.sleep(3)
+     except Exception:
+         pass
+ 
+-    reg_teardown("pie-session", {"action": "stop"})
++    reg_teardown("pie-session", {"action": "stop", "timeout": PIE_TIMEOUT})
+ 
+     run_test("pie-session start", "pie-session",
+              {"action": "start", "timeout": PIE_TIMEOUT}, has("success"), timeout=PIE_TIMEOUT)
+     time.sleep(4)
+     run_test("pie-session status", "pie-session", {"action": "status"}, has("state"), timeout=PIE_TIMEOUT)
+-    run_test("get-logs during PIE", "get-logs", {"limit": 5}, has("lines"))
+-    run_test("pie-session stop", "pie-session", {"action": "stop"}, has("success"), timeout=PIE_TIMEOUT)
++    run_test("get-logs during PIE", "get-logs", {"limit": 5}, has("lines"), timeout=PIE_TIMEOUT)
++    run_test("pie-session stop", "pie-session", {"action": "stop", "timeout": PIE_TIMEOUT}, has("success"), timeout=PIE_TIMEOUT)
+ 
+     # ══════════════════════════════════════════════════════════════════════════
+     # Suite 14: Python Scripting
+@@ -668,18 +675,34 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
+                 break
+         except Exception:
+             break
+-    if _trace_still_active:
+-        time.sleep(1)
+ 
+     _t0 = time.time()
+-    try:
+-        _stop_r = caller("insights-capture", {"action": "stop"}, None)
+-        _stop_ok = "status" in _stop_r
+-        _stop_err = None if _stop_ok else f"check failed: {json.dumps(_stop_r)[:200]}"
+-    except Exception as exc:
+-        _stop_msg = str(exc)[:300]
+-        _stop_ok = "no active trace" in _stop_msg.lower()
+-        _stop_err = "auto-stopped (treated as pass)" if _stop_ok else _stop_msg
++    if not _trace_still_active:
++        _stop_ok = True
++        _stop_err = "trace never reported active; stop skipped"
++    else:
++        time.sleep(1)
++        try:
++            _stop_r = caller("insights-capture", {"action": "stop"}, None)
++            _stop_status = str(_stop_r.get("status", "")).lower()
++            _stop_msg = json.dumps(_stop_r)[:200].lower()
++            _stop_ok = (
++                _stop_status in {"stopped", "idle"}
++                or "no active trace" in _stop_msg
++                or "already stopped" in _stop_msg
++            )
++            _stop_err = None if _stop_ok else f"check failed: {json.dumps(_stop_r)[:200]}"
++            if _stop_ok and _stop_status != "stopped":
++                _stop_err = "auto-stopped (treated as pass)"
++        except Exception as exc:
++            _stop_msg = str(exc)[:300]
++            _stop_msg_l = _stop_msg.lower()
++            _stop_ok = (
++                "no active trace" in _stop_msg_l
++                or "already stopped" in _stop_msg_l
++                or "status: idle" in _stop_msg_l
++            )
++            _stop_err = "auto-stopped (treated as pass)" if _stop_ok else _stop_msg
+     _record("insights-capture stop", "insights-capture", {"action": "stop"},
+             _stop_ok, int((time.time() - _t0) * 1000), _stop_err)
+ 
+@@ -692,6 +715,16 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
+ 
+     # Restore original level FIRST — close editors + GC before switching worlds
+     if _original_level:
++        _save_t0 = time.time()
++        try:
++            caller("save-asset", {"asset_path": test_level_path}, None)
++            _save_ok, _save_err = True, None
++        except Exception as exc:
++            _save_ok, _save_err = False, str(exc)[:300]
++        _record("save-asset (test level before restore)", "save-asset",
++                {"asset_path": test_level_path}, _save_ok,
++                int((time.time() - _save_t0) * 1000), _save_err)
++
+         _t0 = time.time()
+         try:
+             caller("run-python-script", {
+@@ -703,11 +736,13 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
+                     "    if close_fn: close_fn()\n"
+                     "except Exception:\n"
+                     "    pass\n"
+-                    "unreal.SystemLibrary.collect_garbage()\n"
++                    "for _ in range(3):\n"
++                    "    unreal.SystemLibrary.collect_garbage()\n"
+                 )
+             }, None)
+         except Exception:
+             pass
++        time.sleep(1.0)
+         _open_ok, _open_err = False, None
+         try:
+             caller("open-asset", {"asset_path": _original_level}, None)
+@@ -726,7 +761,13 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
+             caller(tool_name, args, None)
+             td_ok, td_err = True, None
+         except Exception as exc:
+-            td_ok, td_err = False, str(exc)[:300]
++            td_err = str(exc)[:300]
++            td_ok = (
++                tool_name == "delete-asset"
++                and "asset not found" in td_err.lower()
++            )
++            if td_ok:
++                td_err = "already removed (treated as pass)"
+         _record(label_str, tool_name, args, td_ok, int((time.time() - t0) * 1000), td_err)
+ 
+     return suites
+diff --git a/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Asset/OpenAssetTool.cpp b/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Asset/OpenAssetTool.cpp
+index 898d514..9c0a1b5 100644
+--- a/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Asset/OpenAssetTool.cpp
++++ b/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Asset/OpenAssetTool.cpp
+@@ -4,6 +4,7 @@
+ #include "Utils/BridgeAssetModifier.h"
+ #include "SoftUEBridgeEditorModule.h"
+ #include "Subsystems/AssetEditorSubsystem.h"
++#include "LevelEditorSubsystem.h"
+ #include "Framework/Application/SlateApplication.h"
+ #include "Framework/Docking/TabManager.h"
+ #include "Editor.h"
+@@ -144,21 +145,41 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
+ 	// Check if already open
+ 	bool bWasAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, false) != nullptr;
+ 
+-	// Open the asset editor.
+-	// For World assets (levels) the load path calls CheckForWorldGCLeaks, which
+-	// raises a Fatal through GError if a plugin (e.g. Niagara) holds a lingering
+-	// reference to the outgoing world.  The switch itself completes successfully,
+-	// so we suppress that specific fatal for the duration of the call and note it
+-	// in the response instead of crashing.
++	// World assets are safer through the level-loading path than through the
++	// generic asset-editor path. Before switching maps, give GC a couple of
++	// passes to release subsystems still hanging on to the outgoing world.
+ 	FSuppressMapLoadFatalDevice SuppressDevice;
+ 	const bool bIsWorld = Asset->IsA<UWorld>();
+ 	TOptional<FGErrorGuard> ErrorGuard;
+ 	if (bIsWorld)
+ 	{
++		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
++		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+ 		ErrorGuard.Emplace(&SuppressDevice);
+ 	}
+ 
+-	bool bSuccess = AssetEditorSubsystem->OpenEditorForAsset(Asset);
++	bool bSuccess = false;
++	if (bIsWorld)
++	{
++		ULevelEditorSubsystem* LevelEditorSubsystem =
++			GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
++		if (!LevelEditorSubsystem)
++		{
++			ErrorGuard.Reset();
++			return FBridgeToolResult::Error(TEXT("Level Editor Subsystem not available"));
++		}
++
++		bSuccess = LevelEditorSubsystem->LoadLevel(AssetPath);
++	}
++	else
++	{
++		// Open the asset editor.
++		// For World assets (levels) the load path calls CheckForWorldGCLeaks, which
++		// raises a Fatal through GError if a plugin holds a lingering reference to
++		// the outgoing world. The switch itself can still complete successfully, so
++		// the fatal is suppressed for the duration of the map load.
++		bSuccess = AssetEditorSubsystem->OpenEditorForAsset(Asset);
++	}
+ 
+ 	ErrorGuard.Reset(); // restore GError before any further work
+ 
+@@ -186,7 +207,7 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
+ 	Result->SetStringField(TEXT("asset_path"), AssetPath);
+ 	Result->SetStringField(TEXT("asset_name"), Asset->GetName());
+ 	Result->SetStringField(TEXT("asset_class"), Asset->GetClass()->GetName());
+-	Result->SetStringField(TEXT("editor_type"), GetEditorTypeName(Asset));
++	Result->SetStringField(TEXT("editor_type"), bIsWorld ? TEXT("Level Editor") : GetEditorTypeName(Asset));
+ 	Result->SetBoolField(TEXT("was_already_open"), bWasAlreadyOpen);
+ 	if (SuppressDevice.SuppressedMessages.Num() > 0)
+ 	{
+@@ -195,12 +216,12 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
+ 	}
+ 	Result->SetStringField(TEXT("message"), FString::Printf(
+ 		TEXT("%s %s in %s"),
+-		bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened"),
++		bIsWorld ? TEXT("Loaded") : (bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened")),
+ 		*Asset->GetName(),
+-		*GetEditorTypeName(Asset)));
++		*(bIsWorld ? FString(TEXT("Level Editor")) : GetEditorTypeName(Asset))));
+ 
+ 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("open-asset (asset mode): %s '%s'"),
+-		bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened"), *AssetPath);
++		bIsWorld ? TEXT("Loaded") : (bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened")), *AssetPath);
+ 
+ 	return FBridgeToolResult::Json(Result);
+ }
+diff --git a/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/PIE/PieSessionTool.cpp b/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/PIE/PieSessionTool.cpp
+index 24a6b8f..139cce5 100644
+--- a/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/PIE/PieSessionTool.cpp
++++ b/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/PIE/PieSessionTool.cpp
+@@ -15,6 +15,45 @@
+ #include "Misc/Guid.h"
+ #include "EngineUtils.h"
+ 
++namespace
++{
++	enum class EBridgePIETransition : uint8
++	{
++		None,
++		Starting,
++		Stopping
++	};
++
++	EBridgePIETransition GBridgePIETransition = EBridgePIETransition::None;
++	double GBridgePIETransitionStartedAt = 0.0;
++	FString GBridgePIESessionId;
++
++	constexpr double GBridgePIETransitionGraceSeconds = 10.0;
++
++	bool IsPIEReadyState(UWorld* PIEWorld)
++	{
++		return PIEWorld && (PIEWorld->GetFirstPlayerController() || PIEWorld->HasBegunPlay() || GEditor->PlayWorld == PIEWorld);
++	}
++
++	void NotePIETransition(EBridgePIETransition Transition)
++	{
++		GBridgePIETransition = Transition;
++		GBridgePIETransitionStartedAt = FPlatformTime::Seconds();
++	}
++
++	void ClearPIETransition()
++	{
++		GBridgePIETransition = EBridgePIETransition::None;
++		GBridgePIETransitionStartedAt = 0.0;
++	}
++
++	bool IsTransitionFresh()
++	{
++		return GBridgePIETransition != EBridgePIETransition::None
++			&& (FPlatformTime::Seconds() - GBridgePIETransitionStartedAt) < GBridgePIETransitionGraceSeconds;
++	}
++}
++
+ FString UPieSessionTool::GetToolDescription() const
+ {
+ 	return TEXT("Control PIE (Play-In-Editor) sessions. Actions: 'start', 'stop', 'pause', 'resume', 'get-state', 'wait-for' (wait until condition met).");
+@@ -137,7 +176,6 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
+ {
+ 	FString Mode = GetStringArgOrDefault(Arguments, TEXT("mode"), TEXT("viewport"));
+ 	FString MapPath = GetStringArgOrDefault(Arguments, TEXT("map"));
+-	float Timeout = GetFloatArgOrDefault(Arguments, TEXT("timeout"), 30.0f);
+ 
+ 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Starting PIE (mode=%s, map=%s)"),
+ 		*Mode, MapPath.IsEmpty() ? TEXT("current") : *MapPath);
+@@ -148,9 +186,14 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
+ 		UWorld* PIEWorld = GetPIEWorld();
+ 		if (PIEWorld)
+ 		{
++			ClearPIETransition();
+ 			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 			Result->SetBoolField(TEXT("success"), true);
+-			Result->SetStringField(TEXT("session_id"), GenerateSessionId());
++			if (GBridgePIESessionId.IsEmpty())
++			{
++				GBridgePIESessionId = GenerateSessionId();
++			}
++			Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
+ 			Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
+ 			Result->SetStringField(TEXT("state"), TEXT("already_running"));
+ 			return FBridgeToolResult::Json(Result);
+@@ -188,76 +231,66 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
+ 
+ 	GEditor->RequestPlaySession(Params);
+ 
+-	if (!WaitForPIEReady(Timeout))
++	if (GBridgePIESessionId.IsEmpty())
+ 	{
+-		return FBridgeToolResult::Error(FString::Printf(TEXT("PIE did not start within %.0f seconds"), Timeout));
++		GBridgePIESessionId = GenerateSessionId();
+ 	}
+ 
+ 	UWorld* PIEWorld = GetPIEWorld();
+-	if (!PIEWorld)
++	if (IsPIEReadyState(PIEWorld))
+ 	{
+-		return FBridgeToolResult::Error(TEXT("PIE started but could not find PIE world"));
++		ClearPIETransition();
+ 	}
+-
+-	// Get player info
+-	TArray<double> PlayerStartLocation = {0, 0, 0};
+-	TArray<AActor*> PlayerStarts;
+-	UGameplayStatics::GetAllActorsOfClass(PIEWorld, APlayerStart::StaticClass(), PlayerStarts);
+-	if (PlayerStarts.Num() > 0)
++	else
+ 	{
+-		FVector Loc = PlayerStarts[0]->GetActorLocation();
+-		PlayerStartLocation = {Loc.X, Loc.Y, Loc.Z};
++		NotePIETransition(EBridgePIETransition::Starting);
+ 	}
+ 
+-	APlayerController* PC = PIEWorld->GetFirstPlayerController();
+-	FString PlayerPawnName = PC && PC->GetPawn() ? PC->GetPawn()->GetName() : TEXT("None");
+-
+ 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 	Result->SetBoolField(TEXT("success"), true);
+-	Result->SetStringField(TEXT("session_id"), GenerateSessionId());
+-	Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
+-	Result->SetStringField(TEXT("state"), TEXT("running"));
+-	Result->SetStringField(TEXT("player_pawn"), PlayerPawnName);
+-
+-	TArray<TSharedPtr<FJsonValue>> StartLocArray;
+-	for (double Val : PlayerStartLocation)
++	Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
++	Result->SetStringField(TEXT("state"), IsPIEReadyState(PIEWorld) ? TEXT("running") : TEXT("starting"));
++	if (PIEWorld)
+ 	{
+-		StartLocArray.Add(MakeShareable(new FJsonValueNumber(Val)));
++		Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
+ 	}
+-	Result->SetArrayField(TEXT("player_start"), StartLocArray);
+ 
+-	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Started (world=%s)"), *PIEWorld->GetName());
++	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Start requested"));
+ 	return FBridgeToolResult::Json(Result);
+ }
+ 
+ FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Arguments)
+ {
+-	if (!GEditor->IsPlaySessionInProgress())
++	const bool bRunning = GEditor->IsPlaySessionInProgress();
++	if (!bRunning && GBridgePIETransition != EBridgePIETransition::Starting)
+ 	{
++		ClearPIETransition();
+ 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 		Result->SetBoolField(TEXT("success"), true);
+ 		Result->SetStringField(TEXT("state"), TEXT("not_running"));
+ 		return FBridgeToolResult::Json(Result);
+ 	}
+ 
+-	GEditor->RequestEndPlayMap();
+-
+-	const double WaitStart = FPlatformTime::Seconds();
+-	while (GEditor->IsPlaySessionInProgress() && (FPlatformTime::Seconds() - WaitStart) < 5.0)
++	if (bRunning)
+ 	{
+-		FPlatformProcess::Sleep(0.05f);
++		GEditor->RequestEndPlayMap();
+ 	}
+ 
+ 	if (GEditor->IsPlaySessionInProgress())
+ 	{
+-		return FBridgeToolResult::Error(TEXT("Failed to stop PIE within timeout"));
++		NotePIETransition(EBridgePIETransition::Stopping);
++	}
++	else
++	{
++		ClearPIETransition();
++		GBridgePIESessionId.Reset();
+ 	}
+ 
+ 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 	Result->SetBoolField(TEXT("success"), true);
+-	Result->SetStringField(TEXT("state"), TEXT("stopped"));
++	Result->SetStringField(TEXT("state"), GEditor->IsPlaySessionInProgress() ? TEXT("stopping") : TEXT("stopped"));
+ 
+-	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Stopped"));
++	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Stop requested"));
+ 	return FBridgeToolResult::Json(Result);
+ }
+ 
+@@ -350,9 +383,41 @@ FBridgeToolResult UPieSessionTool::ExecuteGetState(const TSharedPtr<FJsonObject>
+ 	bool bIncludePlayers = IncludeSet.Num() == 0 || IncludeSet.Contains(TEXT("players"));
+ 
+ 	bool bRunning = GEditor->IsPlaySessionInProgress();
++	UWorld* PIEWorld = GetPIEWorld();
+ 
+ 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 	Result->SetBoolField(TEXT("running"), bRunning);
++	if (!GBridgePIESessionId.IsEmpty())
++	{
++		Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
++	}
++
++	if (bRunning && IsPIEReadyState(PIEWorld))
++	{
++		ClearPIETransition();
++	}
++
++	if (GBridgePIETransition == EBridgePIETransition::Starting && !IsTransitionFresh())
++	{
++		ClearPIETransition();
++	}
++	else if (GBridgePIETransition == EBridgePIETransition::Stopping && !bRunning)
++	{
++		ClearPIETransition();
++		GBridgePIESessionId.Reset();
++	}
++
++	if (GBridgePIETransition == EBridgePIETransition::Starting)
++	{
++		Result->SetStringField(TEXT("state"), TEXT("starting"));
++		return FBridgeToolResult::Json(Result);
++	}
++
++	if (GBridgePIETransition == EBridgePIETransition::Stopping)
++	{
++		Result->SetStringField(TEXT("state"), bRunning ? TEXT("stopping") : TEXT("stopped"));
++		return FBridgeToolResult::Json(Result);
++	}
+ 
+ 	if (!bRunning)
+ 	{
+@@ -360,7 +425,6 @@ FBridgeToolResult UPieSessionTool::ExecuteGetState(const TSharedPtr<FJsonObject>
+ 		return FBridgeToolResult::Json(Result);
+ 	}
+ 
+-	UWorld* PIEWorld = GetPIEWorld();
+ 	if (!PIEWorld)
+ 	{
+ 		Result->SetStringField(TEXT("state"), TEXT("initializing"));
+@@ -411,7 +475,7 @@ bool UPieSessionTool::WaitForPIEReady(float TimeoutSeconds) const
+ 		if (GEditor->IsPlaySessionInProgress())
+ 		{
+ 			UWorld* PIEWorld = GetPIEWorld();
+-			if (PIEWorld && PIEWorld->GetFirstPlayerController())
++			if (IsPIEReadyState(PIEWorld))
+ 			{
+ 				return true;
+ 			}
+diff --git a/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Performance/InsightsCaptureTool.cpp b/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Performance/InsightsCaptureTool.cpp
+index 075cf93..2d88b68 100644
+--- a/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Performance/InsightsCaptureTool.cpp
++++ b/plugin/SoftUEBridge/Source/SoftUEBridgeEditor/Private/Tools/Performance/InsightsCaptureTool.cpp
+@@ -3,8 +3,15 @@
+ #include "Tools/Performance/InsightsCaptureTool.h"
+ #include "SoftUEBridgeEditorModule.h"
+ #include "ProfilingDebugging/TraceAuxiliary.h"
++#include "HAL/FileManager.h"
+ #include "Misc/Paths.h"
+ 
++namespace
++{
++	bool GBridgeInsightsCaptureRequested = false;
++	FString GBridgeInsightsTraceFile;
++}
++
+ FString UInsightsCaptureTool::GetToolDescription() const
+ {
+ 	return TEXT("Control Unreal Insights trace capture. Actions: start (with optional channels), stop, status. Returns trace file path on stop.");
+@@ -96,6 +103,7 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
+ 
+ 	// Build trace file path
+ 	FString TraceDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Profiling"));
++	IFileManager::Get().MakeDirectory(*TraceDir, true);
+ 	FString TraceFilePath = FPaths::Combine(TraceDir, OutputFile);
+ 
+ 	// Build channel string
+@@ -104,12 +112,15 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
+ 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Starting trace with channels: %s"), *ChannelString);
+ 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Output file: %s"), *TraceFilePath);
+ 
+-	// Start trace using command-line interface
+-	FString StartCommand = FString::Printf(TEXT("Trace.Start %s file=%s"), *ChannelString, *TraceFilePath);
++	// Use the documented console command shape: filename first, channels second.
++	FString StartCommand = FString::Printf(TEXT("Trace.Start \"%s\" %s"), *TraceFilePath, *ChannelString);
+ 
+ 	// Execute trace start via console command
+ 	if (GEngine && GEngine->Exec(nullptr, *StartCommand))
+ 	{
++		GBridgeInsightsCaptureRequested = true;
++		GBridgeInsightsTraceFile = TraceFilePath;
++
+ 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 		Result->SetStringField(TEXT("status"), TEXT("started"));
+ 		Result->SetStringField(TEXT("trace_file"), TraceFilePath);
+@@ -133,9 +144,12 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
+ 
+ FBridgeToolResult UInsightsCaptureTool::StopCapture()
+ {
+-	if (!FTraceAuxiliary::IsConnected())
++	if (!FTraceAuxiliary::IsConnected() && !GBridgeInsightsCaptureRequested)
+ 	{
+-		return FBridgeToolResult::Error(TEXT("No active trace capture to stop"));
++		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
++		Result->SetStringField(TEXT("status"), TEXT("idle"));
++		Result->SetStringField(TEXT("message"), TEXT("No active trace capture to stop"));
++		return FBridgeToolResult::Json(Result);
+ 	}
+ 
+ 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Stopping trace"));
+@@ -143,25 +157,44 @@ FBridgeToolResult UInsightsCaptureTool::StopCapture()
+ 	// Stop trace
+ 	if (GEngine && GEngine->Exec(nullptr, TEXT("Trace.Stop")))
+ 	{
++		GBridgeInsightsCaptureRequested = false;
++
+ 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 		Result->SetStringField(TEXT("status"), TEXT("stopped"));
+ 		Result->SetStringField(TEXT("message"), TEXT("Trace capture stopped successfully"));
++		if (!GBridgeInsightsTraceFile.IsEmpty())
++		{
++			Result->SetStringField(TEXT("trace_file"), GBridgeInsightsTraceFile);
++		}
+ 
+ 		return FBridgeToolResult::Json(Result);
+ 	}
+ 	else
+ 	{
++		if (!FTraceAuxiliary::IsConnected())
++		{
++			GBridgeInsightsCaptureRequested = false;
++
++			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
++			Result->SetStringField(TEXT("status"), TEXT("idle"));
++			Result->SetStringField(TEXT("message"), TEXT("Trace capture was already inactive"));
++			return FBridgeToolResult::Json(Result);
++		}
+ 		return FBridgeToolResult::Error(TEXT("Failed to stop trace capture"));
+ 	}
+ }
+ 
+ FBridgeToolResult UInsightsCaptureTool::GetStatus()
+ {
+-	bool bIsCapturing = FTraceAuxiliary::IsConnected();
++	bool bIsCapturing = FTraceAuxiliary::IsConnected() || GBridgeInsightsCaptureRequested;
+ 
+ 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+ 	Result->SetBoolField(TEXT("is_capturing"), bIsCapturing);
+ 	Result->SetStringField(TEXT("status"), bIsCapturing ? TEXT("active") : TEXT("idle"));
++	if (!GBridgeInsightsTraceFile.IsEmpty())
++	{
++		Result->SetStringField(TEXT("trace_file"), GBridgeInsightsTraceFile);
++	}
+ 
+ 	return FBridgeToolResult::Json(Result);
+ }
+diff --git a/tests/cli/test_github.py b/tests/cli/test_github.py
+index 82e7366..dba5d2c 100644
+--- a/tests/cli/test_github.py
++++ b/tests/cli/test_github.py
+@@ -82,6 +82,14 @@ def test_resolve_token_gh_cli_fails(monkeypatch):
+         assert exc.value.code == 1
+ 
+ 
++def test_resolve_token_gh_cli_timeout(monkeypatch):
++    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
++    with patch(_PATCH_SUBPROCESS, side_effect=subprocess.TimeoutExpired(["gh", "auth", "token"], 10)):
++        with pytest.raises(SystemExit) as exc:
++            _resolve_token()
++        assert exc.value.code == 1
++
++
+ def test_resolve_token_gh_returns_empty(monkeypatch):
+     """gh auth token succeeds but returns empty output."""
+     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+diff --git a/tests/cli/test_mcp_schema.py b/tests/cli/test_mcp_schema.py
+index 426ef2c..4a3f46c 100644
+--- a/tests/cli/test_mcp_schema.py
++++ b/tests/cli/test_mcp_schema.py
+@@ -70,6 +70,13 @@ def test_store_true_maps_to_boolean():
+     assert params["properties"]["no_detail"]["type"] == "boolean"
+ 
+ 
++def test_set_property_value_override_maps_to_any():
++    tools = extract_tools()
++    tool = next(t for t in tools if t["name"] == "set-property")
++    params = tool["parameters"]
++    assert params["properties"]["value"]["type"] == "any"
++
++
+ def test_choices_map_to_enum():
+     tools = extract_tools()
+     tool = next(t for t in tools if t["name"] == "report-bug")
+diff --git a/tests/cli/test_mcp_server.py b/tests/cli/test_mcp_server.py
+index af2095e..c31d638 100644
+--- a/tests/cli/test_mcp_server.py
++++ b/tests/cli/test_mcp_server.py
+@@ -14,7 +14,8 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
+ # Skip all tests if mcp is not installed
+ mcp = pytest.importorskip("mcp")
+ 
+-from soft_ue_cli.mcp_server import create_server
++from soft_ue_cli.errors import BridgeError, ErrorKind
++from soft_ue_cli.mcp_server import create_server, _make_client_tool_fn
+ 
+ 
+ def test_create_server_returns_fastmcp():
+@@ -57,37 +58,139 @@ def test_tool_call_forwards_to_bridge(mock_call_tool):
+ 
+ 
+ @patch("soft_ue_cli.client.call_tool")
+-def test_tool_call_returns_json_string(mock_call_tool):
++def test_tool_call_maps_no_auto_position(mock_call_tool):
+     mock_call_tool.return_value = {"status": "ok"}
+     server = create_server()
+ 
+     tool_fn = None
+     for tool in server._tool_manager._tools.values():
+-        if tool.name == "status":
++        if tool.name == "add-graph-node":
+             tool_fn = tool.fn
+             break
+ 
+     assert tool_fn is not None
+-    result = tool_fn()
+-    assert isinstance(result, str)
++    result = tool_fn(asset_path="/Game/BP", node_class="K2Node_CallFunction", no_auto_position=True)
++    mock_call_tool.assert_called_once()
++    call_args = mock_call_tool.call_args
++    assert call_args[0][0] == "add-graph-node"
++    assert call_args.kwargs == {"timeout": None}
++    arguments = call_args[0][1]
++    assert arguments["auto_position"] is False
++    assert "no_auto_position" not in arguments
+     parsed = json.loads(result)
+     assert parsed == {"status": "ok"}
+ 
+ 
+ @patch("soft_ue_cli.client.call_tool")
+-def test_tool_call_handles_system_exit(mock_call_tool):
+-    mock_call_tool.side_effect = SystemExit(1)
++def test_tool_call_forwards_pie_timeout_to_http_timeout(mock_call_tool):
++    mock_call_tool.return_value = {"status": "ok"}
+     server = create_server()
+ 
+     tool_fn = None
+     for tool in server._tool_manager._tools.values():
+-        if tool.name == "status":
++        if tool.name == "pie-session":
+             tool_fn = tool.fn
+             break
+ 
+     assert tool_fn is not None
++    tool_fn(action="start", timeout=42.5)
++    mock_call_tool.assert_called_once()
++    call_kwargs = mock_call_tool.call_args.kwargs
++    assert call_kwargs["timeout"] == 42.5
++    arguments = mock_call_tool.call_args.args[1]
++    assert arguments["action"] == "start"
++    assert arguments["timeout"] == 42.5
++
++
++@patch("soft_ue_cli.client.call_tool")
++def test_tool_call_normalizes_add_graph_node_created_nodes(mock_call_tool):
++    mock_call_tool.return_value = {
++        "status": True,
++        "created_nodes": [
++            {"guid": "11111111-1111-1111-1111-111111111111", "class": "AnimGraphNode_Root"},
++            {"guid": "22222222-2222-2222-2222-222222222222", "class": "AnimGraphNode_LinkedInputPose"},
++        ],
++    }
++    server = create_server()
++
++    tool_fn = None
++    for tool in server._tool_manager._tools.values():
++        if tool.name == "add-graph-node":
++            tool_fn = tool.fn
++            break
++
++    assert tool_fn is not None
++    result = tool_fn(asset_path="/Game/ALI", node_class="AnimLayerFunction", graph_name="ALIGraph")
++    parsed = json.loads(result)
++    assert parsed["node_guid"] == "11111111-1111-1111-1111-111111111111"
++
++
++@patch("soft_ue_cli.client.call_tool")
++def test_tool_call_stops_pie_on_start_timeout(mock_call_tool):
++    def side_effect(tool_name, arguments, timeout=None):
++        if tool_name == "pie-session" and arguments.get("action") == "start":
++            raise BridgeError(
++                kind=ErrorKind.EXPECTED,
++                message="request timed out after 30s",
++                tool_name=tool_name,
++                arguments=arguments,
++            )
++        return {"stopped": True}
++
++    mock_call_tool.side_effect = side_effect
++    server = create_server()
++
++    tool_fn = None
++    for tool in server._tool_manager._tools.values():
++        if tool.name == "pie-session":
++            tool_fn = tool.fn
++            break
++
++    assert tool_fn is not None
++    result = tool_fn(action="start", timeout=30)
++    parsed = json.loads(result)
++    assert parsed["error"] == "Tool 'pie-session' failed: request timed out after 30s"
++    assert mock_call_tool.call_count == 2
++    assert mock_call_tool.call_args.args[0] == "pie-session"
++    assert mock_call_tool.call_args.args[1]["action"] == "stop"
++
++
++@patch("soft_ue_cli.client.call_tool")
++def test_tool_call_returns_json_string(mock_call_tool):
++    mock_call_tool.return_value = {"status": "ok"}
++    server = create_server()
++
++    tool_fn = None
++    for tool in server._tool_manager._tools.values():
++        if tool.name == "query-level":
++            tool_fn = tool.fn
++            break
++
++    assert tool_fn is not None
++    result = tool_fn(limit=1)
++    assert isinstance(result, str)
++    parsed = json.loads(result)
++    assert parsed == {"status": "ok"}
++
++
++def test_client_tool_fn_handles_system_exit():
++    def exiting_cmd(_args):
++        raise SystemExit(1)
++
++    tool_fn = _make_client_tool_fn("failing-tool", exiting_cmd, {})
+     result = tool_fn()
+-    assert "error" in result.lower()
++    parsed = json.loads(result)
++    assert parsed == {"error": "Command 'failing-tool' exited with code 1"}
++
++
++def test_client_tool_fn_handles_exception():
++    def failing_cmd(_args):
++        raise RuntimeError("boom")
++
++    tool_fn = _make_client_tool_fn("failing-tool", failing_cmd, {})
++    result = tool_fn()
++    parsed = json.loads(result)
++    assert parsed == {"error": "Command 'failing-tool' failed: boom"}
+ 
+ 
+ def test_prompt_list_has_blueprint_to_cpp():
+diff --git a/tests/cli/test_skills.py b/tests/cli/test_skills.py
+index 221d9f1..3df9de8 100644
+--- a/tests/cli/test_skills.py
++++ b/tests/cli/test_skills.py
+@@ -44,6 +44,16 @@ def test_get_skill_returns_content():
+     assert "blueprint-to-cpp" in content
+ 
+ 
++def test_test_tools_contains_idempotent_teardown_and_insights_stop():
++    content = get_skill("test-tools")
++    assert content is not None
++    assert "already removed (treated as pass)" in content
++    assert "auto-stopped (treated as pass)" in content
++    assert 'encoding="utf-8"' in content
++    assert "open test level retry" in content
++    assert "save-asset (test level before restore)" in content
++
++
+ def test_get_skill_nonexistent_returns_none():
+     assert get_skill("nonexistent-skill-xyz") is None
+ 

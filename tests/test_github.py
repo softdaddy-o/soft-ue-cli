@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/github.py — GitHub auth and issue creation."""
+﻿"""Tests for cli/soft_ue_cli/github.py ??GitHub auth and issue creation."""
 
 from __future__ import annotations
 
@@ -73,6 +73,14 @@ def test_resolve_token_gh_not_installed(monkeypatch):
 def test_resolve_token_gh_cli_fails(monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     with patch(_PATCH_SUBPROCESS, side_effect=subprocess.CalledProcessError(1, "gh")):
+        with pytest.raises(SystemExit) as exc:
+            _resolve_token()
+        assert exc.value.code == 1
+
+
+def test_resolve_token_gh_cli_timeout(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    with patch(_PATCH_SUBPROCESS, side_effect=subprocess.TimeoutExpired(["gh", "auth", "token"], 10)):
         with pytest.raises(SystemExit) as exc:
             _resolve_token()
         assert exc.value.code == 1
@@ -254,3 +262,4 @@ def test_request_feature_labels_nice_to_have(monkeypatch):
 
     call_labels = mock_post.call_args.kwargs["json"]["labels"]
     assert call_labels == ["nice-to-have"]
+

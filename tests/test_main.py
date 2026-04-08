@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/__main__.py — argument parsing and cmd_setup output."""
+﻿"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
 
 from __future__ import annotations
 
@@ -786,9 +786,10 @@ def test_fix_msys_path_mangling():
     # Mangled by Git Bash
     assert _fix_msys_asset_path("C:/Program Files/Git/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
     assert _fix_msys_asset_path("C:/Program Files/Git/Engine/Content/Foo") == "/Engine/Content/Foo"
-    # Already correct — pass through
+    # Already correct ??pass through
     assert _fix_msys_asset_path("/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
-    # No mount point — pass through
+    # No mount point ??pass through
     assert _fix_msys_asset_path("some/local/path") == "some/local/path"
     # Empty/None
     assert _fix_msys_asset_path("") == ""
+

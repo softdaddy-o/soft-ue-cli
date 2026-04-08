@@ -2,6 +2,7 @@
 type: skill
 name: level-from-image
 description: Populate a UE level with existing project assets based on a reference image
+version: 1.0.0
 tags: [level, placement, image, scene, layout, dressing, environment]
 required_tools: [query-asset, batch-spawn-actors, batch-modify-actors, batch-delete-actors, query-level, set-viewport-camera, capture-viewport]
 options:

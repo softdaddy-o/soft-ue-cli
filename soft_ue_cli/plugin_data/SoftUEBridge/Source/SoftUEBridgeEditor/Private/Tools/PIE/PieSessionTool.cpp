@@ -15,6 +15,45 @@
 #include "Misc/Guid.h"
 #include "EngineUtils.h"
 
+namespace
+{
+	enum class EBridgePIETransition : uint8
+	{
+		None,
+		Starting,
+		Stopping
+	};
+
+	EBridgePIETransition GBridgePIETransition = EBridgePIETransition::None;
+	double GBridgePIETransitionStartedAt = 0.0;
+	FString GBridgePIESessionId;
+
+	constexpr double GBridgePIETransitionGraceSeconds = 10.0;
+
+	bool IsPIEReadyState(UWorld* PIEWorld)
+	{
+		return PIEWorld && (PIEWorld->GetFirstPlayerController() || PIEWorld->HasBegunPlay() || GEditor->PlayWorld == PIEWorld);
+	}
+
+	void NotePIETransition(EBridgePIETransition Transition)
+	{
+		GBridgePIETransition = Transition;
+		GBridgePIETransitionStartedAt = FPlatformTime::Seconds();
+	}
+
+	void ClearPIETransition()
+	{
+		GBridgePIETransition = EBridgePIETransition::None;
+		GBridgePIETransitionStartedAt = 0.0;
+	}
+
+	bool IsTransitionFresh()
+	{
+		return GBridgePIETransition != EBridgePIETransition::None
+			&& (FPlatformTime::Seconds() - GBridgePIETransitionStartedAt) < GBridgePIETransitionGraceSeconds;
+	}
+}
+
 FString UPieSessionTool::GetToolDescription() const
 {
 	return TEXT("Control PIE (Play-In-Editor) sessions. Actions: 'start', 'stop', 'pause', 'resume', 'get-state', 'wait-for' (wait until condition met).");
@@ -137,7 +176,6 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 {
 	FString Mode = GetStringArgOrDefault(Arguments, TEXT("mode"), TEXT("viewport"));
 	FString MapPath = GetStringArgOrDefault(Arguments, TEXT("map"));
-	float Timeout = GetFloatArgOrDefault(Arguments, TEXT("timeout"), 30.0f);
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Starting PIE (mode=%s, map=%s)"),
 		*Mode, MapPath.IsEmpty() ? TEXT("current") : *MapPath);
@@ -148,9 +186,14 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 		UWorld* PIEWorld = GetPIEWorld();
 		if (PIEWorld)
 		{
+			ClearPIETransition();
 			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 			Result->SetBoolField(TEXT("success"), true);
-			Result->SetStringField(TEXT("session_id"), GenerateSessionId());
+			if (GBridgePIESessionId.IsEmpty())
+			{
+				GBridgePIESessionId = GenerateSessionId();
+			}
+			Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
 			Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
 			Result->SetStringField(TEXT("state"), TEXT("already_running"));
 			return FBridgeToolResult::Json(Result);
@@ -188,76 +231,66 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 
 	GEditor->RequestPlaySession(Params);
 
-	if (!WaitForPIEReady(Timeout))
+	if (GBridgePIESessionId.IsEmpty())
 	{
-		return FBridgeToolResult::Error(FString::Printf(TEXT("PIE did not start within %.0f seconds"), Timeout));
+		GBridgePIESessionId = GenerateSessionId();
 	}
 
 	UWorld* PIEWorld = GetPIEWorld();
-	if (!PIEWorld)
+	if (IsPIEReadyState(PIEWorld))
 	{
-		return FBridgeToolResult::Error(TEXT("PIE started but could not find PIE world"));
+		ClearPIETransition();
 	}
-
-	// Get player info
-	TArray<double> PlayerStartLocation = {0, 0, 0};
-	TArray<AActor*> PlayerStarts;
-	UGameplayStatics::GetAllActorsOfClass(PIEWorld, APlayerStart::StaticClass(), PlayerStarts);
-	if (PlayerStarts.Num() > 0)
+	else
 	{
-		FVector Loc = PlayerStarts[0]->GetActorLocation();
-		PlayerStartLocation = {Loc.X, Loc.Y, Loc.Z};
+		NotePIETransition(EBridgePIETransition::Starting);
 	}
-
-	APlayerController* PC = PIEWorld->GetFirstPlayerController();
-	FString PlayerPawnName = PC && PC->GetPawn() ? PC->GetPawn()->GetName() : TEXT("None");
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("success"), true);
-	Result->SetStringField(TEXT("session_id"), GenerateSessionId());
-	Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
-	Result->SetStringField(TEXT("state"), TEXT("running"));
-	Result->SetStringField(TEXT("player_pawn"), PlayerPawnName);
-
-	TArray<TSharedPtr<FJsonValue>> StartLocArray;
-	for (double Val : PlayerStartLocation)
+	Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
+	Result->SetStringField(TEXT("state"), IsPIEReadyState(PIEWorld) ? TEXT("running") : TEXT("starting"));
+	if (PIEWorld)
 	{
-		StartLocArray.Add(MakeShareable(new FJsonValueNumber(Val)));
+		Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
 	}
-	Result->SetArrayField(TEXT("player_start"), StartLocArray);
 
-	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Started (world=%s)"), *PIEWorld->GetName());
+	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Start requested"));
 	return FBridgeToolResult::Json(Result);
 }
 
 FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Arguments)
 {
-	if (!GEditor->IsPlaySessionInProgress())
+	const bool bRunning = GEditor->IsPlaySessionInProgress();
+	if (!bRunning && GBridgePIETransition != EBridgePIETransition::Starting)
 	{
+		ClearPIETransition();
 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 		Result->SetBoolField(TEXT("success"), true);
 		Result->SetStringField(TEXT("state"), TEXT("not_running"));
 		return FBridgeToolResult::Json(Result);
 	}
 
-	GEditor->RequestEndPlayMap();
-
-	const double WaitStart = FPlatformTime::Seconds();
-	while (GEditor->IsPlaySessionInProgress() && (FPlatformTime::Seconds() - WaitStart) < 5.0)
+	if (bRunning)
 	{
-		FPlatformProcess::Sleep(0.05f);
+		GEditor->RequestEndPlayMap();
 	}
 
 	if (GEditor->IsPlaySessionInProgress())
 	{
-		return FBridgeToolResult::Error(TEXT("Failed to stop PIE within timeout"));
+		NotePIETransition(EBridgePIETransition::Stopping);
+	}
+	else
+	{
+		ClearPIETransition();
+		GBridgePIESessionId.Reset();
 	}
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("success"), true);
-	Result->SetStringField(TEXT("state"), TEXT("stopped"));
+	Result->SetStringField(TEXT("state"), GEditor->IsPlaySessionInProgress() ? TEXT("stopping") : TEXT("stopped"));
 
-	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Stopped"));
+	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Stop requested"));
 	return FBridgeToolResult::Json(Result);
 }
 
@@ -350,9 +383,41 @@ FBridgeToolResult UPieSessionTool::ExecuteGetState(const TSharedPtr<FJsonObject>
 	bool bIncludePlayers = IncludeSet.Num() == 0 || IncludeSet.Contains(TEXT("players"));
 
 	bool bRunning = GEditor->IsPlaySessionInProgress();
+	UWorld* PIEWorld = GetPIEWorld();
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("running"), bRunning);
+	if (!GBridgePIESessionId.IsEmpty())
+	{
+		Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
+	}
+
+	if (bRunning && IsPIEReadyState(PIEWorld))
+	{
+		ClearPIETransition();
+	}
+
+	if (GBridgePIETransition == EBridgePIETransition::Starting && !IsTransitionFresh())
+	{
+		ClearPIETransition();
+	}
+	else if (GBridgePIETransition == EBridgePIETransition::Stopping && !bRunning)
+	{
+		ClearPIETransition();
+		GBridgePIESessionId.Reset();
+	}
+
+	if (GBridgePIETransition == EBridgePIETransition::Starting)
+	{
+		Result->SetStringField(TEXT("state"), TEXT("starting"));
+		return FBridgeToolResult::Json(Result);
+	}
+
+	if (GBridgePIETransition == EBridgePIETransition::Stopping)
+	{
+		Result->SetStringField(TEXT("state"), bRunning ? TEXT("stopping") : TEXT("stopped"));
+		return FBridgeToolResult::Json(Result);
+	}
 
 	if (!bRunning)
 	{
@@ -360,7 +425,6 @@ FBridgeToolResult UPieSessionTool::ExecuteGetState(const TSharedPtr<FJsonObject>
 		return FBridgeToolResult::Json(Result);
 	}
 
-	UWorld* PIEWorld = GetPIEWorld();
 	if (!PIEWorld)
 	{
 		Result->SetStringField(TEXT("state"), TEXT("initializing"));
@@ -411,7 +475,7 @@ bool UPieSessionTool::WaitForPIEReady(float TimeoutSeconds) const
 		if (GEditor->IsPlaySessionInProgress())
 		{
 			UWorld* PIEWorld = GetPIEWorld();
-			if (PIEWorld && PIEWorld->GetFirstPlayerController())
+			if (IsPIEReadyState(PIEWorld))
 			{
 				return true;
 			}

@@ -3,7 +3,14 @@
 #include "Tools/Performance/InsightsCaptureTool.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "ProfilingDebugging/TraceAuxiliary.h"
+#include "HAL/FileManager.h"
 #include "Misc/Paths.h"
+
+namespace
+{
+	bool GBridgeInsightsCaptureRequested = false;
+	FString GBridgeInsightsTraceFile;
+}
 
 FString UInsightsCaptureTool::GetToolDescription() const
 {
@@ -96,6 +103,7 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
 
 	// Build trace file path
 	FString TraceDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Profiling"));
+	IFileManager::Get().MakeDirectory(*TraceDir, true);
 	FString TraceFilePath = FPaths::Combine(TraceDir, OutputFile);
 
 	// Build channel string
@@ -104,12 +112,15 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Starting trace with channels: %s"), *ChannelString);
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Output file: %s"), *TraceFilePath);
 
-	// Start trace using command-line interface
-	FString StartCommand = FString::Printf(TEXT("Trace.Start %s file=%s"), *ChannelString, *TraceFilePath);
+	// Use the documented console command shape: filename first, channels second.
+	FString StartCommand = FString::Printf(TEXT("Trace.Start \"%s\" %s"), *TraceFilePath, *ChannelString);
 
 	// Execute trace start via console command
 	if (GEngine && GEngine->Exec(nullptr, *StartCommand))
 	{
+		GBridgeInsightsCaptureRequested = true;
+		GBridgeInsightsTraceFile = TraceFilePath;
+
 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 		Result->SetStringField(TEXT("status"), TEXT("started"));
 		Result->SetStringField(TEXT("trace_file"), TraceFilePath);
@@ -133,9 +144,12 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
 
 FBridgeToolResult UInsightsCaptureTool::StopCapture()
 {
-	if (!FTraceAuxiliary::IsConnected())
+	if (!FTraceAuxiliary::IsConnected() && !GBridgeInsightsCaptureRequested)
 	{
-		return FBridgeToolResult::Error(TEXT("No active trace capture to stop"));
+		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+		Result->SetStringField(TEXT("status"), TEXT("idle"));
+		Result->SetStringField(TEXT("message"), TEXT("No active trace capture to stop"));
+		return FBridgeToolResult::Json(Result);
 	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Stopping trace"));
@@ -143,25 +157,44 @@ FBridgeToolResult UInsightsCaptureTool::StopCapture()
 	// Stop trace
 	if (GEngine && GEngine->Exec(nullptr, TEXT("Trace.Stop")))
 	{
+		GBridgeInsightsCaptureRequested = false;
+
 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 		Result->SetStringField(TEXT("status"), TEXT("stopped"));
 		Result->SetStringField(TEXT("message"), TEXT("Trace capture stopped successfully"));
+		if (!GBridgeInsightsTraceFile.IsEmpty())
+		{
+			Result->SetStringField(TEXT("trace_file"), GBridgeInsightsTraceFile);
+		}
 
 		return FBridgeToolResult::Json(Result);
 	}
 	else
 	{
+		if (!FTraceAuxiliary::IsConnected())
+		{
+			GBridgeInsightsCaptureRequested = false;
+
+			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+			Result->SetStringField(TEXT("status"), TEXT("idle"));
+			Result->SetStringField(TEXT("message"), TEXT("Trace capture was already inactive"));
+			return FBridgeToolResult::Json(Result);
+		}
 		return FBridgeToolResult::Error(TEXT("Failed to stop trace capture"));
 	}
 }
 
 FBridgeToolResult UInsightsCaptureTool::GetStatus()
 {
-	bool bIsCapturing = FTraceAuxiliary::IsConnected();
+	bool bIsCapturing = FTraceAuxiliary::IsConnected() || GBridgeInsightsCaptureRequested;
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("is_capturing"), bIsCapturing);
 	Result->SetStringField(TEXT("status"), bIsCapturing ? TEXT("active") : TEXT("idle"));
+	if (!GBridgeInsightsTraceFile.IsEmpty())
+	{
+		Result->SetStringField(TEXT("trace_file"), GBridgeInsightsTraceFile);
+	}
 
 	return FBridgeToolResult::Json(Result);
 }

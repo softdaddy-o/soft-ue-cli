@@ -44,6 +44,12 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "value": {"type": "any", "description": "New value (string, int, or float)"},
         },
     },
+    # set-property: value can be any JSON scalar the bridge/tool can coerce
+    "set-property": {
+        "properties": {
+            "value": {"type": "any", "description": "New value (string, number, boolean, array, or object)"},
+        },
+    },
     # batch-delete-actors: actors is a JSON array of name strings
     "batch-delete-actors": {
         "properties": {

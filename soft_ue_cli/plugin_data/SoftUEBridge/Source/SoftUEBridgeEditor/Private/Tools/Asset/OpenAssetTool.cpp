@@ -4,6 +4,7 @@
 #include "Utils/BridgeAssetModifier.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "Subsystems/AssetEditorSubsystem.h"
+#include "LevelEditorSubsystem.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "Editor.h"
@@ -144,21 +145,41 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
 	// Check if already open
 	bool bWasAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, false) != nullptr;
 
-	// Open the asset editor.
-	// For World assets (levels) the load path calls CheckForWorldGCLeaks, which
-	// raises a Fatal through GError if a plugin (e.g. Niagara) holds a lingering
-	// reference to the outgoing world.  The switch itself completes successfully,
-	// so we suppress that specific fatal for the duration of the call and note it
-	// in the response instead of crashing.
+	// World assets are safer through the level-loading path than through the
+	// generic asset-editor path. Before switching maps, give GC a couple of
+	// passes to release subsystems still hanging on to the outgoing world.
 	FSuppressMapLoadFatalDevice SuppressDevice;
 	const bool bIsWorld = Asset->IsA<UWorld>();
 	TOptional<FGErrorGuard> ErrorGuard;
 	if (bIsWorld)
 	{
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 		ErrorGuard.Emplace(&SuppressDevice);
 	}
 
-	bool bSuccess = AssetEditorSubsystem->OpenEditorForAsset(Asset);
+	bool bSuccess = false;
+	if (bIsWorld)
+	{
+		ULevelEditorSubsystem* LevelEditorSubsystem =
+			GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
+		if (!LevelEditorSubsystem)
+		{
+			ErrorGuard.Reset();
+			return FBridgeToolResult::Error(TEXT("Level Editor Subsystem not available"));
+		}
+
+		bSuccess = LevelEditorSubsystem->LoadLevel(AssetPath);
+	}
+	else
+	{
+		// Open the asset editor.
+		// For World assets (levels) the load path calls CheckForWorldGCLeaks, which
+		// raises a Fatal through GError if a plugin holds a lingering reference to
+		// the outgoing world. The switch itself can still complete successfully, so
+		// the fatal is suppressed for the duration of the map load.
+		bSuccess = AssetEditorSubsystem->OpenEditorForAsset(Asset);
+	}
 
 	ErrorGuard.Reset(); // restore GError before any further work
 
@@ -186,7 +207,7 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
 	Result->SetStringField(TEXT("asset_path"), AssetPath);
 	Result->SetStringField(TEXT("asset_name"), Asset->GetName());
 	Result->SetStringField(TEXT("asset_class"), Asset->GetClass()->GetName());
-	Result->SetStringField(TEXT("editor_type"), GetEditorTypeName(Asset));
+	Result->SetStringField(TEXT("editor_type"), bIsWorld ? TEXT("Level Editor") : GetEditorTypeName(Asset));
 	Result->SetBoolField(TEXT("was_already_open"), bWasAlreadyOpen);
 	if (SuppressDevice.SuppressedMessages.Num() > 0)
 	{
@@ -195,12 +216,12 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
 	}
 	Result->SetStringField(TEXT("message"), FString::Printf(
 		TEXT("%s %s in %s"),
-		bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened"),
+		bIsWorld ? TEXT("Loaded") : (bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened")),
 		*Asset->GetName(),
-		*GetEditorTypeName(Asset)));
+		*(bIsWorld ? FString(TEXT("Level Editor")) : GetEditorTypeName(Asset))));
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("open-asset (asset mode): %s '%s'"),
-		bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened"), *AssetPath);
+		bIsWorld ? TEXT("Loaded") : (bWasAlreadyOpen ? TEXT("Focused") : TEXT("Opened")), *AssetPath);
 
 	return FBridgeToolResult::Json(Result);
 }

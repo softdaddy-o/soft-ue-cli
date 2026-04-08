@@ -88,27 +88,88 @@ def _build_signature(params: dict | None) -> inspect.Signature:
     return inspect.Signature(sig_params)
 
 
+def _normalize_add_graph_node_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Normalize add-graph-node results to always include ``node_guid`` when available."""
+    if not isinstance(result, dict):
+        return result
+
+    node_guid = result.get("node_guid")
+    if isinstance(node_guid, str) and node_guid:
+        return result
+
+    # Blueprint tools return ``created_nodes`` for special cases (e.g. AnimLayerFunction),
+    # so extract the first available guid for compatibility.
+    candidates: list[Any] = []
+    created_nodes = result.get("created_nodes")
+    if isinstance(created_nodes, list):
+        candidates.extend(created_nodes)
+
+    if not isinstance(node_guid, str):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            for guid_key in ("node_guid", "guid"):
+                value = candidate.get(guid_key)
+                if isinstance(value, str) and value:
+                    result["node_guid"] = value
+                    return result
+
+    return result
+
+
 def _make_tool_fn(tool_name: str, params: dict | None = None):
     """Create a bridge tool handler that forwards kwargs to call_tool()."""
     bridge_name = _BRIDGE_TOOL_NAME_MAP.get(tool_name, tool_name)
 
     def tool_fn(**kwargs: Any) -> str:
-        # Filter out None and False (unset optional / store_true args)
-        arguments = {k: v for k, v in kwargs.items() if v is not None and v is not False}
+        # Filter out None and falsey defaults for store_true-style args, while
+        # keeping explicit values that must be translated into bridge args.
+        arguments = {k: v for k, v in kwargs.items() if v is not None}
+
+        # MCP exposes argparse dest names (no_auto_position). The bridge expects
+        # auto_position=true/false, with false meaning "disable auto placement".
+        if arguments.pop("no_auto_position", False):
+            arguments["auto_position"] = False
+
         # Apply any per-tool parameter renames
         for mcp_name, bridge_name_param in _PARAM_RENAMES.get(tool_name, {}).items():
             if mcp_name in arguments:
                 arguments[bridge_name_param] = arguments.pop(mcp_name)
 
+        # Use tool-level timeout as HTTP timeout for pie-session start, to avoid
+        # MCP request timeout when PIE warmup needs longer.
+        http_timeout = None
+        if tool_name == "pie-session" and arguments.get("action") == "start":
+            timeout_arg = arguments.get("timeout")
+            if timeout_arg is not None:
+                try:
+                    http_timeout = float(timeout_arg)
+                except (TypeError, ValueError):
+                    http_timeout = None
+
         try:
-            result = _client.call_tool(bridge_name, arguments)
+            result = _client.call_tool(bridge_name, arguments, timeout=http_timeout)
         except BridgeError as exc:
+            # If PIE startup times out, attempt a best-effort stop to avoid leaving
+            # the editor in a partially-initialized session state.
+            if tool_name == "pie-session" and arguments.get("action") == "start":
+                if "timed out" in exc.message.lower():
+                    try:
+                        _client.call_tool("pie-session", {"action": "stop"}, timeout=5.0)
+                    except Exception:
+                        pass
             error_response = {"error": f"Tool '{tool_name}' failed: {exc.message}"}
             if exc.kind == ErrorKind.UNEXPECTED:
                 error_response["bug_report_hint"] = bug_nudge_payload(
                     exc.tool_name, exc.message,
                 )
             return json.dumps(error_response, indent=2, ensure_ascii=False)
+
+        if tool_name == "add-graph-node":
+            try:
+                result = _normalize_add_graph_node_result(result)
+            except Exception as exc:
+                return json.dumps({"error": f"Tool '{tool_name}' failed: {exc}"}, indent=2, ensure_ascii=False)
 
         # Record streak (best-effort)
         try:
@@ -150,21 +211,26 @@ def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None):
         buffer = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = buffer
+        output = ""
         try:
             cmd_fn(namespace)
-        except SystemExit as exc:
-            sys.stdout = old_stdout
             output = buffer.getvalue().strip()
-            if output:
-                return output
-            return json.dumps(
+        except SystemExit as exc:
+            output = buffer.getvalue().strip()
+            return output or json.dumps(
                 {"error": f"Command '{tool_name}' exited with code {exc.code}"},
+                indent=2,
+            )
+        except Exception as exc:
+            output = buffer.getvalue().strip()
+            return output or json.dumps(
+                {"error": f"Command '{tool_name}' failed: {exc}"},
                 indent=2,
             )
         finally:
             sys.stdout = old_stdout
 
-        output = buffer.getvalue().strip()
+        output = output or buffer.getvalue().strip()
         return output or json.dumps({"status": "ok"}, indent=2)
 
     tool_fn.__name__ = tool_name.replace("-", "_")

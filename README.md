@@ -1,4 +1,4 @@
-# soft-ue-cli (+mcp)
+﻿# soft-ue-cli (+mcp)
 
 [![PyPI version](https://img.shields.io/pypi/v/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)

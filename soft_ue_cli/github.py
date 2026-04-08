@@ -28,11 +28,17 @@ def _resolve_token() -> str:
             capture_output=True,
             stdin=subprocess.DEVNULL,
             text=True,
+            timeout=10.0,
             check=True,
         )
         token = result.stdout.strip()
         if token:
             return token
+    except subprocess.TimeoutExpired:
+        print(
+            "error: 'gh auth token' timed out while reading credentials.",
+            file=sys.stderr,
+        )
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
 

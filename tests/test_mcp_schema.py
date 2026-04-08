@@ -1,6 +1,7 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
+﻿"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
+
 
 import pytest
 
@@ -65,6 +66,13 @@ def test_store_true_maps_to_boolean():
     assert params["properties"]["no_detail"]["type"] == "boolean"
 
 
+def test_set_property_value_override_maps_to_any():
+    tools = extract_tools()
+    tool = next(t for t in tools if t["name"] == "set-property")
+    params = tool["parameters"]
+    assert params["properties"]["value"]["type"] == "any"
+
+
 def test_choices_map_to_enum():
     tools = extract_tools()
     tool = next(t for t in tools if t["name"] == "report-bug")
@@ -108,3 +116,4 @@ def test_parser_mcp_serve():
     parser = build_parser()
     args = parser.parse_args(["mcp-serve"])
     assert args.command == "mcp-serve"
+

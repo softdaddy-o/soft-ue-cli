@@ -1,6 +1,22 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to soft-ue-cli will be documented in this file.
+
+## [1.17.0] - 2026-04-08
+
+### Fixed
+- `report-bug` and `request-feature`: `gh auth token` lookup now times out cleanly instead of hanging indefinitely when GitHub CLI credentials are unavailable or blocked
+- MCP schema: `set-property` now accepts any JSON value for `value`, matching the CLI and bridge behavior for scalar, array, and object payloads
+- MCP server: `add-graph-node` now maps `--no-auto-position` correctly, surfaces normalized `node_guid` values for special node creation cases, and returns cleaner client-side command errors
+- MCP server: `pie-session start` now forwards tool-level timeout to the HTTP request and attempts a best-effort stop after startup timeouts to avoid leaving PIE half-initialized
+- `test-tools`: teardown now treats `delete-asset` reporting `Asset not found` as an idempotent success during cleanup, avoiding false failures after restore flows that already removed the temporary test asset
+- `test-tools`: `insights-capture stop` now treats already-idle or auto-stopped traces as a pass in both CLI and MCP paths, avoiding false failures when trace state changes between status polling and stop
+- `test-tools`: MCP all-mode now reads `mcp-serve` stdout as UTF-8 with replacement semantics, avoiding Windows `cp949` decode crashes on non-ASCII output
+- `test-tools`: setup now retries the first `open-asset` call for a freshly created temporary World asset, reducing false setup failures while the editor finishes registering the new level
+- `test-tools`: restore flow now saves the temporary test level before switching back, avoiding modal unsaved-level prompts that can block or crash automation
+- `open-asset`: World assets now load through the level editor path with extra GC passes, reducing map-switch crashes and stale-world failures during automation
+- `pie-session`: start/stop now return request-based transitional states instead of blocking the request thread while UE finishes entering or leaving PIE
+- `insights-capture`: trace start now uses the documented filename-first console command form and stop/status treat already-idle traces consistently, reducing false stop failures in automation
 
 ## [1.16.0] - 2026-04-07
 

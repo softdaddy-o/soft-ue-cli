@@ -1,8 +1,9 @@
-"""Tests for cli/soft_ue_cli/skills — skill discovery and retrieval."""
+﻿"""Tests for cli/soft_ue_cli/skills ??skill discovery and retrieval."""
 
 from __future__ import annotations
 
 from pathlib import Path
+
 
 import pytest
 
@@ -41,6 +42,16 @@ def test_get_skill_returns_content():
     assert "blueprint-to-cpp" in content
 
 
+def test_test_tools_contains_idempotent_teardown_and_insights_stop():
+    content = get_skill("test-tools")
+    assert content is not None
+    assert "already removed (treated as pass)" in content
+    assert "auto-stopped (treated as pass)" in content
+    assert 'encoding="utf-8"' in content
+    assert "open test level retry" in content
+    assert "save-asset (test level before restore)" in content
+
+
 def test_get_skill_nonexistent_returns_none():
     assert get_skill("nonexistent-skill-xyz") is None
 
@@ -61,7 +72,7 @@ def test_get_skill_content_has_frontmatter():
 
 def test_all_skills_have_required_frontmatter():
     """Every .md skill file must have name, description, and version in frontmatter."""
-    skills_dir = Path(__file__).parents[1] / "soft_ue_cli" / "skills"
+    skills_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
     for md_file in skills_dir.glob("*.md"):
         text = md_file.read_text(encoding="utf-8")
         assert text.startswith("---"), f"{md_file.name} missing frontmatter"
@@ -70,6 +81,7 @@ def test_all_skills_have_required_frontmatter():
         front = text[3:end]
         assert "name:" in front, f"{md_file.name} missing name"
         assert "description:" in front, f"{md_file.name} missing description"
+        assert "version:" in front, f"{md_file.name} missing version"
 
 
 # -- CLI argument parsing ------------------------------------------------------
@@ -110,3 +122,5 @@ def test_cmd_skills_get_nonexistent_exits():
     with pytest.raises(SystemExit) as exc:
         cmd_skills(args)
     assert exc.value.code == 1
+
+

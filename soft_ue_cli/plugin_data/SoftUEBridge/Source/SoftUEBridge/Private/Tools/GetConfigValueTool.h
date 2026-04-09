@@ -18,4 +18,5 @@ public:
 	virtual FBridgeToolResult Execute(const TSharedPtr<FJsonObject>& Args, const FBridgeToolContext& Ctx) override;
 
 	static FString ConfigTypeToFilename(const FString& ConfigType);
+	static bool TryGetConfigValue(const FString& Section, const FString& Key, const FString& Filename, FString& OutValue, bool* bOutHasSection = nullptr);
 };

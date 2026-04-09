@@ -8,6 +8,34 @@
 
 REGISTER_BRIDGE_TOOL(UGetConfigValueTool)
 
+namespace
+{
+bool ParseConfigEntry(const FString& Entry, FString& OutKey, FString& OutValue)
+{
+	FString Working = Entry.TrimStartAndEnd();
+	if (Working.IsEmpty())
+	{
+		return false;
+	}
+
+	if (Working.StartsWith(TEXT("+")) || Working.StartsWith(TEXT("-")) || Working.StartsWith(TEXT(".")) || Working.StartsWith(TEXT("!")))
+	{
+		Working = Working.Mid(1);
+	}
+
+	if (!Working.Split(TEXT("="), &OutKey, &OutValue))
+	{
+		OutKey = Working.TrimStartAndEnd();
+		OutValue.Reset();
+		return !OutKey.IsEmpty();
+	}
+
+	OutKey = OutKey.TrimStartAndEnd();
+	OutValue = OutValue.TrimStartAndEnd();
+	return !OutKey.IsEmpty();
+}
+}
+
 FString UGetConfigValueTool::GetToolDescription() const
 {
 	return TEXT("Get a configuration value from UE's runtime GConfig. Returns the effective value after all config layers are merged.");
@@ -47,11 +75,15 @@ FBridgeToolResult UGetConfigValueTool::Execute(const TSharedPtr<FJsonObject>& Ar
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Unknown config_type: '%s'. Use Engine, Game, Input, Editor, etc."), *ConfigType));
 	}
 
-	FString Value;
-	if (!GConfig || !GConfig->GetString(*Section, *Key, Value, Filename))
+	if (!GConfig)
 	{
-		TArray<FString> SectionEntries;
-		const bool bHasSection = GConfig && GConfig->GetSection(*Section, SectionEntries, Filename);
+		return FBridgeToolResult::Error(TEXT("GConfig is not available"));
+	}
+
+	FString Value;
+	bool bHasSection = false;
+	if (!TryGetConfigValue(Section, Key, Filename, Value, &bHasSection))
+	{
 		if (!bHasSection)
 		{
 			return FBridgeToolResult::Error(FString::Printf(TEXT("Section '%s' not found in %s config"), *Section, *ConfigType));
@@ -67,6 +99,58 @@ FBridgeToolResult UGetConfigValueTool::Execute(const TSharedPtr<FJsonObject>& Ar
 
 	UE_LOG(LogSoftUEBridge, Log, TEXT("get-config-value: [%s]%s = %s"), *Section, *Key, *Value);
 	return FBridgeToolResult::Json(Result);
+}
+
+bool UGetConfigValueTool::TryGetConfigValue(const FString& Section, const FString& Key, const FString& Filename, FString& OutValue, bool* bOutHasSection)
+{
+	if (bOutHasSection)
+	{
+		*bOutHasSection = false;
+	}
+
+	if (!GConfig)
+	{
+		return false;
+	}
+
+	if (GConfig->GetString(*Section, *Key, OutValue, Filename))
+	{
+		if (bOutHasSection)
+		{
+			*bOutHasSection = true;
+		}
+		return true;
+	}
+
+	TArray<FString> SectionEntries;
+	if (!GConfig->GetSection(*Section, SectionEntries, Filename))
+	{
+		return false;
+	}
+
+	if (bOutHasSection)
+	{
+		*bOutHasSection = true;
+	}
+
+	bool bFoundKey = false;
+	for (const FString& Entry : SectionEntries)
+	{
+		FString EntryKey;
+		FString EntryValue;
+		if (!ParseConfigEntry(Entry, EntryKey, EntryValue))
+		{
+			continue;
+		}
+		if (!EntryKey.Equals(Key, ESearchCase::CaseSensitive))
+		{
+			continue;
+		}
+		OutValue = EntryValue;
+		bFoundKey = true;
+	}
+
+	return bFoundKey;
 }
 
 FString UGetConfigValueTool::ConfigTypeToFilename(const FString& ConfigType)

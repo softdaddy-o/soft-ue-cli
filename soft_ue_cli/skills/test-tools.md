@@ -296,6 +296,12 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     def starts_with(key, value):
         return lambda r: str(r.get(key, "")).startswith(value)
 
+    def asset_to_disk_path(project_dir, asset_path, ext=".uasset"):
+        if not project_dir or not asset_path or not asset_path.startswith("/Game/"):
+            return None
+        relative = asset_path[len("/Game/"):].replace("/", os.sep)
+        return os.path.normpath(os.path.join(project_dir, "Content", relative + ext))
+
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 0: Setup — create and load a fresh test level
     # ══════════════════════════════════════════════════════════════════════════
@@ -353,6 +359,17 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     else:
         # MCP: reaching here means mcp-serve started and initialized successfully
         _record("mcp-serve started", "mcp-serve", {}, True, 0, None)
+
+    project_info = None
+    project_dir = None
+    try:
+        project_info = caller("get-project-info", {}, None)
+        project_dir = project_info.get("project_directory") or os.path.dirname(project_info.get("project_path", ""))
+        if project_dir:
+            project_dir = os.path.normpath(project_dir)
+    except Exception:
+        project_info = None
+        project_dir = None
 
     run_test("project-info", "get-project-info", {}, has("project_name"))
     run_test("get-logs", "get-logs", {"limit": 10}, has("lines"))
@@ -494,23 +511,14 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_test("query-blueprint", "query-blueprint", {"asset_path": bp_path}, has("path"))
     run_test("query-blueprint-graph EventGraph", "query-blueprint-graph",
              {"asset_path": bp_path, "graph": "EventGraph"}, nonempty("graphs"))
+    run_test("save-asset blueprint (pre-inspect)", "save-asset", {"asset_path": bp_path}, has("success"))
     _inspect_uasset_path = None
     _inspect_uexp_path = None
     _inspect_snapshot_uasset = None
     _inspect_snapshot_uexp = None
-    try:
-        _inspect_path_resp = caller("run-python-script", {
-            "script": (
-                "import unreal\n"
-                f"print(unreal.PackageName.long_package_name_to_filename('{bp_path}', '.uasset'))\n"
-            )
-        }, None)
-        _inspect_lines = (_inspect_path_resp.get("output") or "").strip().splitlines()
-        _inspect_uasset_path = next((line.strip() for line in _inspect_lines if line.strip().endswith(".uasset")), None)
-    except Exception:
-        _inspect_uasset_path = None
+    _inspect_uasset_path = asset_to_disk_path(project_dir, bp_path, ".uasset")
 
-    if _inspect_uasset_path:
+    if _inspect_uasset_path and os.path.exists(_inspect_uasset_path):
         _inspect_uexp_path = os.path.splitext(_inspect_uasset_path)[0] + ".uexp"
         _snapshot_dir = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_PATH)), f"soft_ue_snapshots_{RUN_TS}")
         os.makedirs(_snapshot_dir, exist_ok=True)
@@ -718,7 +726,7 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         "key": cfg_key,
         "value": "42",
         "config_type": "Engine",
-    }, has("success"))
+    }, lambda r: r.get("status") == "ok" and r.get("value") == "42")
     run_test("get-config-value test key", "get-config-value", {
         "section": cfg_section,
         "key": cfg_key,
@@ -726,15 +734,21 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     }, starts_with("value", "42"))
 
     # CLI subcommands (offline — no bridge required)
-    run_cli("config tree", "config", "tree", "--exists-only",
+    run_cli("config tree", "config", *(["--project-path", project_dir] if project_dir else []), "tree", "--exists-only",
             check_stdout=lambda s: '"layers"' in s)
-    run_cli("config tree ini", "config", "tree", "--format", "ini", "--exists-only",
+    run_cli("config tree ini", "config", *(["--project-path", project_dir] if project_dir else []), "tree", "--format", "ini", "--exists-only",
             check_stdout=lambda s: '"format": "ini"' in s or '"layers": []' in s)
-    run_cli("config get search", "config", "get", "--search", "r.Bloom",
-            check_stdout=lambda s: "Bloom" in s or '"results"' in s or '"value"' in s)
-    run_cli("config diff audit", "config", "diff", "--audit",
+    offline_cfg_key = f"OfflineSearchKey_{RUN_TS}_{mode_name}"
+    offline_cfg_path = f"[{cfg_section}]{offline_cfg_key}"
+    run_cli("config set project default", "config", *(["--project-path", project_dir] if project_dir else []),
+            "set", offline_cfg_path, "SearchValue42", "--layer", "ProjectDefault", "--type", "Engine",
+            check_stdout=lambda s: '"status": "ok"' in s and offline_cfg_key in s)
+    run_cli("config get search", "config", *(["--project-path", project_dir] if project_dir else []),
+            "get", "--search", offline_cfg_key, "--type", "Engine",
+            check_stdout=lambda s: offline_cfg_key in s and "SearchValue42" in s)
+    run_cli("config diff audit", "config", *(["--project-path", project_dir] if project_dir else []), "diff", "--audit",
             check_stdout=lambda s: '"diffs"' in s or '"sections"' in s or '"overrides"' in s or "no overrides" in s.lower())
-    run_cli("config audit", "config", "audit",
+    run_cli("config audit", "config", *(["--project-path", project_dir] if project_dir else []), "audit",
             check_stdout=lambda s: '"overrides"' in s or '"sections"' in s or "no overrides" in s.lower())
 
     # ══════════════════════════════════════════════════════════════════════════

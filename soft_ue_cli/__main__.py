@@ -1258,16 +1258,8 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
 
 
 def cmd_knowledge(args: argparse.Namespace) -> None:
-    """Query the optional knowledge server (RAG/PageIndex/Skills)."""
-    if args.list_skills and args.query:
-        print("error: --list-skills cannot be used with a query", file=sys.stderr)
-        sys.exit(1)
-    if args.list_skills and args.type:
-        print("error: --list-skills cannot be used with --type", file=sys.stderr)
-        sys.exit(1)
-    if not args.list_skills and not args.query:
-        print("error: either provide a query or use --list-skills", file=sys.stderr)
-        sys.exit(1)
+    """Query the optional knowledge server (RAG)."""
+    print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
 
     import httpx
 

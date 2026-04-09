@@ -53,19 +53,12 @@ FBridgeToolResult UValidateConfigKeyTool::Execute(const TSharedPtr<FJsonObject>&
 		return FBridgeToolResult::Json(Result);
 	}
 
-	TArray<FString> SectionEntries;
-	if (!GConfig->GetSection(*Section, SectionEntries, Filename))
-	{
-		Result->SetBoolField(TEXT("valid"), false);
-		Result->SetStringField(TEXT("reason"), TEXT("section not found"));
-		return FBridgeToolResult::Json(Result);
-	}
-
 	FString Value;
-	if (!GConfig->GetString(*Section, *Key, Value, Filename))
+	bool bHasSection = false;
+	if (!UGetConfigValueTool::TryGetConfigValue(Section, Key, Filename, Value, &bHasSection))
 	{
 		Result->SetBoolField(TEXT("valid"), false);
-		Result->SetStringField(TEXT("reason"), TEXT("key not found in section"));
+		Result->SetStringField(TEXT("reason"), bHasSection ? TEXT("key not found in section") : TEXT("section not found"));
 		return FBridgeToolResult::Json(Result);
 	}
 

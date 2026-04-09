@@ -53,8 +53,8 @@ FBridgeToolResult UValidateConfigKeyTool::Execute(const TSharedPtr<FJsonObject>&
 		return FBridgeToolResult::Json(Result);
 	}
 
-	FConfigSection* Sec = GConfig->GetSectionPrivate(*Section, false, false, Filename);
-	if (!Sec)
+	TArray<FString> SectionEntries;
+	if (!GConfig->GetSection(*Section, SectionEntries, Filename))
 	{
 		Result->SetBoolField(TEXT("valid"), false);
 		Result->SetStringField(TEXT("reason"), TEXT("section not found"));

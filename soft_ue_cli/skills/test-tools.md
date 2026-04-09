@@ -1,7 +1,7 @@
 ---
 name: test-tools
 description: Exhaustive integration test of all soft-ue-cli tools against a live UE instance. Writes a JSON report.
-version: 2.2.0
+version: 2.3.0
 ---
 
 # test-tools — Integration Test Suite
@@ -693,7 +693,52 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_test("pie-session stop", "pie-session", {"action": "stop", "timeout": PIE_TIMEOUT}, has("success"), timeout=PIE_TIMEOUT)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Suite 14: Python Scripting
+    # Suite 14: Config Tools
+    # ══════════════════════════════════════════════════════════════════════════
+    begin_suite("config")
+
+    # Bridge tools: get / set / validate
+    run_test("get-config-value r.Bloom", "get-config-value", {
+        "section": "/Script/Engine.RendererSettings",
+        "key": "r.Bloom",
+        "config_type": "Engine",
+    }, has("value"))
+
+    run_test("validate-config-key r.Bloom", "validate-config-key", {
+        "section": "/Script/Engine.RendererSettings",
+        "key": "r.Bloom",
+        "config_type": "Engine",
+    }, has("valid"))
+
+    # set-config-value: write a test key, then read it back
+    cfg_section = "/Script/SoftUETest"
+    cfg_key = f"TestKey_{RUN_TS}_{mode_name}"
+    run_test("set-config-value test key", "set-config-value", {
+        "section": cfg_section,
+        "key": cfg_key,
+        "value": "42",
+        "config_type": "Engine",
+    }, has("success"))
+    run_test("get-config-value test key", "get-config-value", {
+        "section": cfg_section,
+        "key": cfg_key,
+        "config_type": "Engine",
+    }, starts_with("value", "42"))
+
+    # CLI subcommands (offline — no bridge required)
+    run_cli("config tree", "config", "tree", "--exists-only",
+            check_stdout=lambda s: '"layers"' in s)
+    run_cli("config tree ini", "config", "tree", "--format", "ini", "--exists-only",
+            check_stdout=lambda s: '"format": "ini"' in s or '"layers": []' in s)
+    run_cli("config get search", "config", "get", "--search", "r.Bloom",
+            check_stdout=lambda s: "Bloom" in s or '"results"' in s or '"value"' in s)
+    run_cli("config diff audit", "config", "diff", "--audit",
+            check_stdout=lambda s: '"diffs"' in s or '"sections"' in s or '"overrides"' in s or "no overrides" in s.lower())
+    run_cli("config audit", "config", "audit",
+            check_stdout=lambda s: '"overrides"' in s or '"sections"' in s or "no overrides" in s.lower())
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Suite 15: Python Scripting
     # ══════════════════════════════════════════════════════════════════════════
     begin_suite("python-scripting")
 
@@ -712,7 +757,7 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_cli("delete-script", "delete-script", script_name)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Suite 15: Insights
+    # Suite 16: Insights
     # ══════════════════════════════════════════════════════════════════════════
     begin_suite("insights")
 

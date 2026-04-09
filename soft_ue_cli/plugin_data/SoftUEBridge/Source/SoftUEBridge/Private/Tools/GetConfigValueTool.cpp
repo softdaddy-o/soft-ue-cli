@@ -50,8 +50,9 @@ FBridgeToolResult UGetConfigValueTool::Execute(const TSharedPtr<FJsonObject>& Ar
 	FString Value;
 	if (!GConfig || !GConfig->GetString(*Section, *Key, Value, Filename))
 	{
-		FConfigSection* Sec = GConfig ? GConfig->GetSectionPrivate(*Section, false, false, Filename) : nullptr;
-		if (!Sec)
+		TArray<FString> SectionEntries;
+		const bool bHasSection = GConfig && GConfig->GetSection(*Section, SectionEntries, Filename);
+		if (!bHasSection)
 		{
 			return FBridgeToolResult::Error(FString::Printf(TEXT("Section '%s' not found in %s config"), *Section, *ConfigType));
 		}

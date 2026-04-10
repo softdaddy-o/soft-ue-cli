@@ -78,6 +78,15 @@ def _parse_vector(csv: str) -> list[float]:
         sys.exit(1)
 
 
+def _parse_int_list(csv: str) -> list[int]:
+    """Parse a comma-separated string like '0,0,1920,1080' into a list of ints."""
+    try:
+        return [int(x) for x in csv.split(",")]
+    except ValueError:
+        print(f"error: expected comma-separated integers, got '{csv}'", file=sys.stderr)
+        sys.exit(1)
+
+
 def _parse_json_arg(value: str, flag: str) -> object:
     """Parse a JSON string, printing an error and exiting on failure."""
     try:
@@ -468,7 +477,7 @@ def cmd_capture_screenshot(args: argparse.Namespace) -> None:
     if args.window_name:
         arguments["window_name"] = args.window_name
     if args.region:
-        arguments["region"] = [int(x) for x in args.region.split(",")]
+        arguments["region"] = _parse_int_list(args.region)
     if args.format:
         arguments["format"] = args.format
     if args.output:
@@ -513,7 +522,11 @@ def cmd_query_mpc(args: argparse.Namespace) -> None:
         if val.startswith("["):
             arguments["value"] = _parse_json_arg(val, "--value")
         else:
-            arguments["value"] = float(val)
+            try:
+                arguments["value"] = float(val)
+            except ValueError:
+                print(f"error: expected a number or JSON array, got '{val}'", file=sys.stderr)
+                sys.exit(1)
     if args.world:
         arguments["world"] = args.world
     _print_json(_run_tool("query-mpc", arguments))
@@ -845,7 +858,7 @@ def cmd_add_graph_node(args: argparse.Namespace) -> None:
     if args.graph_name:
         arguments["graph_name"] = args.graph_name
     if args.position:
-        arguments["position"] = [int(x) for x in args.position.split(",")]
+        arguments["position"] = _parse_int_list(args.position)
     if args.no_auto_position:
         arguments["auto_position"] = False
     if args.connect_to_node:

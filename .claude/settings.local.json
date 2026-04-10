@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"\\\\\\\\$\\\\|shell\\\\|bash\\\\|cmd\\\\|powershell\\\\|exec\\\\|system\" /c/Users/mistw/soft-ue-cli/soft_ue_cli --include=\"*.py\")",
+      "Bash(grep:*)",
+      "Bash(git checkout:*)",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(git stash:*)",
+      "Bash(python -m pytest tests/test_main.py::test_cmd_setup_contains_check_setup_command -x -q)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)",
+      "Bash(gh repo:*)",
+      "Bash(git remote:*)",
+      "Bash(gh pr:*)"
+    ]
+  }
+}

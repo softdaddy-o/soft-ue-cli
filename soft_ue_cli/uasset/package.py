@@ -111,35 +111,78 @@ class UAssetPackage:
                 offset=0,
             )
 
-        legacy_file_version = r.read_int32()  # LegacyFileVersion
-
-        if legacy_file_version <= -8:
+        # LegacyFileVersion meanings (from UE source PackageFileSummary.cpp):
+        #   -2  enum-based custom versions
+        #   -3  guid-based custom versions
+        #   -4  removal of UE3 version (LegacyUE3Version is skipped)
+        #   -5  replacement of UE3 version write
+        #   -6  optimizations to custom version serialization
+        #   -7  texture allocation info removed
+        #   -8  UE5 version added to summary (FileVersionUE5)
+        #   -9  contractual change in early-exit behavior for FileVersionTooNew
+        legacy_file_version = r.read_int32()
+        if legacy_file_version >= 0:
             raise UAssetError(
-                f"Unsupported package format version {legacy_file_version} "
-                f"(UE 5.4+ format). The offline parser only supports "
-                f"LegacyFileVersion -7 through -2 (UE 4.x / UE 5.0-5.3).",
+                f"Legacy UE3 .uasset format not supported (LegacyFileVersion={legacy_file_version})",
                 offset=4,
             )
 
-        r.read_int32()  # LegacyUE3Version
+        if legacy_file_version != -4:
+            r.read_int32()  # LegacyUE3Version
+
         s.file_version_ue4 = r.read_int32()
-        s.file_version_ue5 = r.read_int32()
+
+        if legacy_file_version <= -8:
+            # UE 5.4+ adds FileVersionUE5 to the summary
+            s.file_version_ue5 = r.read_int32()
+
         r.read_int32()  # FileVersionLicenseeUE
 
-        custom_version_count = r.read_int32()
-        for _ in range(custom_version_count):
-            r.skip(16 + 4)
+        # UE5 PACKAGE_SAVED_HASH (FileVersionUE5 >= 1016) serializes the
+        # SavedHash (FIoHash, 20 bytes) and TotalHeaderSize BEFORE the
+        # custom version container. The older format serializes neither
+        # here — TotalHeaderSize comes after custom versions instead.
+        saved_hash_serialized = s.file_version_ue5 >= 1016
+        if saved_hash_serialized:
+            r.skip(20)  # SavedHash (FIoHash)
+            s.total_header_size = r.read_int32()
 
-        s.total_header_size = r.read_int32()
-        r.read_fstring()  # FolderName
+        # Custom versions (format depends on legacy_file_version):
+        #   -2           : enum-based (int32 tag + int32 version)
+        #   -3..-5       : guid-based (FGuid + int32 version)
+        #   -6 and below : optimized (FGuid + int32 version + optional friendly name)
+        # For our needs we only need to skip past them. The optimized format
+        # adds an FString friendly name after each (GUID, version) pair.
+        custom_version_count = r.read_int32()
+        if legacy_file_version == -2:
+            # Enum-based: int32 tag + int32 version
+            for _ in range(custom_version_count):
+                r.skip(8)
+        else:
+            # GUID-based: FGuid(16) + int32 version
+            for _ in range(custom_version_count):
+                r.skip(16 + 4)
+
+        if not saved_hash_serialized:
+            s.total_header_size = r.read_int32()
+
+        r.read_fstring()  # PackageName (was FolderName in older versions)
         s.package_flags = r.read_uint32()
 
         s.name_count = r.read_int32()
         s.name_offset = r.read_int32()
 
-        r.read_int32()  # SoftObjectPathsCount
-        r.read_int32()  # SoftObjectPathsOffset
+        # UE 5.4+ (ADD_SOFTOBJECTPATH_LIST, FileVersionUE5 >= 1008) adds
+        # soft object paths count/offset to the summary.
+        if s.file_version_ue5 >= 1008:
+            r.read_int32()  # SoftObjectPathsCount
+            r.read_int32()  # SoftObjectPathsOffset
+
+        # LocalizationId is only present when not filter-editor-only.
+        # Assets saved from the editor always include it.
         r.read_fstring()  # LocalizationId
+
+        # GatherableTextData (always serialized for versions we care about).
         r.read_int32()  # GatherableTextDataCount
         r.read_int32()  # GatherableTextDataOffset
 
@@ -147,44 +190,26 @@ class UAssetPackage:
         s.export_offset = r.read_int32()
         s.import_count = r.read_int32()
         s.import_offset = r.read_int32()
+
+        # UE 5.4+ VERSE_CELLS (FileVersionUE5 >= 1015) adds CellExport/Import.
+        if s.file_version_ue5 >= 1015:
+            r.read_int32()  # CellExportCount
+            r.read_int32()  # CellExportOffset
+            r.read_int32()  # CellImportCount
+            r.read_int32()  # CellImportOffset
+
+        # UE 5.4+ METADATA_SERIALIZATION_OFFSET (FileVersionUE5 >= 1014)
+        if s.file_version_ue5 >= 1014:
+            r.read_int32()  # MetaDataOffset
+
         s.depends_offset = r.read_int32()
         s.soft_package_references_count = r.read_int32()
         s.soft_package_references_offset = r.read_int32()
 
-        r.read_int32()  # SearchableNamesOffset
-        r.read_int32()  # ThumbnailTableOffset
-        r.read_fguid()  # Guid
-        r.read_fguid()  # PersistentGuid
-
-        generation_count = r.read_int32()
-        for _ in range(generation_count):
-            r.read_int32()
-            r.read_int32()
-
-        r.read_uint32()
-        r.read_uint32()
-        r.read_uint32()
-        r.read_uint32()
-        r.read_fstring()
-        r.read_uint32()
-        r.read_uint32()
-        r.read_uint32()
-        r.read_uint32()
-        r.read_fstring()
-
-        r.read_uint32()  # CompressionFlags
-        compressed_chunks_count = r.read_int32()
-        for _ in range(compressed_chunks_count):
-            r.skip(16)
-
-        r.read_uint32()  # PackageSource
-
-        additional_count = r.read_int32()
-        for _ in range(additional_count):
-            r.read_fstring()
-
-        s.asset_registry_data_offset = r.read_int32()
-        s.bulk_data_start_offset = r.read_int32()
+        # We don't need any fields beyond this point for current tooling
+        # (name/import/export/depends are the only offsets we consume).
+        # The remaining header fields vary significantly across versions
+        # and are not worth parsing unless a caller needs them.
 
     def _parse_name_table(self) -> None:
         if self.summary.name_count <= 0 or self.summary.name_offset <= 0:

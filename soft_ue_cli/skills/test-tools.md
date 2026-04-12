@@ -1,7 +1,7 @@
 ---
 name: test-tools
 description: Exhaustive integration test of all soft-ue-cli tools against a live UE instance. Writes a JSON report.
-version: 2.3.0
+version: 2.4.0
 ---
 
 # test-tools — Integration Test Suite
@@ -767,6 +767,66 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_cli("run-python-script saved", "run-python-script", "--name", script_name,
             check_stdout=lambda s: "output" in s or "soft-ue-cli" in s)
     run_cli("delete-script", "delete-script", script_name)
+
+    helper_script = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_PATH)), f"soft_ue_helper_{RUN_TS}_{mode_name}.py")
+    with open(helper_script, "w", encoding="utf-8") as fh:
+        fh.write(
+            "from soft_ue_bridge import call\n"
+            "result = call('query-level', {'limit': 1})\n"
+            "print('HELPER_ACTORS', len(result.get('actors', [])))\n"
+        )
+    run_cli("run-python-script helper import", "run-python-script", "--script-path", helper_script,
+            check_stdout=lambda s: "HELPER_ACTORS" in s)
+
+    begin_suite("advanced-automation")
+
+    run_test("batch-call pie/query/logs smoke", "batch-call", {
+        "calls": [
+            {"tool": "pie-tick", "args": {"frames": 1}},
+            {"tool": "query-level", "args": {"limit": 3}},
+            {"tool": "get-logs", "args": {"lines": 3}},
+        ]
+    }, lambda r: r.get("status") in {"ok", "error"} and isinstance(r.get("results"), list))
+
+    run_test("pie-tick explicit delta", "pie-tick", {
+        "frames": 2,
+        "delta": 0.0166666,
+    }, has("ticks"))
+
+    _skeletal_actor_tag = None
+    try:
+        _skeletal_resp = caller("query-level", {"limit": 25, "include_components": True}, None)
+        for _actor in _skeletal_resp.get("actors", []):
+            _components = _actor.get("components", [])
+            if any("SkeletalMeshComponent" in str(_c.get("class", "")) for _c in _components):
+                _skeletal_actor_tag = _actor.get("label") or _actor.get("name")
+                break
+    except Exception:
+        _skeletal_actor_tag = None
+    if _skeletal_actor_tag:
+        run_test("inspect-anim-instance smoke", "inspect-anim-instance", {
+            "actor_tag": _skeletal_actor_tag,
+            "include": ["state_machines", "montages"],
+        }, has("anim_instance_class"))
+    else:
+        _record("inspect-anim-instance smoke", "inspect-anim-instance", {},
+                True, 0, "skipped: no skeletal actor found in current level")
+
+    run_test("call-function transient native", "call-function", {
+        "class_path": "/Script/Engine.Actor",
+        "function_name": "K2_GetActorLocation",
+        "spawn_transient": True,
+    }, lambda r: r.get("success") is True or "return_value" in r)
+
+    _batch_json = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_PATH)), f"soft_ue_batch_{RUN_TS}_{mode_name}.json")
+    with open(_batch_json, "w", encoding="utf-8") as fh:
+        json.dump([{}, {}], fh)
+    run_cli("call-function batch-json", "call-function",
+            "--class-path", "/Script/Engine.Actor",
+            "--function-name", "K2_GetActorLocation",
+            "--spawn-transient",
+            "--batch-json", _batch_json,
+            check_stdout=lambda s: '"results"' in s and '"count"' in s)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 16: Insights

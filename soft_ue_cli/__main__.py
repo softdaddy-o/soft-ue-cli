@@ -144,6 +144,33 @@ def cmd_batch_delete_actors(args: argparse.Namespace) -> None:
     _print_json(_run_tool("batch-delete-actors", arguments))
 
 
+def cmd_batch_call(args: argparse.Namespace) -> None:
+    if args.calls_file:
+        try:
+            with open(args.calls_file, "r", encoding="utf-8") as handle:
+                calls = json.load(handle)
+        except FileNotFoundError:
+            print(f"error: file not found: {args.calls_file}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError:
+            print("error: --calls-file must contain valid JSON", file=sys.stderr)
+            sys.exit(1)
+    elif args.calls:
+        calls = _parse_json_arg(args.calls, "--calls")
+    else:
+        print("error: --calls or --calls-file required", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(calls, list):
+        print("error: calls must be a JSON array", file=sys.stderr)
+        sys.exit(1)
+
+    arguments: dict = {"calls": calls}
+    if args.continue_on_error:
+        arguments["continue_on_error"] = True
+    _print_json(_run_tool("batch-call", arguments))
+
+
 def cmd_query_level(args: argparse.Namespace) -> None:
     arguments: dict = {"limit": args.limit}
     if args.actor_name:
@@ -168,13 +195,43 @@ def cmd_query_level(args: argparse.Namespace) -> None:
 
 
 def cmd_call_function(args: argparse.Namespace) -> None:
-    arguments: dict = {
-        "actor_name": args.actor_name,
-        "function_name": args.function_name,
-    }
+    if not args.function_name:
+        print("error: function name is required", file=sys.stderr)
+        sys.exit(1)
+    if not args.actor_name and not args.class_path:
+        print("error: provide an actor target or --class-path", file=sys.stderr)
+        sys.exit(1)
+
+    arguments: dict = {"function_name": args.function_name}
+    if args.actor_name:
+        arguments["actor_name"] = args.actor_name
+    if args.class_path:
+        arguments["class_path"] = args.class_path
     if args.args:
         arguments["args"] = _parse_json_arg(args.args, "--args")
-    _print_json(_run_tool("call-function", arguments))
+    if args.spawn_transient:
+        arguments["spawn_transient"] = True
+    if args.use_cdo:
+        arguments["use_cdo"] = True
+    if args.seed is not None:
+        arguments["seed"] = args.seed
+    if args.world:
+        arguments["world"] = args.world
+    if args.batch_json:
+        try:
+            with open(args.batch_json, "r", encoding="utf-8") as handle:
+                arguments["batch"] = json.load(handle)
+        except FileNotFoundError:
+            print(f"error: file not found: {args.batch_json}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError:
+            print("error: --batch-json must contain valid JSON", file=sys.stderr)
+            sys.exit(1)
+
+    result = _run_tool("call-function", arguments)
+    if args.output:
+        Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    _print_json(result)
 
 
 def cmd_set_property(args: argparse.Namespace) -> None:
@@ -667,6 +724,28 @@ def cmd_pie_session(args: argparse.Namespace) -> None:
     if args.wait_timeout is not None:
         arguments["wait_timeout"] = args.wait_timeout
     _print_json(_run_tool("pie-session", arguments))
+
+
+def cmd_pie_tick(args: argparse.Namespace) -> None:
+    arguments: dict = {"frames": args.frames}
+    if args.delta is not None:
+        arguments["delta"] = args.delta
+    if args.no_auto_start:
+        arguments["auto_start"] = False
+    if args.map:
+        arguments["map"] = args.map
+    _print_json(_run_tool("pie-tick", arguments))
+
+
+def cmd_inspect_anim_instance(args: argparse.Namespace) -> None:
+    arguments: dict = {"actor_tag": args.actor_tag}
+    if args.mesh_component:
+        arguments["mesh_component"] = args.mesh_component
+    if args.include:
+        arguments["include"] = [part for part in args.include.split(",") if part]
+    if args.blend_weights:
+        arguments["blend_weights"] = [part for part in args.blend_weights.split(",") if part]
+    _print_json(_run_tool("inspect-anim-instance", arguments))
 
 
 def cmd_trigger_input(args: argparse.Namespace) -> None:
@@ -1934,6 +2013,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch_delete.add_argument("--actors", required=True, help="JSON array of actor names or labels")
     p_batch_delete.set_defaults(func=cmd_batch_delete_actors)
 
+    # batch-call
+    p_batch_call = sub.add_parser(
+        "batch-call",
+        help="Dispatch multiple bridge tool calls in-process, in order.",
+        description=(
+            "Execute a JSON array of bridge tool calls without extra HTTP roundtrips.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli batch-call --calls '[{\"tool\":\"pie-tick\",\"args\":{\"frames\":30}}]'\n"
+            "  soft-ue-cli batch-call --calls-file scenarios/walk_stop.json --continue-on-error"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_batch_call.add_argument("--calls", metavar="JSON", help="JSON array of {tool, args} entries")
+    p_batch_call.add_argument("--calls-file", metavar="PATH", help="Path to a JSON file containing the calls array")
+    p_batch_call.add_argument("--continue-on-error", action="store_true", help="Keep dispatching after a failed entry")
+    p_batch_call.set_defaults(func=cmd_batch_call)
+
     # query-level
     p_ql = sub.add_parser(
         "query-level",
@@ -1977,22 +2073,29 @@ def build_parser() -> argparse.ArgumentParser:
     # call-function
     p_cf = sub.add_parser(
         "call-function",
-        help="Call a BlueprintCallable function on an actor by name.",
+        help="Call a function on an actor, class default object, or transient instance.",
         description=(
-            "Calls a UFunction on the named actor using UE's reflection system.\n"
-            "The function must be BlueprintCallable or marked with UFUNCTION().\n"
-            "Returns any output parameters and the return value as JSON.\n\n"
-            "ARGS format: JSON object mapping parameter names to values.\n"
-            '  e.g. \'{"damage": 25.0, "cause": "fire"}\'\n\n'
+            "Call a function on an actor, CDO, or transient instance.\n\n"
             "EXAMPLES:\n"
-            "  No args:    soft-ue-cli call-function BP_Hero Jump\n"
-            "  With args:  soft-ue-cli call-function BP_Hero TakeDamage --args '{\"damage\": 25.0}'"
+            "  Legacy positional: soft-ue-cli call-function BP_Hero Jump\n"
+            "  Actor flags:        soft-ue-cli call-function --actor-name BP_Hero --function-name TakeDamage --args '{\"damage\": 25.0}'\n"
+            "  CDO mode:           soft-ue-cli call-function --class-path /Game/Foo --function-name Bar --use-cdo\n"
+            "  Batch sweep:        soft-ue-cli call-function --class-path /Game/Foo --function-name Bar --use-cdo --batch-json sweep.json --output golden.json --seed 42"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cf.add_argument("actor_name", help="Actor name or label as shown in query-level output")
-    p_cf.add_argument("function_name", help="Exact function name (case-sensitive)")
+    p_cf.add_argument("actor_name", nargs="?", help="Legacy positional actor name or label")
+    p_cf.add_argument("function_name", nargs="?", help="Legacy positional function name")
+    p_cf.add_argument("--actor-name", dest="actor_name", metavar="NAME", help="Actor name or label (supports wildcards)")
+    p_cf.add_argument("--class-path", metavar="PATH", help="Blueprint/class path for --use-cdo or --spawn-transient")
+    p_cf.add_argument("--function-name", dest="function_name", metavar="NAME", help="Exact function name (case-sensitive)")
     p_cf.add_argument("--args", metavar="JSON", help="Function arguments as a JSON object")
+    p_cf.add_argument("--spawn-transient", action="store_true", help="Spawn a transient instance and call the function on it")
+    p_cf.add_argument("--use-cdo", action="store_true", help="Call the function on the class default object")
+    p_cf.add_argument("--seed", type=int, metavar="INT", help="Pin FMath::RandInit(seed) before each call")
+    p_cf.add_argument("--world", choices=["editor", "pie", "game"], help="World context for actor lookup")
+    p_cf.add_argument("--batch-json", metavar="PATH", help="Path to a JSON file containing an array of args objects")
+    p_cf.add_argument("--output", metavar="PATH", help="Write the result JSON to a file")
     p_cf.set_defaults(func=cmd_call_function)
 
     # set-property (runtime actors)
@@ -2491,6 +2594,42 @@ def build_parser() -> argparse.ArgumentParser:
     p_ps.add_argument("--expected", metavar="JSON", help="Expected value as JSON (for wait-for)")
     p_ps.add_argument("--wait-timeout", type=float, metavar="SEC", help="Timeout for wait-for (default: 10)")
     p_ps.set_defaults(func=cmd_pie_session)
+
+    p_pt = sub.add_parser(
+        "pie-tick",
+        help="Advance the PIE world by N frames at a pinned delta time.",
+        description=(
+            "Advance the PIE world deterministically. Starts PIE if not running.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli pie-tick --frames 30\n"
+            "  soft-ue-cli pie-tick --frames 60 --delta 0.0166666\n"
+            "  soft-ue-cli pie-tick --frames 1 --no-auto-start"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_pt.add_argument("--frames", type=int, required=True, metavar="N", help="Number of frames to advance (must be > 0)")
+    p_pt.add_argument("--delta", type=float, metavar="SEC", help="Pinned delta seconds per frame (default: 1/60)")
+    p_pt.add_argument("--no-auto-start", action="store_true", help="Error out if PIE is not already running")
+    p_pt.add_argument("--map", metavar="PATH", help="Map to load when auto-starting PIE")
+    p_pt.set_defaults(func=cmd_pie_tick)
+
+    p_iai = sub.add_parser(
+        "inspect-anim-instance",
+        help="One-shot snapshot of a target actor's UAnimInstance.",
+        description=(
+            "Read UAnimInstance runtime state.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli inspect-anim-instance --actor-tag TestCharacter\n"
+            "  soft-ue-cli inspect-anim-instance --actor-tag TestCharacter --include state_machines,montages\n"
+            "  soft-ue-cli inspect-anim-instance --actor-tag TestCharacter --blend-weights LayerAim,LayerLocomotion"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_iai.add_argument("--actor-tag", required=True, metavar="TAG", help="Actor tag to search for")
+    p_iai.add_argument("--mesh-component", metavar="NAME", help="Named SkeletalMeshComponent (default: first found)")
+    p_iai.add_argument("--include", metavar="LIST", help="Comma-separated sections: state_machines,montages,notifies,blend_weights")
+    p_iai.add_argument("--blend-weights", metavar="LIST", help="Comma-separated UAnimInstance float property names to read")
+    p_iai.set_defaults(func=cmd_inspect_anim_instance)
 
     p_ti = sub.add_parser(
         "trigger-input",

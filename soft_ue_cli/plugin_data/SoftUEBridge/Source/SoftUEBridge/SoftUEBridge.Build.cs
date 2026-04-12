@@ -45,7 +45,10 @@ public class SoftUEBridge : ModuleRules
 
 			// AI navigation (trigger-input move-to)
 			"AIModule",
-			"NavigationSystem"
+			"NavigationSystem",
+
+			// Animation state machine inspection
+			"AnimGraphRuntime"
 		});
 
 		// Editor-only modules (viewport capture + foliage/landscape queries)

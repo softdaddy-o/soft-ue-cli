@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from unittest.mock import patch
@@ -16,10 +17,14 @@ from soft_ue_cli.__main__ import (
     _validate_script_name,
     build_parser,
     cmd_add_graph_node,
+    cmd_batch_call,
+    cmd_call_function,
     cmd_capture_screenshot,
     cmd_capture_viewport,
     cmd_delete_script,
+    cmd_inspect_anim_instance,
     cmd_list_scripts,
+    cmd_pie_tick,
     cmd_query_enum,
     cmd_query_mpc,
     cmd_query_struct,
@@ -892,3 +897,173 @@ def test_cmd_query_struct_calls_tool():
     with patch("soft_ue_cli.__main__.call_tool", return_value={"members": []}) as mock_call:
         cmd_query_struct(args)
     mock_call.assert_called_once_with("query-struct", {"asset_path": "/Game/Data/S_Result"})
+
+
+# -- batch-call ----------------------------------------------------------------
+
+
+def test_batch_call_parses_required_json():
+    payload = '[{"tool":"pie-tick","args":{"frames":10}}]'
+    args = build_parser().parse_args(["batch-call", "--calls", payload])
+    assert args.command == "batch-call"
+    assert args.calls == payload
+    assert args.calls_file is None
+    assert args.continue_on_error is False
+
+
+def test_batch_call_parses_file_and_continue_flag():
+    args = build_parser().parse_args(["batch-call", "--calls-file", "scenario.json", "--continue-on-error"])
+    assert args.calls is None
+    assert args.calls_file == "scenario.json"
+    assert args.continue_on_error is True
+
+
+def test_batch_call_forwards_to_run_tool():
+    ns = argparse.Namespace(
+        calls='[{"tool":"pie-tick","args":{"frames":5}}]',
+        calls_file=None,
+        continue_on_error=False,
+    )
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"status": "ok"}) as mock_run:
+        cmd_batch_call(ns)
+    mock_run.assert_called_once_with("batch-call", {"calls": [{"tool": "pie-tick", "args": {"frames": 5}}]})
+
+
+def test_batch_call_rejects_non_array_json():
+    ns = argparse.Namespace(calls='{"tool":"pie-tick"}', calls_file=None, continue_on_error=False)
+    with pytest.raises(SystemExit) as exc:
+        cmd_batch_call(ns)
+    assert exc.value.code == 1
+
+
+# -- pie-tick ------------------------------------------------------------------
+
+
+def test_pie_tick_parses_required_frames():
+    args = build_parser().parse_args(["pie-tick", "--frames", "30"])
+    assert args.command == "pie-tick"
+    assert args.frames == 30
+    assert args.delta is None
+    assert args.no_auto_start is False
+    assert args.map is None
+
+
+def test_pie_tick_parses_all_flags():
+    args = build_parser().parse_args([
+        "pie-tick",
+        "--frames", "60",
+        "--delta", "0.0166666",
+        "--no-auto-start",
+        "--map", "/Game/Maps/Test",
+    ])
+    assert args.frames == 60
+    assert args.delta == pytest.approx(0.0166666)
+    assert args.no_auto_start is True
+    assert args.map == "/Game/Maps/Test"
+
+
+def test_pie_tick_forwards_to_run_tool():
+    ns = argparse.Namespace(frames=30, delta=None, no_auto_start=False, map=None)
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"ticks": 30}) as mock_run:
+        cmd_pie_tick(ns)
+    mock_run.assert_called_once_with("pie-tick", {"frames": 30})
+
+
+# -- inspect-anim-instance -----------------------------------------------------
+
+
+def test_inspect_anim_instance_parses_required():
+    args = build_parser().parse_args(["inspect-anim-instance", "--actor-tag", "TestCharacter"])
+    assert args.command == "inspect-anim-instance"
+    assert args.actor_tag == "TestCharacter"
+    assert args.mesh_component is None
+    assert args.include is None
+    assert args.blend_weights is None
+
+
+def test_inspect_anim_instance_parses_all_flags():
+    args = build_parser().parse_args([
+        "inspect-anim-instance",
+        "--actor-tag", "TestCharacter",
+        "--mesh-component", "CharacterMesh0",
+        "--include", "state_machines,montages",
+        "--blend-weights", "LayerAim,LayerLocomotion",
+    ])
+    assert args.mesh_component == "CharacterMesh0"
+    assert args.include == "state_machines,montages"
+    assert args.blend_weights == "LayerAim,LayerLocomotion"
+
+
+def test_inspect_anim_instance_forwards_to_run_tool():
+    ns = argparse.Namespace(
+        actor_tag="TestCharacter",
+        mesh_component="CharacterMesh0",
+        include="state_machines,montages",
+        blend_weights="LayerAim",
+    )
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"anim_instance_class": "/Script/Test"}) as mock_run:
+        cmd_inspect_anim_instance(ns)
+    mock_run.assert_called_once_with(
+        "inspect-anim-instance",
+        {
+            "actor_tag": "TestCharacter",
+            "mesh_component": "CharacterMesh0",
+            "include": ["state_machines", "montages"],
+            "blend_weights": ["LayerAim"],
+        },
+    )
+
+
+# -- call-function extensions --------------------------------------------------
+
+
+def test_call_function_cdo_mode():
+    args = build_parser().parse_args([
+        "call-function",
+        "--class-path", "/Game/Test/BP_TestActor",
+        "--function-name", "ComputeValue",
+        "--use-cdo",
+        "--args", '{"flag":true}',
+    ])
+    assert args.class_path == "/Game/Test/BP_TestActor"
+    assert args.use_cdo is True
+    assert args.spawn_transient is False
+    assert args.actor_name is None
+
+
+def test_call_function_transient_mode_with_seed():
+    args = build_parser().parse_args([
+        "call-function",
+        "--class-path", "/Game/Foo",
+        "--function-name", "Bar",
+        "--spawn-transient",
+        "--seed", "42",
+    ])
+    assert args.class_path == "/Game/Foo"
+    assert args.spawn_transient is True
+    assert args.seed == 42
+
+
+def test_call_function_batch_json_forwards(tmp_path):
+    batch = [{"arg1": 1}, {"arg1": 2}]
+    batch_file = tmp_path / "sweep.json"
+    batch_file.write_text(json.dumps(batch), encoding="utf-8")
+
+    ns = argparse.Namespace(
+        actor_name=None,
+        class_path="/Game/Foo",
+        function_name="Bar",
+        args=None,
+        spawn_transient=False,
+        use_cdo=True,
+        seed=None,
+        world=None,
+        batch_json=str(batch_file),
+        output=None,
+    )
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_call_function(ns)
+    mock_run.assert_called_once_with(
+        "call-function",
+        {"function_name": "Bar", "class_path": "/Game/Foo", "use_cdo": True, "batch": batch},
+    )

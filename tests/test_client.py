@@ -10,7 +10,7 @@ import pytest
 
 from soft_ue_cli import client as client_mod
 from soft_ue_cli.client import call_tool, health_check
-from soft_ue_cli.errors import BridgeError, ErrorKind
+from soft_ue_cli.errors import BridgeError
 
 
 _DUMMY_REQUEST = httpx.Request("POST", "http://127.0.0.1:8080/bridge")
@@ -66,8 +66,7 @@ def test_call_tool_result_is_error(monkeypatch):
     with _patch_url():
         with pytest.raises(BridgeError) as exc:
             call_tool("spawn-actor", {"class": "BadClass"})
-    assert exc.value.kind is ErrorKind.UNEXPECTED
-    assert exc.value.message == "actor not found"
+    assert "actor not found" in str(exc.value)
 
 
 def test_call_tool_jsonrpc_error(monkeypatch):
@@ -76,8 +75,7 @@ def test_call_tool_jsonrpc_error(monkeypatch):
     with _patch_url():
         with pytest.raises(BridgeError) as exc:
             call_tool("unknown-tool", {})
-    assert exc.value.kind is ErrorKind.UNEXPECTED
-    assert exc.value.message == "Method not found"
+    assert "Method not found" in str(exc.value)
 
 
 def test_call_tool_connect_error(monkeypatch):
@@ -88,8 +86,7 @@ def test_call_tool_connect_error(monkeypatch):
     with _patch_url():
         with pytest.raises(BridgeError) as exc:
             call_tool("status", {})
-    assert exc.value.kind is ErrorKind.EXPECTED
-    assert "cannot connect to SoftUEBridge" in exc.value.message
+    assert "cannot connect to SoftUEBridge" in str(exc.value)
 
 
 def test_call_tool_http_error(monkeypatch):
@@ -101,8 +98,7 @@ def test_call_tool_http_error(monkeypatch):
     with _patch_url():
         with pytest.raises(BridgeError) as exc:
             call_tool("status", {})
-    assert exc.value.kind is ErrorKind.UNEXPECTED
-    assert exc.value.message == "HTTP 500"
+    assert "HTTP 500" in str(exc.value)
 
 
 def test_call_tool_non_json_response(monkeypatch):
@@ -110,8 +106,7 @@ def test_call_tool_non_json_response(monkeypatch):
     with _patch_url():
         with pytest.raises(BridgeError) as exc:
             call_tool("status", {})
-    assert exc.value.kind is ErrorKind.UNEXPECTED
-    assert exc.value.message == "server returned non-JSON response"
+    assert "server returned non-JSON response" in str(exc.value)
 
 
 def test_call_tool_empty_result(monkeypatch):

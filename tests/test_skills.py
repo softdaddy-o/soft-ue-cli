@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from soft_ue_cli.skills import get_skill, list_skills
@@ -29,7 +27,14 @@ def test_list_skills_items_have_name_and_description():
 def test_list_skills_contains_blueprint_to_cpp():
     names = [s["name"] for s in list_skills()]
     assert "blueprint-to-cpp" in names
-    assert "inspect-uasset" in names
+    assert "test-tools" in names
+    assert "replay-changes" in names
+    assert "author-test" in names
+    assert "author-regression-test" in names
+    assert "author-anim-state-test" in names
+    assert "author-bp-parity-test" in names
+    assert "author-invariant-test" in names
+    assert "run-test" in names
 
 
 # -- get_skill -----------------------------------------------------------------
@@ -40,6 +45,9 @@ def test_get_skill_returns_content():
     assert content is not None
     assert len(content) > 0
     assert "blueprint-to-cpp" in content
+    assert "Dependency-first planning" in content
+    assert "soft-ue-cli query-enum" in content
+    assert "soft-ue-cli query-struct" in content
 
 
 def test_test_tools_contains_idempotent_teardown_and_insights_stop():
@@ -74,6 +82,16 @@ def test_test_tools_contains_config_suite():
     assert "OfflineSearchKey_" in content
 
 
+def test_test_tools_contains_new_automation_features():
+    content = get_skill("test-tools")
+    assert content is not None
+    assert "advanced-automation" in content
+    assert "run-python-script helper import" in content
+    assert "from soft_ue_bridge import call" in content
+    assert "batch-call pie/query/logs smoke" in content
+    assert "call-function transient native" in content
+
+
 def test_get_skill_nonexistent_returns_none():
     assert get_skill("nonexistent-skill-xyz") is None
 
@@ -87,6 +105,33 @@ def test_get_skill_path_traversal_returns_none():
 def test_get_skill_content_has_frontmatter():
     content = get_skill("blueprint-to-cpp")
     assert content.startswith("---")
+
+
+def test_replay_changes_skill_mentions_bundle_workflow():
+    content = get_skill("replay-changes")
+    assert content is not None
+    assert "Git workflow" in content
+    assert "Perforce workflow" in content
+    assert "git show :1:" in content
+    assert "p4 sync" in content
+
+
+def test_author_test_skill_mentions_supported_subskills():
+    content = get_skill("author-test")
+    assert content is not None
+    assert "author-regression-test" in content
+    assert "author-anim-state-test" in content
+    assert "author-bp-parity-test" in content
+    assert "author-invariant-test" in content
+    assert "run-test" in content
+
+
+def test_run_test_skill_mentions_supported_targets():
+    content = get_skill("run-test")
+    assert content is not None
+    assert "tests/gameplay/<file>.py" in content
+    assert "run-python-script --script-path" in content
+    assert "does not run C++ Automation Spec tests" in content
 
 
 # -- skill file validation -----------------------------------------------------

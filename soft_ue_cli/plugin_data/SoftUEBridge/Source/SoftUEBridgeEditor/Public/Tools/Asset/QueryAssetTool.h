@@ -49,6 +49,10 @@ private:
 	/** Inspect DataAsset */
 	TSharedPtr<FJsonObject> InspectDataAsset(class UDataAsset* DataAsset) const;
 
+	/** Inspect a Blueprint whose generated class derives from UDataAsset */
+	TSharedPtr<FJsonObject> InspectDataAssetBlueprint(class UBlueprint* Blueprint, int32 MaxDepth,
+		bool bIncludeDefaults, const FString& PropertyFilter, const FString& CategoryFilter) const;
+
 	/** Inspect LandscapeGrassType */
 	TSharedPtr<FJsonObject> InspectGrassType(class ULandscapeGrassType* GrassType) const;
 

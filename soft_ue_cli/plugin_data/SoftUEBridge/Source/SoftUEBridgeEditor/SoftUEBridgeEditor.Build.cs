@@ -87,7 +87,13 @@ public class SoftUEBridgeEditor : ModuleRules
 			"ImageWrapper",
 
 			// Landscape (for LandscapeGrassType inspection)
-			"Landscape"
+			"Landscape",
+
+			// Rewind Debugger
+			"RewindDebuggerInterface",
+			"TraceLog",
+			"TraceAnalysis",
+			"TraceServices"
 		});
 	}
 }

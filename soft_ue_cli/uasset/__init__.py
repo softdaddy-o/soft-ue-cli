@@ -60,21 +60,27 @@ def inspect_uasset(
             "blueprint_type": "Unknown",
         }
 
-        result.update(extract_blueprint(package, reader, offset_adjust=offset_adjust))
+        try:
+            result.update(extract_blueprint(package, reader, offset_adjust=offset_adjust))
+            is_blueprint = True
+        except UAssetError:
+            is_blueprint = False
+            result.update(_extract_generic_summary(package))
 
         variables_section = None
         functions_section = None
         components_section = None
         events_section = None
 
-        if want_all or "summary" in requested or "variables" in requested:
-            variables_section = extract_variables(package, reader, offset_adjust=offset_adjust)
-        if want_all or "summary" in requested or "functions" in requested:
-            functions_section = extract_functions(package)
-        if want_all or "summary" in requested or "components" in requested:
-            components_section = extract_components(package, reader, offset_adjust=offset_adjust)
-        if want_all or "summary" in requested or "events" in requested:
-            events_section = extract_events(package)
+        if is_blueprint:
+            if want_all or "summary" in requested or "variables" in requested:
+                variables_section = extract_variables(package, reader, offset_adjust=offset_adjust)
+            if want_all or "summary" in requested or "functions" in requested:
+                functions_section = extract_functions(package)
+            if want_all or "summary" in requested or "components" in requested:
+                components_section = extract_components(package, reader, offset_adjust=offset_adjust)
+            if want_all or "summary" in requested or "events" in requested:
+                events_section = extract_events(package)
 
         if want_all or "summary" in requested:
             result["variable_count"] = 0 if variables_section is None else variables_section.get("count", 0)
@@ -155,6 +161,46 @@ def diff_uasset(
         "has_changes": total_changes > 0,
         "total_changes": total_changes,
         "changes": changes,
+    }
+
+
+def _extract_generic_summary(package: UAssetPackage) -> dict:
+    """Fallback summary for non-Blueprint assets using the export/import tables."""
+    asset_class = "Unknown"
+    for exp in package.exports:
+        class_name = package.resolve_import_class(exp.class_index)
+        if class_name and not class_name.startswith("<") and class_name != "Package":
+            asset_class = class_name
+            break
+
+    exports = []
+    for exp in package.exports:
+        class_name = package.resolve_import_class(exp.class_index)
+        if class_name.startswith("<"):
+            class_name = "Unknown"
+        exports.append({
+            "class": class_name,
+            "name": exp.object_name,
+            "size": exp.serial_size,
+        })
+
+    imports = []
+    for imp in package.imports:
+        imports.append({
+            "class": imp.class_name,
+            "name": imp.object_name,
+        })
+
+    return {
+        "asset_class": asset_class,
+        "blueprint_type": "N/A",
+        "parent_class": "N/A",
+        "parent_class_path": "",
+        "name_count": len(package.names),
+        "import_count": len(package.imports),
+        "export_count": len(package.exports),
+        "exports": exports,
+        "imports": imports,
     }
 
 
@@ -272,4 +318,13 @@ def _diff_events(left_section: dict | None, right_section: dict | None) -> dict:
     return result
 
 
-__all__ = ["UAssetError", "VALID_SECTIONS", "diff_uasset", "inspect_uasset"]
+__all__ = [
+    "UAssetError",
+    "VALID_SECTIONS",
+    "build_replay_bundle",
+    "diff_uasset",
+    "extract_git_conflict_stages",
+    "inspect_uasset",
+    "sync_remote_version",
+    "write_replay_bundle",
+]

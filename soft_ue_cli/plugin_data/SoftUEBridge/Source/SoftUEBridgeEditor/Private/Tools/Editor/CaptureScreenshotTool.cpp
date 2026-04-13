@@ -14,8 +14,71 @@
 #include "Modules/ModuleManager.h"
 #include "Tools/BridgeToolRegistry.h"
 #include "Widgets/SWindow.h"
+#include "Widgets/Docking/SDockTab.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "Interfaces/IMainFrameModule.h"
+
+namespace
+{
+	void CollectDockTabs(const TSharedRef<SWidget>& Widget, TArray<TSharedPtr<SDockTab>>& OutTabs)
+	{
+		if (Widget->GetType() == FName(TEXT("SDockTab")))
+		{
+			OutTabs.Add(StaticCastSharedRef<SDockTab>(Widget));
+		}
+
+		FChildren* Children = Widget->GetChildren();
+		if (!Children)
+		{
+			return;
+		}
+
+		for (int32 ChildIndex = 0; ChildIndex < Children->Num(); ++ChildIndex)
+		{
+			CollectDockTabs(Children->GetChildAt(ChildIndex), OutTabs);
+		}
+	}
+
+	bool MatchesTabName(const FString& Candidate, const FString& RequestedName)
+	{
+		return Candidate.Equals(RequestedName, ESearchCase::IgnoreCase)
+			|| Candidate.Contains(RequestedName, ESearchCase::IgnoreCase);
+	}
+
+	TSharedPtr<SDockTab> FindLiveTabByLabel(const FString& RequestedName)
+	{
+		TArray<TSharedRef<SWindow>> Windows = FSlateApplication::Get().GetTopLevelWindows();
+		for (const TSharedRef<SWindow>& Window : Windows)
+		{
+			TArray<TSharedPtr<SDockTab>> Tabs;
+			CollectDockTabs(Window->GetContent(), Tabs);
+
+			for (const TSharedPtr<SDockTab>& Tab : Tabs)
+			{
+				if (Tab.IsValid() && MatchesTabName(Tab->GetTabLabel().ToString(), RequestedName))
+				{
+					return Tab;
+				}
+			}
+		}
+
+		return nullptr;
+	}
+
+	TSharedPtr<SWindow> FindTopLevelWindowByTitle(const FString& RequestedName)
+	{
+		TArray<TSharedRef<SWindow>> Windows = FSlateApplication::Get().GetTopLevelWindows();
+		for (const TSharedRef<SWindow>& Window : Windows)
+		{
+			if (MatchesTabName(Window->GetTitle().ToString(), RequestedName))
+			{
+				return Window;
+			}
+		}
+
+		return nullptr;
+	}
+}
 
 TMap<FString, FBridgeSchemaProperty> UCaptureScreenshotTool::GetInputSchema() const
 {
@@ -161,11 +224,20 @@ FBridgeToolResult UCaptureScreenshotTool::CaptureTab(
 {
 	// Try to find the tab by name
 	TSharedPtr<SDockTab> Tab = FGlobalTabmanager::Get()->FindExistingLiveTab(FTabId(*TabName));
+	if (!Tab.IsValid())
+	{
+		Tab = FindLiveTabByLabel(TabName);
+	}
 
 	if (!Tab.IsValid())
 	{
+		if (TSharedPtr<SWindow> Window = FindTopLevelWindowByTitle(TabName))
+		{
+			return CaptureFromWindow(Window, Format, OutputMode);
+		}
+
 		return FBridgeToolResult::Error(FString::Printf(
-			TEXT("Tab '%s' not found or not currently open"), *TabName));
+			TEXT("Tab '%s' not found by tab id, visible tab label, or top-level window title"), *TabName));
 	}
 
 	// Get the tab's content widget
@@ -181,6 +253,11 @@ FBridgeToolResult UCaptureScreenshotTool::CaptureTab(
 	int32 Width, Height;
 	if (!TakeWidgetScreenshot(Content.ToSharedRef(), RawData, Width, Height))
 	{
+		if (TSharedPtr<SWindow> Window = Tab->GetParentWindow())
+		{
+			return CaptureFromWindow(Window, Format, OutputMode);
+		}
+
 		return FBridgeToolResult::Error(TEXT("Failed to capture tab screenshot"));
 	}
 

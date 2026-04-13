@@ -1,11 +1,15 @@
 // Copyright softdaddy-o 2024. All Rights Reserved.
 
 #include "Tools/Asset/QueryAssetTool.h"
+#include "Tools/Asset/AssetIntrospectionUtils.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
+#include "Engine/Blueprint.h"
 #include "Engine/DataTable.h"
 #include "Engine/DataAsset.h"
+#include "Engine/UserDefinedEnum.h"
 #include "LandscapeGrassType.h"
+#include "StructUtils/UserDefinedStruct.h"
 #include "UObject/UnrealType.h"
 #include "UObject/EnumProperty.h"
 #include "Tools/BridgeToolResult.h"
@@ -220,35 +224,65 @@ FBridgeToolResult UQueryAssetTool::InspectAsset(const FString& AssetPath, int32 
 {
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("query-asset inspect: path='%s'"), *AssetPath);
 
-	// Try DataTable first
-	UDataTable* DataTable = LoadObject<UDataTable>(nullptr, *AssetPath);
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+	const FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FName(*AssetPath));
+	UObject* AssetObject = AssetData.IsValid() ? AssetData.GetAsset() : nullptr;
+	if (!AssetObject)
+	{
+		AssetObject = LoadObject<UObject>(nullptr, *AssetPath);
+	}
+
+	UDataTable* DataTable = Cast<UDataTable>(AssetObject);
 	if (DataTable)
 	{
 		TSharedPtr<FJsonObject> Result = InspectDataTable(DataTable, RowFilter);
 		return FBridgeToolResult::Json(Result);
 	}
 
-	// Try DataAsset
-	UDataAsset* DataAsset = LoadObject<UDataAsset>(nullptr, *AssetPath);
+	if (UUserDefinedEnum* UserEnum = Cast<UUserDefinedEnum>(AssetObject))
+	{
+		return FBridgeToolResult::Json(AssetIntrospectionUtils::InspectUserDefinedEnum(UserEnum, AssetPath));
+	}
+
+	if (UUserDefinedStruct* UserStruct = Cast<UUserDefinedStruct>(AssetObject))
+	{
+		return FBridgeToolResult::Json(AssetIntrospectionUtils::InspectUserDefinedStruct(UserStruct, AssetPath));
+	}
+
+	if (UBlueprint* Blueprint = Cast<UBlueprint>(AssetObject))
+	{
+		if (Blueprint->GeneratedClass && Blueprint->GeneratedClass->IsChildOf(UDataAsset::StaticClass()))
+		{
+			return FBridgeToolResult::Json(
+				InspectDataAssetBlueprint(Blueprint, MaxDepth, bIncludeDefaults, PropertyFilter, CategoryFilter));
+		}
+	}
+
+	UDataAsset* DataAsset = Cast<UDataAsset>(AssetObject);
 	if (DataAsset)
 	{
 		TSharedPtr<FJsonObject> Result = InspectDataAsset(DataAsset);
 		return FBridgeToolResult::Json(Result);
 	}
 
-	// Try LandscapeGrassType
-	ULandscapeGrassType* GrassType = LoadObject<ULandscapeGrassType>(nullptr, *AssetPath);
+	ULandscapeGrassType* GrassType = Cast<ULandscapeGrassType>(AssetObject);
 	if (GrassType)
 	{
 		return FBridgeToolResult::Json(InspectGrassType(GrassType));
 	}
 
-	// Try general UObject
-	UObject* Object = LoadObject<UObject>(nullptr, *AssetPath);
-	if (Object)
+	if (AssetObject)
 	{
-		TSharedPtr<FJsonObject> Result = InspectObject(Object, MaxDepth, bIncludeDefaults, PropertyFilter, CategoryFilter);
+		TSharedPtr<FJsonObject> Result = InspectObject(AssetObject, MaxDepth, bIncludeDefaults, PropertyFilter, CategoryFilter);
 		return FBridgeToolResult::Json(Result);
+	}
+
+	if (AssetData.IsValid())
+	{
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("Failed to load asset '%s' (class '%s')"),
+			*AssetPath,
+			*AssetData.AssetClassPath.GetAssetName().ToString()));
 	}
 
 	return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to load asset: %s"), *AssetPath));
@@ -332,6 +366,28 @@ TSharedPtr<FJsonObject> UQueryAssetTool::InspectDataAsset(UDataAsset* DataAsset)
 	Result->SetArrayField(TEXT("properties"), PropertiesArray);
 	Result->SetNumberField(TEXT("property_count"), PropertiesArray.Num());
 
+	return Result;
+}
+
+TSharedPtr<FJsonObject> UQueryAssetTool::InspectDataAssetBlueprint(UBlueprint* Blueprint, int32 MaxDepth,
+	bool bIncludeDefaults, const FString& PropertyFilter, const FString& CategoryFilter) const
+{
+	if (!Blueprint || !Blueprint->GeneratedClass || !Blueprint->GeneratedClass->IsChildOf(UDataAsset::StaticClass()))
+	{
+		return nullptr;
+	}
+
+	UObject* DefaultObject = Blueprint->GeneratedClass->GetDefaultObject();
+	if (!DefaultObject)
+	{
+		return nullptr;
+	}
+
+	TSharedPtr<FJsonObject> Result = InspectObject(DefaultObject, MaxDepth, bIncludeDefaults, PropertyFilter, CategoryFilter);
+	Result->SetStringField(TEXT("type"), TEXT("DataAssetBlueprint"));
+	Result->SetStringField(TEXT("asset_name"), Blueprint->GetName());
+	Result->SetStringField(TEXT("asset_path"), Blueprint->GetPathName());
+	Result->SetStringField(TEXT("generated_class"), Blueprint->GeneratedClass->GetName());
 	return Result;
 }
 

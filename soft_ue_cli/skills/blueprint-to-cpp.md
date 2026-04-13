@@ -1,12 +1,68 @@
 ---
 name: blueprint-to-cpp
 description: Generate C++ header and source files from a Blueprint asset
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Blueprint to C++
 
 Convert an Unreal Engine Blueprint asset into C++ `.h` and `.cpp` files.
+
+## Dependency-first planning
+
+Before generating code, plan the dependency surface for the target Blueprint.
+Do not jump straight into recursive Blueprint-to-C++ conversion.
+
+### Step 0 - discover dependencies
+
+Start with the target Blueprint:
+
+```
+soft-ue-cli query-blueprint <ASSET_PATH> --include all --include-inherited
+soft-ue-cli query-blueprint-graph <ASSET_PATH> --list-callables
+```
+
+Then inspect referenced Blueprint-only leaf types as needed:
+
+```
+soft-ue-cli query-enum /Game/Path/E_SomeUserEnum
+soft-ue-cli query-struct /Game/Path/S_SomeUserStruct
+soft-ue-cli query-asset --asset-path /Game/Path/SomeDataAsset
+```
+
+Build a dependency table with:
+- dependency path
+- dependency kind: class, component, interface, struct, enum, data asset
+- whether it already has a native C++ parent
+- the minimal surface the target Blueprint actually touches: properties, functions, enum entries, struct members
+
+### Step 0.1 - prefer promotion over recursive conversion
+
+Default strategy:
+- UserDefinedEnum and UserDefinedStruct: convert the leaf type itself to C++
+- Blueprint class with a suitable native parent: promote the used properties/functions into that parent
+- Blueprint class with no suitable native parent: create a minimal native intermediate class, then reparent the Blueprint
+- Data asset Blueprint: prefer a native base data asset class over converting every dependent Blueprint
+
+Do not recursively convert every referenced Blueprint unless the target actually depends on non-trivial Blueprint-only logic.
+
+### Step 0.2 - emit an ordered plan before codegen
+
+Produce a short plan before touching `.h` / `.cpp` output:
+
+1. leaf enums/structs to convert first
+2. native parent promotions to make next
+3. new intermediate native classes to create if no parent exists
+4. the final target Blueprint conversion step
+
+The summary should stay minimal and concrete, for example:
+
+```
+Convert 2 enums and 1 struct first.
+Promote 4 properties and 2 functions into 3 native parents.
+Create 1 native intermediate class for a Blueprint with no usable parent.
+Then generate the target Blueprint C++ files.
+```
 
 This skill has two layers:
 - **Layer 1 (Scaffolding):** Class declaration, properties, function signatures, components, constructor

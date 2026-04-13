@@ -144,6 +144,33 @@ def cmd_batch_delete_actors(args: argparse.Namespace) -> None:
     _print_json(_run_tool("batch-delete-actors", arguments))
 
 
+def cmd_batch_call(args: argparse.Namespace) -> None:
+    if args.calls_file:
+        try:
+            with open(args.calls_file, "r", encoding="utf-8") as handle:
+                calls = json.load(handle)
+        except FileNotFoundError:
+            print(f"error: file not found: {args.calls_file}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError:
+            print("error: --calls-file must contain valid JSON", file=sys.stderr)
+            sys.exit(1)
+    elif args.calls:
+        calls = _parse_json_arg(args.calls, "--calls")
+    else:
+        print("error: --calls or --calls-file required", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(calls, list):
+        print("error: calls must be a JSON array", file=sys.stderr)
+        sys.exit(1)
+
+    arguments: dict = {"calls": calls}
+    if args.continue_on_error:
+        arguments["continue_on_error"] = True
+    _print_json(_run_tool("batch-call", arguments))
+
+
 def cmd_query_level(args: argparse.Namespace) -> None:
     arguments: dict = {"limit": args.limit}
     if args.actor_name:
@@ -168,13 +195,43 @@ def cmd_query_level(args: argparse.Namespace) -> None:
 
 
 def cmd_call_function(args: argparse.Namespace) -> None:
-    arguments: dict = {
-        "actor_name": args.actor_name,
-        "function_name": args.function_name,
-    }
+    if not args.function_name:
+        print("error: function name is required", file=sys.stderr)
+        sys.exit(1)
+    if not args.actor_name and not args.class_path:
+        print("error: provide an actor target or --class-path", file=sys.stderr)
+        sys.exit(1)
+
+    arguments: dict = {"function_name": args.function_name}
+    if args.actor_name:
+        arguments["actor_name"] = args.actor_name
+    if args.class_path:
+        arguments["class_path"] = args.class_path
     if args.args:
         arguments["args"] = _parse_json_arg(args.args, "--args")
-    _print_json(_run_tool("call-function", arguments))
+    if args.spawn_transient:
+        arguments["spawn_transient"] = True
+    if args.use_cdo:
+        arguments["use_cdo"] = True
+    if args.seed is not None:
+        arguments["seed"] = args.seed
+    if args.world:
+        arguments["world"] = args.world
+    if args.batch_json:
+        try:
+            with open(args.batch_json, "r", encoding="utf-8") as handle:
+                arguments["batch"] = json.load(handle)
+        except FileNotFoundError:
+            print(f"error: file not found: {args.batch_json}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError:
+            print("error: --batch-json must contain valid JSON", file=sys.stderr)
+            sys.exit(1)
+
+    result = _run_tool("call-function", arguments)
+    if args.output:
+        Path(args.output).write_text(json.dumps(result, indent=2), encoding="utf-8")
+    _print_json(result)
 
 
 def cmd_set_property(args: argparse.Namespace) -> None:
@@ -263,6 +320,14 @@ def cmd_query_asset(args: argparse.Namespace) -> None:
     if args.search:
         arguments["search"] = args.search
     _print_json(_run_tool("query-asset", arguments))
+
+
+def cmd_query_enum(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("query-enum", {"asset_path": args.asset_path}))
+
+
+def cmd_query_struct(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("query-struct", {"asset_path": args.asset_path}))
 
 
 def cmd_delete_asset(args: argparse.Namespace) -> None:
@@ -659,6 +724,28 @@ def cmd_pie_session(args: argparse.Namespace) -> None:
     if args.wait_timeout is not None:
         arguments["wait_timeout"] = args.wait_timeout
     _print_json(_run_tool("pie-session", arguments))
+
+
+def cmd_pie_tick(args: argparse.Namespace) -> None:
+    arguments: dict = {"frames": args.frames}
+    if args.delta is not None:
+        arguments["delta"] = args.delta
+    if args.no_auto_start:
+        arguments["auto_start"] = False
+    if args.map:
+        arguments["map"] = args.map
+    _print_json(_run_tool("pie-tick", arguments))
+
+
+def cmd_inspect_anim_instance(args: argparse.Namespace) -> None:
+    arguments: dict = {"actor_tag": args.actor_tag}
+    if args.mesh_component:
+        arguments["mesh_component"] = args.mesh_component
+    if args.include:
+        arguments["include"] = [part for part in args.include.split(",") if part]
+    if args.blend_weights:
+        arguments["blend_weights"] = [part for part in args.blend_weights.split(",") if part]
+    _print_json(_run_tool("inspect-anim-instance", arguments))
 
 
 def cmd_trigger_input(args: argparse.Namespace) -> None:
@@ -1735,6 +1822,61 @@ def _resolve_config_file_arg(disc, file_arg: str, cfg_type: str, platform_name: 
     sys.exit(1)
 
 
+# ── Rewind Debugger ──────────────────────────────────────────────
+
+def cmd_rewind_start(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.channels:
+        arguments["channels"] = [c for c in args.channels.split(",") if c]
+    if args.actors:
+        arguments["actors"] = [a for a in args.actors.split(",") if a]
+    if args.file:
+        arguments["file"] = args.file
+    if args.load:
+        arguments["load"] = args.load
+    _print_json(_run_tool("rewind-start", arguments))
+
+
+def cmd_rewind_stop(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("rewind-stop", {}))
+
+
+def cmd_rewind_status(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("rewind-status", {}))
+
+
+def cmd_rewind_list_tracks(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.actor_tag:
+        arguments["actor_tag"] = args.actor_tag
+    _print_json(_run_tool("rewind-list-tracks", arguments))
+
+
+def cmd_rewind_overview(args: argparse.Namespace) -> None:
+    arguments: dict = {"actor_tag": args.actor_tag}
+    if args.tracks:
+        arguments["tracks"] = [t for t in args.tracks.split(",") if t]
+    _print_json(_run_tool("rewind-overview", arguments))
+
+
+def cmd_rewind_snapshot(args: argparse.Namespace) -> None:
+    arguments: dict = {"actor_tag": args.actor_tag}
+    if args.time is not None:
+        arguments["time"] = args.time
+    if args.frame is not None:
+        arguments["frame"] = args.frame
+    if args.include:
+        arguments["include"] = [s for s in args.include.split(",") if s]
+    _print_json(_run_tool("rewind-snapshot", arguments))
+
+
+def cmd_rewind_save(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.file:
+        arguments["file"] = args.file
+    _print_json(_run_tool("rewind-save", arguments))
+
+
 # -- Argument parser -----------------------------------------------------------
 
 
@@ -1926,6 +2068,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_batch_delete.add_argument("--actors", required=True, help="JSON array of actor names or labels")
     p_batch_delete.set_defaults(func=cmd_batch_delete_actors)
 
+    # batch-call
+    p_batch_call = sub.add_parser(
+        "batch-call",
+        help="Dispatch multiple bridge tool calls in-process, in order.",
+        description=(
+            "Execute a JSON array of bridge tool calls without extra HTTP roundtrips.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli batch-call --calls '[{\"tool\":\"pie-tick\",\"args\":{\"frames\":30}}]'\n"
+            "  soft-ue-cli batch-call --calls-file scenarios/walk_stop.json --continue-on-error"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_batch_call.add_argument("--calls", metavar="JSON", help="JSON array of {tool, args} entries")
+    p_batch_call.add_argument("--calls-file", metavar="PATH", help="Path to a JSON file containing the calls array")
+    p_batch_call.add_argument("--continue-on-error", action="store_true", help="Keep dispatching after a failed entry")
+    p_batch_call.set_defaults(func=cmd_batch_call)
+
     # query-level
     p_ql = sub.add_parser(
         "query-level",
@@ -1969,22 +2128,29 @@ def build_parser() -> argparse.ArgumentParser:
     # call-function
     p_cf = sub.add_parser(
         "call-function",
-        help="Call a BlueprintCallable function on an actor by name.",
+        help="Call a function on an actor, class default object, or transient instance.",
         description=(
-            "Calls a UFunction on the named actor using UE's reflection system.\n"
-            "The function must be BlueprintCallable or marked with UFUNCTION().\n"
-            "Returns any output parameters and the return value as JSON.\n\n"
-            "ARGS format: JSON object mapping parameter names to values.\n"
-            '  e.g. \'{"damage": 25.0, "cause": "fire"}\'\n\n'
+            "Call a function on an actor, CDO, or transient instance.\n\n"
             "EXAMPLES:\n"
-            "  No args:    soft-ue-cli call-function BP_Hero Jump\n"
-            "  With args:  soft-ue-cli call-function BP_Hero TakeDamage --args '{\"damage\": 25.0}'"
+            "  Legacy positional: soft-ue-cli call-function BP_Hero Jump\n"
+            "  Actor flags:        soft-ue-cli call-function --actor-name BP_Hero --function-name TakeDamage --args '{\"damage\": 25.0}'\n"
+            "  CDO mode:           soft-ue-cli call-function --class-path /Game/Foo --function-name Bar --use-cdo\n"
+            "  Batch sweep:        soft-ue-cli call-function --class-path /Game/Foo --function-name Bar --use-cdo --batch-json sweep.json --output golden.json --seed 42"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cf.add_argument("actor_name", help="Actor name or label as shown in query-level output")
-    p_cf.add_argument("function_name", help="Exact function name (case-sensitive)")
+    p_cf.add_argument("actor_name", nargs="?", help="Legacy positional actor name or label")
+    p_cf.add_argument("function_name", nargs="?", help="Legacy positional function name")
+    p_cf.add_argument("--actor-name", dest="actor_name", metavar="NAME", help="Actor name or label (supports wildcards)")
+    p_cf.add_argument("--class-path", metavar="PATH", help="Blueprint/class path for --use-cdo or --spawn-transient")
+    p_cf.add_argument("--function-name", dest="function_name", metavar="NAME", help="Exact function name (case-sensitive)")
     p_cf.add_argument("--args", metavar="JSON", help="Function arguments as a JSON object")
+    p_cf.add_argument("--spawn-transient", action="store_true", help="Spawn a transient instance and call the function on it")
+    p_cf.add_argument("--use-cdo", action="store_true", help="Call the function on the class default object")
+    p_cf.add_argument("--seed", type=int, metavar="INT", help="Pin FMath::RandInit(seed) before each call")
+    p_cf.add_argument("--world", choices=["editor", "pie", "game"], help="World context for actor lookup")
+    p_cf.add_argument("--batch-json", metavar="PATH", help="Path to a JSON file containing an array of args objects")
+    p_cf.add_argument("--output", metavar="PATH", help="Write the result JSON to a file")
     p_cf.set_defaults(func=cmd_call_function)
 
     # set-property (runtime actors)
@@ -2144,6 +2310,36 @@ def build_parser() -> argparse.ArgumentParser:
     p_qa.add_argument("--row-filter", metavar="PATTERN", help="Filter DataTable rows by name")
     p_qa.add_argument("--search", metavar="TEXT", help="General search filter")
     p_qa.set_defaults(func=cmd_query_asset)
+
+    p_qe = sub.add_parser(
+        "query-enum",
+        help="Inspect a UserDefinedEnum asset.",
+        description=(
+            "Read a UserDefinedEnum asset and return enumerator names, display names,\n"
+            "tooltips, and numeric values.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli query-enum /Game/Data/E_TraversalActionType\n"
+            "  soft-ue-cli query-enum /Game/UI/E_MenuState"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_qe.add_argument("asset_path", help="UserDefinedEnum asset path")
+    p_qe.set_defaults(func=cmd_query_enum)
+
+    p_qs = sub.add_parser(
+        "query-struct",
+        help="Inspect a UserDefinedStruct asset.",
+        description=(
+            "Read a UserDefinedStruct asset and return authored member names,\n"
+            "types, defaults, and metadata.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli query-struct /Game/Data/S_TraversalCheckResult\n"
+            "  soft-ue-cli query-struct /Game/Data/S_TraversalChooserParams"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_qs.add_argument("asset_path", help="UserDefinedStruct asset path")
+    p_qs.set_defaults(func=cmd_query_struct)
 
     p_da = sub.add_parser(
         "delete-asset",
@@ -2453,6 +2649,42 @@ def build_parser() -> argparse.ArgumentParser:
     p_ps.add_argument("--expected", metavar="JSON", help="Expected value as JSON (for wait-for)")
     p_ps.add_argument("--wait-timeout", type=float, metavar="SEC", help="Timeout for wait-for (default: 10)")
     p_ps.set_defaults(func=cmd_pie_session)
+
+    p_pt = sub.add_parser(
+        "pie-tick",
+        help="Advance the PIE world by N frames at a pinned delta time.",
+        description=(
+            "Advance the PIE world deterministically. Starts PIE if not running.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli pie-tick --frames 30\n"
+            "  soft-ue-cli pie-tick --frames 60 --delta 0.0166666\n"
+            "  soft-ue-cli pie-tick --frames 1 --no-auto-start"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_pt.add_argument("--frames", type=int, required=True, metavar="N", help="Number of frames to advance (must be > 0)")
+    p_pt.add_argument("--delta", type=float, metavar="SEC", help="Pinned delta seconds per frame (default: 1/60)")
+    p_pt.add_argument("--no-auto-start", action="store_true", help="Error out if PIE is not already running")
+    p_pt.add_argument("--map", metavar="PATH", help="Map to load when auto-starting PIE")
+    p_pt.set_defaults(func=cmd_pie_tick)
+
+    p_iai = sub.add_parser(
+        "inspect-anim-instance",
+        help="One-shot snapshot of a target actor's UAnimInstance.",
+        description=(
+            "Read UAnimInstance runtime state.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli inspect-anim-instance --actor-tag TestCharacter\n"
+            "  soft-ue-cli inspect-anim-instance --actor-tag TestCharacter --include state_machines,montages\n"
+            "  soft-ue-cli inspect-anim-instance --actor-tag TestCharacter --blend-weights LayerAim,LayerLocomotion"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_iai.add_argument("--actor-tag", required=True, metavar="TAG", help="Actor tag to search for")
+    p_iai.add_argument("--mesh-component", metavar="NAME", help="Named SkeletalMeshComponent (default: first found)")
+    p_iai.add_argument("--include", metavar="LIST", help="Comma-separated sections: state_machines,montages,notifies,blend_weights")
+    p_iai.add_argument("--blend-weights", metavar="LIST", help="Comma-separated UAnimInstance float property names to read")
+    p_iai.set_defaults(func=cmd_inspect_anim_instance)
 
     p_ti = sub.add_parser(
         "trigger-input",
@@ -3194,14 +3426,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
+        help="Coming soon.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")
-    p_k.add_argument("--max-results", type=int, default=5, metavar="N", help="Max results to return (default: 5)")
-    p_k.add_argument("--type", choices=["skill"], metavar="TYPE", help="Filter by type: 'skill' for workflow skills")
-    p_k.add_argument("--list-skills", action="store_true", help="List all available workflow skills")
+    p_k.add_argument("query", nargs="?", default=None)
+    p_k.add_argument("--max-results", type=int, default=5)
+    p_k.add_argument("--type", default=None)
+    p_k.add_argument("--list-skills", action="store_true")
     p_k.set_defaults(func=cmd_knowledge)
 
     # -------------------------------------------------------------------------
@@ -3385,6 +3616,143 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_mcp.set_defaults(func=cmd_mcp_serve)
+
+    # ── rewind-start ──
+    p_rw_start = sub.add_parser(
+        "rewind-start",
+        help="Start a Rewind Debugger recording session or load a trace file.",
+        description=(
+            "Start recording animation data or load an existing .utrace file.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-start\n"
+            "  soft-ue-cli rewind-start --channels skeletal-mesh,montage\n"
+            "  soft-ue-cli rewind-start --actors Player,Enemy01\n"
+            "  soft-ue-cli rewind-start --load Saved/Traces/session.utrace"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_start.add_argument(
+        "--channels", metavar="LIST",
+        help="Comma-separated channels: skeletal-mesh,montage,anim-state,notify,object,all (default: all)",
+    )
+    p_rw_start.add_argument(
+        "--actors", metavar="LIST",
+        help="Comma-separated actor tags to filter (default: all actors)",
+    )
+    p_rw_start.add_argument(
+        "--file", metavar="PATH",
+        help="Save path — auto-saves to this .utrace on stop",
+    )
+    p_rw_start.add_argument(
+        "--load", metavar="PATH",
+        help="Load existing .utrace for analysis (no new recording)",
+    )
+    p_rw_start.set_defaults(func=cmd_rewind_start)
+
+    # ── rewind-stop ──
+    p_rw_stop = sub.add_parser(
+        "rewind-stop",
+        help="Stop the current Rewind Debugger recording.",
+        description="Stop recording. Returns duration and file path if auto-save was set.",
+    )
+    p_rw_stop.set_defaults(func=cmd_rewind_stop)
+
+    # ── rewind-status ──
+    p_rw_status = sub.add_parser(
+        "rewind-status",
+        help="Query Rewind Debugger recording state.",
+        description="Check if recording is active, duration, channels, and filtered actors.",
+    )
+    p_rw_status.set_defaults(func=cmd_rewind_status)
+
+    # ── rewind-list-tracks ──
+    p_rw_tracks = sub.add_parser(
+        "rewind-list-tracks",
+        help="List recorded actors and their track types.",
+        description=(
+            "Enumerate all tracked actors and available track types.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-list-tracks\n"
+            "  soft-ue-cli rewind-list-tracks --actor-tag Player"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_tracks.add_argument(
+        "--actor-tag", metavar="TAG",
+        help="Filter to a specific actor",
+    )
+    p_rw_tracks.set_defaults(func=cmd_rewind_list_tracks)
+
+    # ── rewind-overview ──
+    p_rw_overview = sub.add_parser(
+        "rewind-overview",
+        help="Track-level animation summary for an actor.",
+        description=(
+            "Shows state machine transitions, montage play ranges, and notify times.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-overview --actor-tag Player\n"
+            "  soft-ue-cli rewind-overview --actor-tag Player --tracks state_machines,montages"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_overview.add_argument(
+        "--actor-tag", required=True, metavar="TAG",
+        help="Target actor tag",
+    )
+    p_rw_overview.add_argument(
+        "--tracks", metavar="LIST",
+        help="Comma-separated track types: state_machines,montages,notifies (default: all)",
+    )
+    p_rw_overview.set_defaults(func=cmd_rewind_overview)
+
+    # ── rewind-snapshot ──
+    p_rw_snap = sub.add_parser(
+        "rewind-snapshot",
+        help="Animation state snapshot at a specific time.",
+        description=(
+            "Detailed animation state at a recorded point in time.\n"
+            "Mirrors inspect-anim-instance but from recorded history.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-snapshot --actor-tag Player --time 3.45\n"
+            "  soft-ue-cli rewind-snapshot --actor-tag Player --frame 207 --include state-machines,montages"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_snap.add_argument(
+        "--time", type=float, metavar="SECONDS",
+        help="Time in seconds (mutually exclusive with --frame)",
+    )
+    p_rw_snap.add_argument(
+        "--frame", type=int, metavar="N",
+        help="Frame number (mutually exclusive with --time)",
+    )
+    p_rw_snap.add_argument(
+        "--actor-tag", required=True, metavar="TAG",
+        help="Target actor tag",
+    )
+    p_rw_snap.add_argument(
+        "--include", metavar="LIST",
+        help="Comma-separated sections: state-machines,montages,notifies,blend-weights,curves",
+    )
+    p_rw_snap.set_defaults(func=cmd_rewind_snapshot)
+
+    # ── rewind-save ──
+    p_rw_save = sub.add_parser(
+        "rewind-save",
+        help="Save in-memory recording to .utrace file.",
+        description=(
+            "Persist current recording data to disk.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-save\n"
+            "  soft-ue-cli rewind-save --file D:/MyProject/Saved/Traces/debug_session.utrace"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_save.add_argument(
+        "--file", metavar="PATH",
+        help="Output file path (default: auto-generated in Saved/Traces/)",
+    )
+    p_rw_save.set_defaults(func=cmd_rewind_save)
 
     return parser
 

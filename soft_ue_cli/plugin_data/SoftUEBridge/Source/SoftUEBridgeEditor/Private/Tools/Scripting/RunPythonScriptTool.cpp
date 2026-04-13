@@ -5,6 +5,7 @@
 #include "IPythonScriptPlugin.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Tools/Scripting/BridgePythonCallHelper.h"
 #include "Engine/Engine.h"
 
 /** Captures LogPython output during script execution */
@@ -264,15 +265,33 @@ bool URunPythonScriptTool::ReadScriptFile(const FString& ScriptPath, FString& Ou
 
 FString URunPythonScriptTool::BuildPythonCommand(const FString& Script, const TSharedPtr<FJsonObject>& Arguments, const TArray<FString>& PythonPaths)
 {
-	FString FinalScript = Script;
-	bool bNeedsPreamble = false;
 	FString Preamble;
+	Preamble += TEXT("import sys as _sub_sys\n");
+	Preamble += TEXT("import json as _sub_json\n");
+	Preamble += TEXT("import types as _sub_types\n");
+	Preamble += TEXT("import unreal as _sub_unreal\n");
+	Preamble += TEXT("if 'soft_ue_bridge' not in _sub_sys.modules:\n");
+	Preamble += TEXT("    _sub_mod = _sub_types.ModuleType('soft_ue_bridge')\n");
+	Preamble += TEXT("    class _SubBridgeCallError(Exception):\n");
+	Preamble += TEXT("        def __init__(self, message, tool_name=None, payload=None):\n");
+	Preamble += TEXT("            super().__init__(message)\n");
+	Preamble += TEXT("            self.tool_name = tool_name\n");
+	Preamble += TEXT("            self.payload = payload\n");
+	Preamble += TEXT("    def _sub_call(tool_name, args=None):\n");
+	Preamble += TEXT("        _args_json = _sub_json.dumps(args or {})\n");
+	Preamble += TEXT("        _res_json = _sub_unreal.BridgePythonCallHelper.call_tool(tool_name, _args_json)\n");
+	Preamble += TEXT("        _res = _sub_json.loads(_res_json) if _res_json else {}\n");
+	Preamble += TEXT("        if _res.get('is_error'):\n");
+	Preamble += TEXT("            raise _SubBridgeCallError(_res.get('error_message', 'unknown error'), tool_name=tool_name, payload=_res)\n");
+	Preamble += TEXT("        return _res\n");
+	Preamble += TEXT("    _sub_mod.call = _sub_call\n");
+	Preamble += TEXT("    _sub_mod.BridgeCallError = _SubBridgeCallError\n");
+	Preamble += TEXT("    _sub_sys.modules['soft_ue_bridge'] = _sub_mod\n");
+	Preamble += TEXT("\n");
 
 	// Add Python paths to sys.path if provided
 	if (PythonPaths.Num() > 0)
 	{
-		bNeedsPreamble = true;
-		Preamble += TEXT("import sys\n");
 		Preamble += TEXT("import os\n");
 
 		for (const FString& Path : PythonPaths)
@@ -287,8 +306,8 @@ FString URunPythonScriptTool::BuildPythonCommand(const FString& Script, const TS
 			// Normalize path separators for Python (use forward slashes)
 			AbsolutePath = AbsolutePath.Replace(TEXT("\\"), TEXT("/"));
 
-			Preamble += FString::Printf(TEXT("if os.path.exists(r'%s') and r'%s' not in sys.path:\n"), *AbsolutePath, *AbsolutePath);
-			Preamble += FString::Printf(TEXT("    sys.path.insert(0, r'%s')\n"), *AbsolutePath);
+			Preamble += FString::Printf(TEXT("if os.path.exists(r'%s') and r'%s' not in _sub_sys.path:\n"), *AbsolutePath, *AbsolutePath);
+			Preamble += FString::Printf(TEXT("    _sub_sys.path.insert(0, r'%s')\n"), *AbsolutePath);
 		}
 		Preamble += TEXT("\n");
 	}
@@ -299,30 +318,21 @@ FString URunPythonScriptTool::BuildPythonCommand(const FString& Script, const TS
 		const TSharedPtr<FJsonObject>* ArgsObject;
 		if (Arguments->TryGetObjectField(TEXT("arguments"), ArgsObject))
 		{
-			bNeedsPreamble = true;
-
 			// Convert JSON object to Python dict string
 			FString ArgsJson;
 			TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ArgsJson);
-			FJsonSerializer::Serialize(ArgsObject->ToSharedRef(), Writer);
+			FJsonSerializer::Serialize((*ArgsObject).ToSharedRef(), Writer);
 
 			// Inject arguments as a global variable
-			Preamble += TEXT("import json\n");
 			Preamble += FString::Printf(TEXT("_mcp_args_json = '''%s'''\n"), *ArgsJson);
-			Preamble += TEXT("_mcp_args = json.loads(_mcp_args_json)\n");
+			Preamble += TEXT("_mcp_args = _sub_json.loads(_mcp_args_json)\n");
 			Preamble += TEXT("\n");
 			Preamble += TEXT("# Make arguments accessible via unreal.get_mcp_args()\n");
-			Preamble += TEXT("import unreal\n");
-			Preamble += TEXT("if not hasattr(unreal, 'get_mcp_args'):\n");
-			Preamble += TEXT("    unreal.get_mcp_args = lambda: _mcp_args\n");
+			Preamble += TEXT("if not hasattr(_sub_unreal, 'get_mcp_args'):\n");
+			Preamble += TEXT("    _sub_unreal.get_mcp_args = lambda: _mcp_args\n");
 			Preamble += TEXT("\n");
 		}
 	}
 
-	if (bNeedsPreamble)
-	{
-		FinalScript = Preamble + FinalScript;
-	}
-
-	return FinalScript;
+	return Preamble + Script;
 }

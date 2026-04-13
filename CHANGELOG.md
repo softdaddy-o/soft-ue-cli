@@ -2,6 +2,54 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.23.0] - 2026-04-13
+
+### Added
+- `rewind-start`, `rewind-stop`, `rewind-status` commands to control UE Rewind Debugger recording sessions with channel and actor filtering
+- `rewind-list-tracks`, `rewind-overview`, `rewind-snapshot` commands for LLM-driven animation debugging — list recorded actors, get track-level summaries, and drill down to animation state at a specific time or frame
+- `rewind-save` command to persist in-memory recordings to `.utrace` files
+- `inspect-uasset` / `diff-uasset` now support non-Blueprint assets (AnimSequence, PoseSearchDatabase, DataTable, etc.) via a generic export/import summary fallback
+
+### Fixed
+- `pie-tick` no longer crashes with a re-entrant TaskGraph assertion when UMassEntityEditorSubsystem (or any `FTickableEditorObject` that waits on game-thread tasks) is active. World ticks are now deferred through FTSTicker and driven by the engine's normal Slate tick loop instead of running directly inside the bridge server's AsyncTask handler.
+
+### Notes
+- Rewind Debugger commands require the **Animation Insights (GameplayInsights)** plugin to be enabled in Edit > Plugins. Error messages guide users to enable it when not active.
+
+## [1.22.0] - 2026-04-12
+
+### Added
+- `batch-call` command for composing multiple bridge tool invocations into one in-process batch request
+- `pie-tick` command for deterministic PIE stepping by frame count
+- `inspect-anim-instance` command for one-shot snapshots of live anim state machines, montages, and blend weights
+- `run-python-script` bridge helper import support via `from soft_ue_bridge import call`
+- `replay-changes` skill for Git and Perforce binary-asset conflict recovery using manual `base/local/remote` extraction plus offline `.uasset` inspection
+
+### Changed
+- `call-function` now supports class-targeted invocation flows including class default object and transient-instance execution, plus batch JSON input
+- `test-tools` now exercises the new automation surface for `batch-call`, `pie-tick`, `inspect-anim-instance`, and transient `call-function`
+- `replay-changes` is now documented as a CLI skill workflow instead of a dedicated command
+
+### Fixed
+- `call-function` latent-function rejection now uses a portable `LatentActionInfo` struct-name check across engine versions
+- `inspect-anim-instance` resolves state machine descriptors more reliably and avoids engine-version-specific transition query breakage during bridge builds
+- public CLI export sync now hard-fails if embargoed private names appear in examples, docs, tests, prompts, or code
+
+## [1.21.0] - 2026-04-10
+
+### Added
+- `query-enum` command for UserDefinedEnum introspection: authored names, display names, tooltips, and numeric values
+- `query-struct` command for UserDefinedStruct introspection: authored member names, defaults, metadata, and reflected type info
+- `blueprint-to-cpp` skill now starts with dependency-first planning guidance, including enum/struct inspection and promotion-first conversion strategy
+
+### Fixed
+- `query-asset --asset-path` now inspects `UserDefinedEnum` and `UserDefinedStruct` assets instead of failing with a generic load error
+- `query-asset --asset-path` now inspects Blueprint-generated `UDataAsset` / `UPrimaryDataAsset` assets via their generated class default object
+- `capture-screenshot tab --window-name ...` now falls back to visible tab labels and matching top-level window titles, so asset editor tabs opened by label can be captured more reliably
+
+### Changed
+- Removed the standalone `inspect-uasset` skill prompt; offline `.uasset` inspection remains available as a command and as part of `test-tools`
+
 ## [1.20.6] - 2026-04-10
 
 ### Changed

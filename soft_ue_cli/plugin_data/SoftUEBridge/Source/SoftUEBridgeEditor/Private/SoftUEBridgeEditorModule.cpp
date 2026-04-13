@@ -9,6 +9,8 @@
 
 // Asset
 #include "Tools/Asset/QueryAssetTool.h"
+#include "Tools/Asset/QueryEnumTool.h"
+#include "Tools/Asset/QueryStructTool.h"
 #include "Tools/Asset/DeleteAssetTool.h"
 #include "Tools/Asset/GetAssetDiffTool.h"
 #include "Tools/Asset/GetAssetPreviewTool.h"
@@ -32,11 +34,21 @@
 
 // PIE
 #include "Tools/PIE/PieSessionTool.h"
+#include "Tools/PIE/PieTickTool.h"
 
 // Performance
 #include "Tools/Performance/InsightsCaptureTool.h"
 #include "Tools/Performance/InsightsListTracesTool.h"
 #include "Tools/Performance/InsightsAnalyzeTool.h"
+
+// Rewind
+#include "Tools/Rewind/RewindStartTool.h"
+#include "Tools/Rewind/RewindStopTool.h"
+#include "Tools/Rewind/RewindStatusTool.h"
+#include "Tools/Rewind/RewindListTracksTool.h"
+#include "Tools/Rewind/RewindOverviewTool.h"
+#include "Tools/Rewind/RewindSnapshotTool.h"
+#include "Tools/Rewind/RewindSaveTool.h"
 
 // Project
 #include "Tools/Project/ProjectInfoTool.h"
@@ -93,6 +105,8 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 	// Asset
 	Registry.RegisterToolClass<UQueryAssetTool>();
+	Registry.RegisterToolClass<UQueryEnumTool>();
+	Registry.RegisterToolClass<UQueryStructTool>();
 	Registry.RegisterToolClass<UDeleteAssetTool>();
 	Registry.RegisterToolClass<UGetAssetDiffTool>();
 	Registry.RegisterToolClass<UGetAssetPreviewTool>();
@@ -116,11 +130,21 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 	// PIE
 	Registry.RegisterToolClass<UPieSessionTool>();
+	Registry.RegisterToolClass<UPieTickTool>();
 
 	// Performance
 	Registry.RegisterToolClass<UInsightsCaptureTool>();
 	Registry.RegisterToolClass<UInsightsListTracesTool>();
 	Registry.RegisterToolClass<UInsightsAnalyzeTool>();
+
+	// Rewind
+	Registry.RegisterToolClass<URewindStartTool>();
+	Registry.RegisterToolClass<URewindStopTool>();
+	Registry.RegisterToolClass<URewindStatusTool>();
+	Registry.RegisterToolClass<URewindListTracksTool>();
+	Registry.RegisterToolClass<URewindOverviewTool>();
+	Registry.RegisterToolClass<URewindSnapshotTool>();
+	Registry.RegisterToolClass<URewindSaveTool>();
 
 	// Project
 	Registry.RegisterToolClass<UProjectInfoTool>();

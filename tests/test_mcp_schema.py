@@ -24,6 +24,8 @@ def test_extract_tools_contains_known_command():
     tool_names = {t["name"] for t in tools}
     assert "spawn-actor" in tool_names
     assert "query-blueprint" in tool_names
+    assert "query-enum" in tool_names
+    assert "query-struct" in tool_names
     assert "inspect-uasset" in tool_names
     assert "diff-uasset" in tool_names
     assert "status" in tool_names
@@ -90,10 +92,10 @@ def test_help_text_becomes_description():
 
 
 def test_tool_count_is_reasonable():
-    """Should have ~63 tools (65 total minus 2 excluded)."""
+    """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 70
+    assert len(tools) <= 80
 
 
 def test_skills_excluded():

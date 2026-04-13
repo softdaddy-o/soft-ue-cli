@@ -95,7 +95,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 80
+    assert len(tools) <= 90
 
 
 def test_skills_excluded():

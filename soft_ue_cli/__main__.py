@@ -847,7 +847,11 @@ def cmd_run_python_script(args: argparse.Namespace) -> None:
         if args.script:
             arguments["script"] = args.script
         if args.script_path:
-            arguments["script_path"] = args.script_path
+            src = Path(args.script_path)
+            if not src.exists():
+                print(f"error: file not found: {args.script_path}", file=sys.stderr)
+                sys.exit(1)
+            arguments["script"] = src.read_text(encoding="utf-8")
         if not arguments:
             print("error: provide --name, --script, or --script-path", file=sys.stderr)
             sys.exit(1)

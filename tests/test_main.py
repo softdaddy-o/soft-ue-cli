@@ -374,6 +374,25 @@ def test_run_python_script_by_name(scripts_home, capsys):
     mock_call.assert_called_once_with("run-python-script", {"script": "print('run')"})
 
 
+def test_run_python_script_by_script_path(tmp_path, capsys):
+    """--script-path should read the file locally and send contents as 'script', not 'script_path'."""
+    src = tmp_path / "check_ia.py"
+    src.write_text("print('hello from file')", encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args(["run-python-script", "--script-path", str(src)])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"output": "hello from file"}) as mock_call:
+        cmd_run_python_script(args)
+    mock_call.assert_called_once_with("run-python-script", {"script": "print('hello from file')"})
+
+
+def test_run_python_script_by_script_path_not_found_exits():
+    parser = build_parser()
+    args = parser.parse_args(["run-python-script", "--script-path", "/nonexistent/check_ia.py"])
+    with pytest.raises(SystemExit) as exc:
+        cmd_run_python_script(args)
+    assert exc.value.code == 1
+
+
 def test_run_python_script_by_name_not_found_exits(scripts_home):
     parser = build_parser()
     args = parser.parse_args(["run-python-script", "--name", "missing"])

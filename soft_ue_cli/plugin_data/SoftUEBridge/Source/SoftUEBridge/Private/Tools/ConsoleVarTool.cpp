@@ -7,10 +7,6 @@
 
 // ── get-console-var ───────────────────────────────────────────────────────────
 
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(UGetConsoleVarTool)
-#endif
-
 FString UGetConsoleVarTool::GetToolDescription() const
 {
 	return TEXT("Get the current value of a console variable (CVar).");
@@ -49,10 +45,6 @@ FBridgeToolResult UGetConsoleVarTool::Execute(const TSharedPtr<FJsonObject>& Arg
 }
 
 // ── set-console-var ───────────────────────────────────────────────────────────
-
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(USetConsoleVarTool)
-#endif
 
 FString USetConsoleVarTool::GetToolDescription() const
 {

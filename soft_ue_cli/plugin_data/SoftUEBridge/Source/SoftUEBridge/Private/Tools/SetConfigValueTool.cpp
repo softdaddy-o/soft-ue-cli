@@ -7,8 +7,6 @@
 #include "Tools/BridgeToolRegistry.h"
 #include "Tools/GetConfigValueTool.h"
 
-REGISTER_BRIDGE_TOOL(USetConfigValueTool)
-
 FString USetConfigValueTool::GetToolDescription() const
 {
 	return TEXT("Set a configuration value in UE's runtime GConfig and flush to disk.");

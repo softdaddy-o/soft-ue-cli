@@ -9,10 +9,6 @@
 #include "EngineUtils.h"
 #include "UObject/UnrealType.h"
 
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(USetPropertyTool)
-#endif
-
 FString USetPropertyTool::GetToolDescription() const
 {
 	return TEXT("Set a property on an actor or its component using reflection. "

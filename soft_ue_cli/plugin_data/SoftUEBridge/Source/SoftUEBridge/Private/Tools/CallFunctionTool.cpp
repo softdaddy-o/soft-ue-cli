@@ -156,10 +156,6 @@ namespace
 	}
 }
 
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(UCallFunctionTool)
-#endif
-
 FString UCallFunctionTool::GetToolDescription() const
 {
 	return TEXT("Call a Blueprint or native function on an actor, class default object, or transient instance.");

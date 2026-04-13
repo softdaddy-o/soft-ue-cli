@@ -16,10 +16,6 @@
 #include "LandscapeComponent.h"
 #endif
 
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(UQueryLevelTool)
-#endif
-
 FString UQueryLevelTool::GetToolDescription() const
 {
 	return TEXT("List and inspect actors in the current game world. "

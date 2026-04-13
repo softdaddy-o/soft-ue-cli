@@ -85,10 +85,6 @@ TArray<FString> FBridgeLogCapture::GetLines(int32 N, const FString& Filter, cons
 
 // ── UGetLogsTool ──────────────────────────────────────────────────────────────
 
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(UGetLogsTool)
-#endif
-
 FString UGetLogsTool::GetToolDescription() const
 {
 	return TEXT("Get recent output log entries. Optionally filter by text or log category.");

@@ -6,8 +6,6 @@
 #include "Tools/BridgeToolRegistry.h"
 #include "Tools/GetConfigValueTool.h"
 
-REGISTER_BRIDGE_TOOL(UValidateConfigKeyTool)
-
 FString UValidateConfigKeyTool::GetToolDescription() const
 {
 	return TEXT("Check whether a config section/key is known to the running engine. Returns validity, current value, and inferred type.");

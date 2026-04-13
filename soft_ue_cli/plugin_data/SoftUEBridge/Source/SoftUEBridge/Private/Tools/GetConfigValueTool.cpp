@@ -6,8 +6,6 @@
 #include "SoftUEBridgeModule.h"
 #include "Tools/BridgeToolRegistry.h"
 
-REGISTER_BRIDGE_TOOL(UGetConfigValueTool)
-
 namespace
 {
 bool ParseConfigEntry(const FString& Entry, FString& OutKey, FString& OutValue)

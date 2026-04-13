@@ -21,8 +21,6 @@
 #include "RenderingThread.h"
 #endif
 
-REGISTER_BRIDGE_TOOL(UCaptureViewportTool)
-
 TMap<FString, FBridgeSchemaProperty> UCaptureViewportTool::GetInputSchema() const
 {
 	TMap<FString, FBridgeSchemaProperty> Schema;

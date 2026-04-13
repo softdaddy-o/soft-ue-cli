@@ -1067,3 +1067,35 @@ def test_call_function_batch_json_forwards(tmp_path):
         "call-function",
         {"function_name": "Bar", "class_path": "/Game/Foo", "use_cdo": True, "batch": batch},
     )
+
+
+# -- .uplugin validation -------------------------------------------------------
+
+_UPLUGIN_PATH = Path(__file__).resolve().parents[1] / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / "SoftUEBridge.uplugin"
+
+
+def test_uplugin_softuebridge_module_is_developer_tool():
+    """SoftUEBridge runtime module must be DeveloperTool to exclude from Shipping builds."""
+    data = json.loads(_UPLUGIN_PATH.read_text(encoding="utf-8"))
+    modules = {m["Name"]: m for m in data["Modules"]}
+    assert modules["SoftUEBridge"]["Type"] == "DeveloperTool"
+
+
+def test_uplugin_softuebridgeeditor_module_is_editor():
+    """SoftUEBridgeEditor module must remain Editor type."""
+    data = json.loads(_UPLUGIN_PATH.read_text(encoding="utf-8"))
+    modules = {m["Name"]: m for m in data["Modules"]}
+    assert modules["SoftUEBridgeEditor"]["Type"] == "Editor"
+
+
+_RUNTIME_MODULE_DIR = _UPLUGIN_PATH.parent / "Source" / "SoftUEBridge"
+
+
+def test_runtime_module_has_no_register_bridge_tool_macros():
+    """Runtime module should not use REGISTER_BRIDGE_TOOL — StartupModule handles registration."""
+    hits = []
+    for cpp in _RUNTIME_MODULE_DIR.rglob("*.cpp"):
+        for i, line in enumerate(cpp.read_text(encoding="utf-8").splitlines(), 1):
+            if "REGISTER_BRIDGE_TOOL" in line:
+                hits.append(f"{cpp.name}:{i}")
+    assert hits == [], f"REGISTER_BRIDGE_TOOL found in runtime module: {hits}"

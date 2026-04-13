@@ -194,6 +194,8 @@ def test_prompt_list_has_blueprint_to_cpp():
     prompts = server._prompt_manager._prompts
     prompt_names = {p for p in prompts}
     assert "blueprint-to-cpp" in prompt_names
+    assert "author-test" in prompt_names
+    assert "run-test" in prompt_names
 
 
 def test_prompt_fn_returns_content():

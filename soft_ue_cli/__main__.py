@@ -1822,6 +1822,61 @@ def _resolve_config_file_arg(disc, file_arg: str, cfg_type: str, platform_name: 
     sys.exit(1)
 
 
+# ── Rewind Debugger ──────────────────────────────────────────────
+
+def cmd_rewind_start(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.channels:
+        arguments["channels"] = [c for c in args.channels.split(",") if c]
+    if args.actors:
+        arguments["actors"] = [a for a in args.actors.split(",") if a]
+    if args.file:
+        arguments["file"] = args.file
+    if args.load:
+        arguments["load"] = args.load
+    _print_json(_run_tool("rewind-start", arguments))
+
+
+def cmd_rewind_stop(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("rewind-stop", {}))
+
+
+def cmd_rewind_status(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("rewind-status", {}))
+
+
+def cmd_rewind_list_tracks(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.actor_tag:
+        arguments["actor_tag"] = args.actor_tag
+    _print_json(_run_tool("rewind-list-tracks", arguments))
+
+
+def cmd_rewind_overview(args: argparse.Namespace) -> None:
+    arguments: dict = {"actor_tag": args.actor_tag}
+    if args.tracks:
+        arguments["tracks"] = [t for t in args.tracks.split(",") if t]
+    _print_json(_run_tool("rewind-overview", arguments))
+
+
+def cmd_rewind_snapshot(args: argparse.Namespace) -> None:
+    arguments: dict = {"actor_tag": args.actor_tag}
+    if args.time is not None:
+        arguments["time"] = args.time
+    if args.frame is not None:
+        arguments["frame"] = args.frame
+    if args.include:
+        arguments["include"] = [s for s in args.include.split(",") if s]
+    _print_json(_run_tool("rewind-snapshot", arguments))
+
+
+def cmd_rewind_save(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.file:
+        arguments["file"] = args.file
+    _print_json(_run_tool("rewind-save", arguments))
+
+
 # -- Argument parser -----------------------------------------------------------
 
 
@@ -3371,14 +3426,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
+        help="Coming soon.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")
-    p_k.add_argument("--max-results", type=int, default=5, metavar="N", help="Max results to return (default: 5)")
-    p_k.add_argument("--type", choices=["skill"], metavar="TYPE", help="Filter by type: 'skill' for workflow skills")
-    p_k.add_argument("--list-skills", action="store_true", help="List all available workflow skills")
+    p_k.add_argument("query", nargs="?", default=None)
+    p_k.add_argument("--max-results", type=int, default=5)
+    p_k.add_argument("--type", default=None)
+    p_k.add_argument("--list-skills", action="store_true")
     p_k.set_defaults(func=cmd_knowledge)
 
     # -------------------------------------------------------------------------
@@ -3562,6 +3616,143 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_mcp.set_defaults(func=cmd_mcp_serve)
+
+    # ── rewind-start ──
+    p_rw_start = sub.add_parser(
+        "rewind-start",
+        help="Start a Rewind Debugger recording session or load a trace file.",
+        description=(
+            "Start recording animation data or load an existing .utrace file.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-start\n"
+            "  soft-ue-cli rewind-start --channels skeletal-mesh,montage\n"
+            "  soft-ue-cli rewind-start --actors Player,Enemy01\n"
+            "  soft-ue-cli rewind-start --load Saved/Traces/session.utrace"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_start.add_argument(
+        "--channels", metavar="LIST",
+        help="Comma-separated channels: skeletal-mesh,montage,anim-state,notify,object,all (default: all)",
+    )
+    p_rw_start.add_argument(
+        "--actors", metavar="LIST",
+        help="Comma-separated actor tags to filter (default: all actors)",
+    )
+    p_rw_start.add_argument(
+        "--file", metavar="PATH",
+        help="Save path — auto-saves to this .utrace on stop",
+    )
+    p_rw_start.add_argument(
+        "--load", metavar="PATH",
+        help="Load existing .utrace for analysis (no new recording)",
+    )
+    p_rw_start.set_defaults(func=cmd_rewind_start)
+
+    # ── rewind-stop ──
+    p_rw_stop = sub.add_parser(
+        "rewind-stop",
+        help="Stop the current Rewind Debugger recording.",
+        description="Stop recording. Returns duration and file path if auto-save was set.",
+    )
+    p_rw_stop.set_defaults(func=cmd_rewind_stop)
+
+    # ── rewind-status ──
+    p_rw_status = sub.add_parser(
+        "rewind-status",
+        help="Query Rewind Debugger recording state.",
+        description="Check if recording is active, duration, channels, and filtered actors.",
+    )
+    p_rw_status.set_defaults(func=cmd_rewind_status)
+
+    # ── rewind-list-tracks ──
+    p_rw_tracks = sub.add_parser(
+        "rewind-list-tracks",
+        help="List recorded actors and their track types.",
+        description=(
+            "Enumerate all tracked actors and available track types.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-list-tracks\n"
+            "  soft-ue-cli rewind-list-tracks --actor-tag Player"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_tracks.add_argument(
+        "--actor-tag", metavar="TAG",
+        help="Filter to a specific actor",
+    )
+    p_rw_tracks.set_defaults(func=cmd_rewind_list_tracks)
+
+    # ── rewind-overview ──
+    p_rw_overview = sub.add_parser(
+        "rewind-overview",
+        help="Track-level animation summary for an actor.",
+        description=(
+            "Shows state machine transitions, montage play ranges, and notify times.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-overview --actor-tag Player\n"
+            "  soft-ue-cli rewind-overview --actor-tag Player --tracks state_machines,montages"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_overview.add_argument(
+        "--actor-tag", required=True, metavar="TAG",
+        help="Target actor tag",
+    )
+    p_rw_overview.add_argument(
+        "--tracks", metavar="LIST",
+        help="Comma-separated track types: state_machines,montages,notifies (default: all)",
+    )
+    p_rw_overview.set_defaults(func=cmd_rewind_overview)
+
+    # ── rewind-snapshot ──
+    p_rw_snap = sub.add_parser(
+        "rewind-snapshot",
+        help="Animation state snapshot at a specific time.",
+        description=(
+            "Detailed animation state at a recorded point in time.\n"
+            "Mirrors inspect-anim-instance but from recorded history.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-snapshot --actor-tag Player --time 3.45\n"
+            "  soft-ue-cli rewind-snapshot --actor-tag Player --frame 207 --include state-machines,montages"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_snap.add_argument(
+        "--time", type=float, metavar="SECONDS",
+        help="Time in seconds (mutually exclusive with --frame)",
+    )
+    p_rw_snap.add_argument(
+        "--frame", type=int, metavar="N",
+        help="Frame number (mutually exclusive with --time)",
+    )
+    p_rw_snap.add_argument(
+        "--actor-tag", required=True, metavar="TAG",
+        help="Target actor tag",
+    )
+    p_rw_snap.add_argument(
+        "--include", metavar="LIST",
+        help="Comma-separated sections: state-machines,montages,notifies,blend-weights,curves",
+    )
+    p_rw_snap.set_defaults(func=cmd_rewind_snapshot)
+
+    # ── rewind-save ──
+    p_rw_save = sub.add_parser(
+        "rewind-save",
+        help="Save in-memory recording to .utrace file.",
+        description=(
+            "Persist current recording data to disk.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli rewind-save\n"
+            "  soft-ue-cli rewind-save --file D:/MyProject/Saved/Traces/debug_session.utrace"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rw_save.add_argument(
+        "--file", metavar="PATH",
+        help="Output file path (default: auto-generated in Saved/Traces/)",
+    )
+    p_rw_save.set_defaults(func=cmd_rewind_save)
 
     return parser
 

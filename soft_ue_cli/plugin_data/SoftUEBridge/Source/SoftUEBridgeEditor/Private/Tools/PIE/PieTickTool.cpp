@@ -10,6 +10,7 @@
 #include "LevelEditor.h"
 #include "LevelEditorSubsystem.h"
 #include "Modules/ModuleManager.h"
+#include "Containers/Ticker.h"
 
 FString UPieTickTool::GetToolDescription() const
 {
@@ -156,11 +157,74 @@ float UPieTickTool::TickWorldFrames(UWorld* World, int32 Frames, float DeltaSeco
 		return 0.0f;
 	}
 
-	float Total = 0.0f;
-	for (int32 Index = 0; Index < Frames; ++Index)
+	// We cannot call World->Tick() directly from the bridge tool handler because
+	// it runs inside AsyncTask(GameThread), which is itself a task graph task.
+	// When any FTickableEditorObject (e.g., UMassEntityEditorSubsystem) posts a
+	// game-thread task and waits synchronously during its Tick(), it causes
+	// re-entrant TaskGraph execution → assertion failure + crash.
+	//
+	// Fix: Defer each frame tick to a FTSTicker delegate that fires during the
+	// normal engine tick loop (via FSlateApplication::Tick). This ensures
+	// World->Tick() runs in the Slate/engine context, not the task graph context.
+
+	struct FTickState
 	{
-		World->Tick(ELevelTick::LEVELTICK_All, DeltaSeconds);
-		Total += DeltaSeconds;
+		TWeakObjectPtr<UWorld> WorldPtr;
+		int32 FramesRemaining;
+		float DeltaSeconds;
+		float TotalTime;
+		bool bComplete;
+	};
+
+	auto State = MakeShared<FTickState>();
+	State->WorldPtr = World;
+	State->FramesRemaining = Frames;
+	State->DeltaSeconds = DeltaSeconds;
+	State->TotalTime = 0.0f;
+	State->bComplete = false;
+
+	FTSTicker::FDelegateHandle TickHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda([State](float) -> bool
+		{
+			UWorld* W = State->WorldPtr.Get();
+			if (!W || State->FramesRemaining <= 0)
+			{
+				State->bComplete = true;
+				return false;
+			}
+
+			W->Tick(ELevelTick::LEVELTICK_All, State->DeltaSeconds);
+			State->TotalTime += State->DeltaSeconds;
+			State->FramesRemaining--;
+
+			if (State->FramesRemaining <= 0)
+			{
+				State->bComplete = true;
+				return false;
+			}
+			return true;
+		}),
+		0.0f
+	);
+
+	// Pump Slate to drive the ticker (same pattern as StartPIEForTick)
+	constexpr double TimeoutSeconds = 300.0;
+	const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
+	while (!State->bComplete && FPlatformTime::Seconds() < Deadline)
+	{
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().Tick();
+		}
+		FPlatformProcess::Sleep(0.001f);
 	}
-	return Total;
+
+	if (!State->bComplete)
+	{
+		// Timeout — remove ticker if still active
+		FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
+		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("PieTickTool: timed out after %.0fs"), TimeoutSeconds);
+	}
+
+	return State->TotalTime;
 }

@@ -2,6 +2,20 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.23.0] - 2026-04-13
+
+### Added
+- `rewind-start`, `rewind-stop`, `rewind-status` commands to control UE Rewind Debugger recording sessions with channel and actor filtering
+- `rewind-list-tracks`, `rewind-overview`, `rewind-snapshot` commands for LLM-driven animation debugging — list recorded actors, get track-level summaries, and drill down to animation state at a specific time or frame
+- `rewind-save` command to persist in-memory recordings to `.utrace` files
+- `inspect-uasset` / `diff-uasset` now support non-Blueprint assets (AnimSequence, PoseSearchDatabase, DataTable, etc.) via a generic export/import summary fallback
+
+### Fixed
+- `pie-tick` no longer crashes with a re-entrant TaskGraph assertion when UMassEntityEditorSubsystem (or any `FTickableEditorObject` that waits on game-thread tasks) is active. World ticks are now deferred through FTSTicker and driven by the engine's normal Slate tick loop instead of running directly inside the bridge server's AsyncTask handler.
+
+### Notes
+- Rewind Debugger commands require the **Animation Insights (GameplayInsights)** plugin to be enabled in Edit > Plugins. Error messages guide users to enable it when not active.
+
 ## [1.22.0] - 2026-04-12
 
 ### Added

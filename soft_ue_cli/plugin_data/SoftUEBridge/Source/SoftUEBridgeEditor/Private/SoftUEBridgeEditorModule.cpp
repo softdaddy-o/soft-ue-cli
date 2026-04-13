@@ -41,6 +41,15 @@
 #include "Tools/Performance/InsightsListTracesTool.h"
 #include "Tools/Performance/InsightsAnalyzeTool.h"
 
+// Rewind
+#include "Tools/Rewind/RewindStartTool.h"
+#include "Tools/Rewind/RewindStopTool.h"
+#include "Tools/Rewind/RewindStatusTool.h"
+#include "Tools/Rewind/RewindListTracksTool.h"
+#include "Tools/Rewind/RewindOverviewTool.h"
+#include "Tools/Rewind/RewindSnapshotTool.h"
+#include "Tools/Rewind/RewindSaveTool.h"
+
 // Project
 #include "Tools/Project/ProjectInfoTool.h"
 
@@ -127,6 +136,15 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<UInsightsCaptureTool>();
 	Registry.RegisterToolClass<UInsightsListTracesTool>();
 	Registry.RegisterToolClass<UInsightsAnalyzeTool>();
+
+	// Rewind
+	Registry.RegisterToolClass<URewindStartTool>();
+	Registry.RegisterToolClass<URewindStopTool>();
+	Registry.RegisterToolClass<URewindStatusTool>();
+	Registry.RegisterToolClass<URewindListTracksTool>();
+	Registry.RegisterToolClass<URewindOverviewTool>();
+	Registry.RegisterToolClass<URewindSnapshotTool>();
+	Registry.RegisterToolClass<URewindSaveTool>();
 
 	// Project
 	Registry.RegisterToolClass<UProjectInfoTool>();

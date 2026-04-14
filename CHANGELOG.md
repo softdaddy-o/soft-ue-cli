@@ -2,6 +2,11 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.24.1] - 2026-04-14
+
+### Fixed
+- offline External Actor tagged property parsing now resolves combined `FName` references in property headers, so fields such as `DataLayerAssets` no longer fall back to `invalid_name_*` when the upper 32-bit name number is populated
+
 ## [1.24.0] - 2026-04-14
 
 ### Added

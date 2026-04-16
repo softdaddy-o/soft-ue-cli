@@ -10,11 +10,10 @@
 [![AI built for coding agents](https://img.shields.io/badge/AI_built_for-coding_agents-6b7280)](#why-soft-ue-cli)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Support_this_project-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/softdaddy-o)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Buy_me_a_coffee-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/softdaddy)
-[![Support this project](https://img.shields.io/badge/Support_this_project-f6c343)](#support-this-project)
 
 Built and maintained by a solo developer. [Support this project](#support-this-project) if it saves you time.
 
-**Control Unreal Engine 5 from your AI agent or terminal.** soft-ue-cli gives any LLM — via **MCP server** or **CLI** — 60+ tools to spawn actors, edit Blueprints, inspect materials, read and patch UE config files, run Play-In-Editor sessions, capture screenshots, profile performance, and more inside a running UE5 editor or packaged build.
+**Control Unreal Engine 5 from your AI agent or terminal.** soft-ue-cli gives any LLM ? via **MCP server** or **CLI** ? 60+ tools to spawn actors, edit Blueprints, inspect materials, read and patch UE config files, run Play-In-Editor sessions, capture screenshots, profile performance, and more inside a running UE5 editor or packaged build.
 
 Two connection paths. Same package. Bridge tools when Unreal is running, offline tools when it is not.
 
@@ -43,7 +42,7 @@ soft-ue-cli  (CLI or MCP server)
 - **AI-native UE automation** -- purpose-built so LLM agents can read, modify, and test Unreal Engine projects without a human touching the editor.
 - **60+ tools** covering actors, Blueprints, materials, StateTrees, widgets, assets, config files, PIE sessions, profiling, and more.
 - **Online + offline workflows** -- bridge-backed UE mutation and runtime inspection when Unreal is open, plus direct local inspection, diff, and config tooling when it is not.
-- **Config-aware workflows** — inspect hierarchy, trace overrides, diff layers, and patch `.ini`, `BuildConfiguration.xml`, and `.uproject` data from one `config` command group.
+- **Config-aware workflows** ? inspect hierarchy, trace overrides, diff layers, and patch `.ini`, `BuildConfiguration.xml`, and `.uproject` data from one `config` command group.
 - **LLM skill prompts** -- ships with markdown workflows (e.g. Blueprint-to-C++ conversion) exposed as MCP prompts or CLI commands.
 - **Works everywhere UE runs** -- editor, cooked builds, Windows, macOS, Linux.
 - **Single dependency** -- only requires `httpx`. Add `[mcp]` extra for MCP server mode.
@@ -62,7 +61,7 @@ pip install soft-ue-cli[mcp]     # CLI + MCP server
 
 ### 2. Install the plugin into your UE project
 
-Run the setup command **inside your LLM client** (Claude Code, Cursor, etc.) — it outputs step-by-step instructions that the AI agent will follow to copy the plugin, edit your `.uproject`, and configure itself:
+Run the setup command **inside your LLM client** (Claude Code, Cursor, etc.) ? it outputs step-by-step instructions that the AI agent will follow to copy the plugin, edit your `.uproject`, and configure itself:
 
 ```bash
 soft-ue-cli setup /path/to/YourProject
@@ -107,7 +106,7 @@ Add to your MCP client config (Claude Desktop, Cursor, Windsurf, etc.):
 }
 ```
 
-The AI editor now has direct access to all 60+ UE tools and skill prompts — no terminal needed.
+The AI editor now has direct access to all 60+ UE tools and skill prompts ? no terminal needed.
 
 ---
 
@@ -174,7 +173,7 @@ MCP Client (Claude Desktop, Cursor, Windsurf, etc.)
     v
 soft-ue-cli mcp-serve  (FastMCP server)
     |
-    |  Reuses call_tool() — HTTP/JSON-RPC
+    |  Reuses call_tool() ? HTTP/JSON-RPC
     v
 SoftUEBridge plugin (inside UE)
 ```
@@ -333,7 +332,7 @@ Requires the **Animation Insights (GameplayInsights)** plugin enabled in Edit > 
 | `rewind-status` | Query current recording state (detects recordings from CLI or editor UI) |
 | `rewind-list-tracks` | List all recorded actors and their available track types |
 | `rewind-overview` | Track-level summary for an actor (state machine transitions, montage play ranges, notify fire times) |
-| `rewind-snapshot` | Detailed animation state at a specific time or frame — the time-travel equivalent of `inspect-anim-instance` |
+| `rewind-snapshot` | Detailed animation state at a specific time or frame ? the time-travel equivalent of `inspect-anim-instance` |
 | `rewind-save` | Save the in-memory recording to a `.utrace` file |
 
 ### Build and Live Coding
@@ -667,7 +666,7 @@ soft-ue-cli is a Python tool that gives AI agents and developers 60+ operations 
 
 ### How do AI agents use soft-ue-cli?
 
-**MCP clients** (Claude Desktop, Cursor, Windsurf): Connect via `soft-ue-cli mcp-serve`. The agent sees all 60+ tools with typed schemas and skill prompts — it can directly call UE operations without going through a terminal.
+**MCP clients** (Claude Desktop, Cursor, Windsurf): Connect via `soft-ue-cli mcp-serve`. The agent sees all 60+ tools with typed schemas and skill prompts ? it can directly call UE operations without going through a terminal.
 
 **Claude Code**: Runs soft-ue-cli commands in the terminal. Add a `CLAUDE.md` file to your UE project describing available commands, and Claude Code autonomously queries your level, spawns actors, edits Blueprints, runs PIE sessions, and iterates on your game.
 
@@ -726,10 +725,10 @@ The MCP server exposes all 60+ commands as MCP tools and skills as MCP prompts. 
 
 | | soft-ue-cli | unreal-mcp, ue5-mcp, etc. |
 |---|---|---|
-| **Tools** | 60+ | 10–49 |
+| **Tools** | 60+ | 10?49 |
 | **Coverage** | Blueprints, materials, StateTrees, widgets, PIE, profiling, DataTables, CVars, Live Coding | Varies; most cover actors + basic assets |
 | **LLM skill prompts** | Yes (MCP prompts + CLI) | No |
-| **CLI mode** | Yes — shell scripts, CI/CD, Claude Code | MCP-only |
+| **CLI mode** | Yes ? shell scripts, CI/CD, Claude Code | MCP-only |
 | **Setup** | `pip install soft-ue-cli[mcp]` + copy one plugin | Varies; often requires custom C++/Python scripting |
 
 ---
@@ -738,10 +737,10 @@ The MCP server exposes all 60+ commands as MCP tools and skills as MCP prompts. 
 
 soft-ue-cli is free, open-source, and maintained by one person. If it saves you hours of manual editor work or helps your AI workflow, consider supporting continued development:
 
-- [Sponsor on GitHub](https://github.com/sponsors/softdaddy-o) — recurring or one-time
-- [Buy me a coffee on Ko-fi](https://ko-fi.com/softdaddy) — quick one-time donation
+- [Sponsor on GitHub](https://github.com/sponsors/softdaddy-o) ? recurring or one-time
+- [Buy me a coffee on Ko-fi](https://ko-fi.com/softdaddy) ? quick one-time donation
 
-Using soft-ue-cli in your project? [Share your experience](https://github.com/softdaddy-o/soft-ue-cli/issues/new?labels=testimonial&title=Testimonial) — I'd love to hear about it.
+Using soft-ue-cli in your project? [Share your experience](https://github.com/softdaddy-o/soft-ue-cli/issues/new?labels=testimonial&title=Testimonial) ? I'd love to hear about it.
 
 ---
 

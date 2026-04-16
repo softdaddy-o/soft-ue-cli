@@ -1,3 +1,3 @@
-"""soft-ue-cli ??CLI interface to the SoftUEBridge UE plugin."""
+"""soft-ue-cli — CLI interface to the SoftUEBridge UE plugin."""
 
-__version__ = "1.25.4"
+__version__ = "1.25.5"

@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import struct
 
-
 from soft_ue_cli.uasset.properties import read_property_tag, read_tagged_properties
 from soft_ue_cli.uasset.reader import UAssetReader
 

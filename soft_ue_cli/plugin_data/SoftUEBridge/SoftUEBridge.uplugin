@@ -1,0 +1,44 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "SoftUE Bridge",
+	"Description": "HTTP bridge server for soft-ue-cli. Exposes UE operations (spawn actor, query level, call function, etc.) over HTTP/JSON-RPC. Active in editor and packaged builds.",
+	"Category": "Scripting",
+	"CreatedBy": "soft-ue-expert",
+	"CreatedByURL": "https://github.com/softdaddy-o/soft-ue-expert",
+	"DocsURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"EnabledByDefault": false,
+	"Plugins": [
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true
+		},
+		{
+			"Name": "StateTree",
+			"Enabled": true
+		},
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true,
+			"Optional": true
+		}
+	],
+	"Modules": [
+		{
+			"Name": "SoftUEBridge",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "SoftUEBridgeEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit"
+		}
+	]
+}

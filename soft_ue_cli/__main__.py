@@ -67,6 +67,10 @@ def cmd_query_level(args: argparse.Namespace) -> None:
         arguments["tag_filter"] = args.tag
     if args.components:
         arguments["include_components"] = True
+    if args.include_properties or args.property_filter:
+        arguments["include_properties"] = True
+    if args.property_filter:
+        arguments["property_filter"] = args.property_filter
     _print_json(call_tool("query-level", arguments))
 
 
@@ -88,6 +92,18 @@ def cmd_set_property(args: argparse.Namespace) -> None:
                 "actor_name": args.actor_name,
                 "property_name": args.property_name,
                 "value": args.value,
+            },
+        )
+    )
+
+
+def cmd_get_property(args: argparse.Namespace) -> None:
+    _print_json(
+        call_tool(
+            "get-property",
+            {
+                "actor_name": args.actor_name,
+                "property_name": args.property_name,
             },
         )
     )
@@ -802,6 +818,8 @@ def cmd_create_asset(args: argparse.Namespace) -> None:
     }
     if args.parent_class:
         arguments["parent_class"] = args.parent_class
+    if args.skeleton:
+        arguments["skeleton"] = args.skeleton
     if args.row_struct:
         arguments["row_struct"] = args.row_struct
     _print_json(call_tool("create-asset", arguments))
@@ -1095,14 +1113,16 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Returns a JSON array of actors in the current game world.\n"
             "Each actor entry includes: name, class, location, rotation, scale, tags.\n"
-            "Use --components to also include the actor's component list.\n\n"
+            "Use --components to also include the actor's component list.\n"
+            "Use --include-properties to inspect actor and component property values.\n\n"
             "All filters are combined (AND logic). Wildcards (*) are supported in --search and --actor-name.\n\n"
             "EXAMPLES:\n"
             "  List all actors:                   soft-ue-cli query-level\n"
             "  Find all lights:                   soft-ue-cli query-level --class-filter PointLight\n"
             "  Find actor by name:                soft-ue-cli query-level --actor-name BP_Hero\n"
             '  Wildcard search:                   soft-ue-cli query-level --search "Enemy*"\n'
-            "  Tagged actors with components:     soft-ue-cli query-level --tag hostile --components"
+            "  Tagged actors with components:     soft-ue-cli query-level --tag hostile --components\n"
+            "  Actor with health properties:      soft-ue-cli query-level --actor-name BP_Hero --include-properties --property-filter '*Health*'"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1113,6 +1133,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_ql.add_argument("--search", metavar="TEXT", help="Search actor names/labels (supports * wildcard)")
     p_ql.add_argument("--tag", metavar="TAG", help="Only return actors with this gameplay tag")
     p_ql.add_argument("--components", action="store_true", help="Include component list for each actor")
+    p_ql.add_argument(
+        "--include-properties", action="store_true",
+        help="Include actor and component properties (automatically enables --components)",
+    )
+    p_ql.add_argument(
+        "--property-filter", metavar="PATTERN",
+        help="Filter properties by name (wildcards supported, e.g., '*Health*'). Requires --include-properties.",
+    )
     p_ql.add_argument("--limit", type=int, default=100, metavar="N", help="Max actors to return (default: 100)")
     p_ql.set_defaults(func=cmd_query_level)
 
@@ -1158,6 +1186,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_sp.add_argument("property_name", help="Property name, or ComponentName.PropertyName for component properties")
     p_sp.add_argument("value", help="New value as a string (UE reflection converts the type)")
     p_sp.set_defaults(func=cmd_set_property)
+
+    # get-property (runtime actors)
+    p_gp = sub.add_parser(
+        "get-property",
+        help="Get a property value from a runtime actor or component using UE reflection.",
+        description=(
+            "Reads a UPROPERTY value from the named actor via UE's reflection system.\n"
+            "For component properties, use dot notation: ComponentName.PropertyName\n\n"
+            "Returns the property value as a string along with its type.\n\n"
+            "EXAMPLES:\n"
+            "  Actor property:     soft-ue-cli get-property PointLight_0 Intensity\n"
+            "  Component property: soft-ue-cli get-property BP_Hero LightComponent.Intensity\n"
+            "  Boolean:            soft-ue-cli get-property BP_Enemy bIsHostile\n"
+            "  Vector:             soft-ue-cli get-property BP_Hero RelativeScale3D"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_gp.add_argument("actor_name", help="Actor name or label as shown in query-level output")
+    p_gp.add_argument("property_name", help="Property name, or ComponentName.PropertyName for component properties")
+    p_gp.set_defaults(func=cmd_get_property)
 
     # get-logs
     p_gl = sub.add_parser(
@@ -2110,13 +2158,15 @@ def build_parser() -> argparse.ArgumentParser:
             "EXAMPLES:\n"
             "  soft-ue-cli create-asset /Game/Blueprints/BP_NewActor Blueprint --parent-class Actor\n"
             "  soft-ue-cli create-asset /Game/Materials/M_NewMat Material\n"
-            "  soft-ue-cli create-asset /Game/Data/DT_Items DataTable --row-struct /Game/Structs/S_Item"
+            "  soft-ue-cli create-asset /Game/Data/DT_Items DataTable --row-struct /Game/Structs/S_Item\n"
+            "  soft-ue-cli create-asset /Game/Anim/ABP_Hero AnimBlueprint --skeleton /Game/Characters/SK_Mannequin"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_cas.add_argument("asset_path", help="Full asset path including name (e.g. /Game/Blueprints/BP_NewActor)")
     p_cas.add_argument("asset_class", help="Asset class (e.g. Blueprint, Material, DataTable, WidgetBlueprint)")
     p_cas.add_argument("--parent-class", metavar="CLASS", help="Parent class for Blueprints (e.g. Actor, Character)")
+    p_cas.add_argument("--skeleton", metavar="PATH", help="Skeleton asset path for AnimBlueprint (e.g. /Game/Characters/SK_Mannequin)")
     p_cas.add_argument("--row-struct", metavar="PATH", help="Row struct path for DataTables")
     p_cas.set_defaults(func=cmd_create_asset)
 
@@ -2126,10 +2176,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query UE knowledge base (coming soon).",
+        help="Query the knowledge server for UE API docs and tutorials.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")
     p_k.set_defaults(func=cmd_knowledge)
 
     # -------------------------------------------------------------------------

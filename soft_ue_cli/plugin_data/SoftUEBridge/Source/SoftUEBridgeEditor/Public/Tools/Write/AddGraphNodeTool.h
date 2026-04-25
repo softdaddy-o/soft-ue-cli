@@ -58,6 +58,7 @@ private:
 		const TSharedPtr<FJsonObject>& Properties,
 		FString& OutError);
 
-	// Apply properties to a node via reflection
-	void ApplyNodeProperties(UObject* Node, const TSharedPtr<FJsonObject>& Properties);
+	// Apply properties to a node via reflection.
+	// Returns list of warning/error messages for properties that failed.
+	TArray<FString> ApplyNodeProperties(UObject* Node, const TSharedPtr<FJsonObject>& Properties);
 };

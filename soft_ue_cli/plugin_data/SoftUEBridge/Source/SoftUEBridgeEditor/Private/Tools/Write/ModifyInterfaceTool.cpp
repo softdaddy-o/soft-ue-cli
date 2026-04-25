@@ -7,6 +7,11 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ScopedTransaction.h"
 #include "AssetRegistry/IAssetRegistry.h"
+// Animation Graph support for auto-generating anim layer function graphs
+#include "AnimationGraph.h"
+#include "AnimGraphNode_Root.h"
+#include "AnimGraphNode_LinkedInputPose.h"
+#include "Animation/AnimBlueprint.h"
 
 FString UModifyInterfaceTool::GetToolDescription() const
 {
@@ -175,6 +180,56 @@ FBridgeToolResult UModifyInterfaceTool::Execute(
 
 		FBlueprintEditorUtils::ImplementNewInterface(Blueprint, FTopLevelAssetPath(InterfaceClass->GetPathName()));
 		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("modify-interface: Added interface %s to %s"), *InterfaceClass->GetName(), *AssetPath);
+
+		// Auto-generate anim layer function graphs for AnimBlueprints
+		int32 GeneratedGraphCount = 0;
+		if (Cast<UAnimBlueprint>(Blueprint))
+		{
+			for (TFieldIterator<UFunction> FuncIt(InterfaceClass); FuncIt; ++FuncIt)
+			{
+				UFunction* InterfaceFunc = *FuncIt;
+				FString FuncName = InterfaceFunc->GetName();
+
+				// Skip if graph already exists
+				if (FBridgeAssetModifier::FindGraphByName(Blueprint, FuncName))
+				{
+					continue;
+				}
+
+				// Create animation graph as a function graph
+				UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(
+					Blueprint,
+					FName(*FuncName),
+					UAnimationGraph::StaticClass(),
+					UEdGraphSchema_K2::StaticClass());
+
+				if (!NewGraph)
+				{
+					UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("modify-interface: Failed to create animation graph: %s"), *FuncName);
+					continue;
+				}
+
+				FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, /*bIsUserCreated=*/true, InterfaceFunc);
+
+				// Create Root node (output pose)
+				FGraphNodeCreator<UAnimGraphNode_Root> RootCreator(*NewGraph);
+				UAnimGraphNode_Root* RootNode = RootCreator.CreateNode();
+				RootNode->NodePosX = 400;
+				RootNode->NodePosY = 0;
+				RootCreator.Finalize();
+
+				// Create LinkedInputPose node (input pose)
+				FGraphNodeCreator<UAnimGraphNode_LinkedInputPose> InputPoseCreator(*NewGraph);
+				UAnimGraphNode_LinkedInputPose* InputPoseNode = InputPoseCreator.CreateNode();
+				InputPoseNode->NodePosX = 0;
+				InputPoseNode->NodePosY = 0;
+				InputPoseCreator.Finalize();
+
+				GeneratedGraphCount++;
+				UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("modify-interface: Auto-generated anim layer function graph '%s'"), *FuncName);
+			}
+		}
+		Result->SetNumberField(TEXT("generated_graphs"), GeneratedGraphCount);
 	}
 	else // remove
 	{

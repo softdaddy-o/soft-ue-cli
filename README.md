@@ -111,6 +111,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `query-level` | List actors in the current level with transforms, filtering by class or name |
 | `call-function` | Call any `BlueprintCallable` `UFUNCTION` on an actor |
 | `set-property` | Set a `UPROPERTY` value on an actor by name |
+| `get-property` | Read a `UPROPERTY` value from an actor or component using reflection |
 | `add-component` | Add a component to an existing actor |
 
 ### Blueprint Inspection and Editing

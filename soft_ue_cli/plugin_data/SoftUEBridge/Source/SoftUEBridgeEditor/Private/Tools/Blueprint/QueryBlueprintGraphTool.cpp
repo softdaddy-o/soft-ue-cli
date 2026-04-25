@@ -74,7 +74,7 @@ TMap<FString, FBridgeSchemaProperty> UQueryBlueprintGraphTool::GetInputSchema() 
 
 	FBridgeSchemaProperty GraphType;
 	GraphType.Type = TEXT("string");
-	GraphType.Description = TEXT("Filter by graph type: 'event', 'function', 'macro', or for AnimBlueprints: 'anim_graph', 'state_machine', 'state', 'transition', 'blend_stack'");
+	GraphType.Description = TEXT("Filter by graph type: 'event', 'function', 'macro', 'interface', or for AnimBlueprints: 'anim_graph', 'state_machine', 'state', 'transition', 'blend_stack'");
 	GraphType.bRequired = false;
 	Schema.Add(TEXT("graph_type"), GraphType);
 
@@ -291,6 +291,25 @@ FBridgeToolResult UQueryBlueprintGraphTool::Execute(
 		}
 	}
 
+	// Interface implementation graphs
+	if (GraphTypeFilter.IsEmpty() || GraphTypeFilter == TEXT("interface"))
+	{
+		for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+		{
+			if (!InterfaceDesc.Interface) continue;
+			for (UEdGraph* Graph : InterfaceDesc.Graphs)
+			{
+				if (!Graph) continue;
+				if (!GraphNameFilter.IsEmpty() && Graph->GetName() != GraphNameFilter) continue;
+				TSharedPtr<FJsonObject> GraphJson = GraphToJson(Graph, TEXT("interface"), SerializeOptions, SearchFilter);
+				if (GraphJson.IsValid())
+				{
+					GraphsArray.Add(MakeShareable(new FJsonValueObject(GraphJson)));
+				}
+			}
+		}
+	}
+
 	// Animation Blueprint specific graphs
 	if (bIsAnimBlueprint)
 	{
@@ -501,6 +520,25 @@ UEdGraphNode* UQueryBlueprintGraphTool::FindNodeByGuid(UBlueprint* Blueprint, co
 		}
 	}
 
+	// Search interface implementation graphs
+	for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+	{
+		if (!InterfaceDesc.Interface) continue;
+		for (UEdGraph* Graph : InterfaceDesc.Graphs)
+		{
+			if (!Graph) continue;
+			for (UEdGraphNode* Node : Graph->Nodes)
+			{
+				if (Node && Node->NodeGuid == NodeGuid)
+				{
+					OutGraphName = Graph->GetName();
+					OutGraphType = TEXT("interface");
+					return Node;
+				}
+			}
+		}
+	}
+
 	return nullptr;
 }
 
@@ -564,6 +602,21 @@ UEdGraph* UQueryBlueprintGraphTool::FindGraphByName(UBlueprint* Blueprint, const
 		{
 			OutGraphType = TEXT("macro");
 			return Graph;
+		}
+	}
+
+	// Search interface implementation graphs
+	for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+	{
+		if (!InterfaceDesc.Interface) continue;
+		for (UEdGraph* Graph : InterfaceDesc.Graphs)
+		{
+			if (!Graph) continue;
+			if (Graph->GetName().Equals(CallableName, ESearchCase::IgnoreCase))
+			{
+				OutGraphType = TEXT("interface");
+				return Graph;
+			}
 		}
 	}
 

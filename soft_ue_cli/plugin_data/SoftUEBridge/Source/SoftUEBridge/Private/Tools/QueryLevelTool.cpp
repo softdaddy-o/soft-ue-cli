@@ -7,6 +7,7 @@
 #include "GameFramework/Actor.h"
 #include "Components/ActorComponent.h"
 #include "EngineUtils.h"
+#include "UObject/UnrealType.h"
 
 #if !WITH_EDITOR
 REGISTER_BRIDGE_TOOL(UQueryLevelTool)
@@ -16,7 +17,8 @@ FString UQueryLevelTool::GetToolDescription() const
 {
 	return TEXT("List and inspect actors in the current game world. "
 		"Optionally filter by class, tag, or name pattern. "
-		"Use actor_name to get detailed info about a specific actor.");
+		"Use actor_name to get detailed info about a specific actor. "
+		"Use include_properties to inspect actor and component property values.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UQueryLevelTool::GetInputSchema() const
@@ -37,6 +39,8 @@ TMap<FString, FBridgeSchemaProperty> UQueryLevelTool::GetInputSchema() const
 	S.Add(TEXT("include_components"),Prop(TEXT("boolean"), TEXT("Include component list (default: false)")));
 	S.Add(TEXT("include_transform"), Prop(TEXT("boolean"), TEXT("Include transforms (default: true)")));
 	S.Add(TEXT("include_hidden"),    Prop(TEXT("boolean"), TEXT("Include hidden actors (default: false)")));
+	S.Add(TEXT("include_properties"),Prop(TEXT("boolean"), TEXT("Include actor and component properties (default: false). Automatically enables component inclusion.")));
+	S.Add(TEXT("property_filter"),   Prop(TEXT("string"),  TEXT("Filter properties by name (wildcards supported, e.g., '*Health*'). Only used when include_properties is true.")));
 	S.Add(TEXT("limit"),             Prop(TEXT("integer"), TEXT("Max results (default: 100)")));
 	S.Add(TEXT("world"),             Prop(TEXT("string"),  TEXT("World context: 'editor' (editor scene), 'pie' (Play-In-Editor), 'game' (packaged build only). Omit to use the first available world.")));
 
@@ -55,9 +59,11 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 	const FString ClassFilter  = GetStringArgOrDefault(Args, TEXT("class_filter"));
 	const FString TagFilter    = GetStringArgOrDefault(Args, TEXT("tag_filter"));
 	const FString SearchFilter = GetStringArgOrDefault(Args, TEXT("search"));
-	const bool bComponents     = GetBoolArgOrDefault(Args, TEXT("include_components"), false);
+	const bool bProperties     = GetBoolArgOrDefault(Args, TEXT("include_properties"), false);
+	const bool bComponents     = GetBoolArgOrDefault(Args, TEXT("include_components"), false) || bProperties;
 	const bool bTransform      = GetBoolArgOrDefault(Args, TEXT("include_transform"), true);
 	const bool bHidden         = GetBoolArgOrDefault(Args, TEXT("include_hidden"), false);
+	const FString PropertyFilter = GetStringArgOrDefault(Args, TEXT("property_filter"));
 	const int32 Limit          = GetIntArgOrDefault(Args, TEXT("limit"), 100);
 
 	// Detail mode: find one specific actor
@@ -70,7 +76,7 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 			if (MatchesWildcard(Actor->GetName(), ActorName) ||
 				MatchesWildcard(GetActorLabelSafe(Actor), ActorName))
 			{
-				return FBridgeToolResult::Json(ActorToJson(Actor, true, true));
+				return FBridgeToolResult::Json(ActorToJson(Actor, true, true, bProperties, PropertyFilter));
 			}
 		}
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Actor '%s' not found"), *ActorName));
@@ -108,7 +114,7 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 
 		if (ActorsArr.Num() >= Limit) { bLimitReached = true; break; }
 
-		TSharedPtr<FJsonObject> ActorJson = ActorToJson(Actor, bComponents, bTransform);
+		TSharedPtr<FJsonObject> ActorJson = ActorToJson(Actor, bComponents, bTransform, bProperties, PropertyFilter);
 		ActorsArr.Add(MakeShareable(new FJsonValueObject(ActorJson)));
 	}
 
@@ -121,7 +127,7 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 	return FBridgeToolResult::Json(Result);
 }
 
-TSharedPtr<FJsonObject> UQueryLevelTool::ActorToJson(AActor* Actor, bool bComponents, bool bTransform) const
+TSharedPtr<FJsonObject> UQueryLevelTool::ActorToJson(AActor* Actor, bool bComponents, bool bTransform, bool bProperties, const FString& PropertyFilter) const
 {
 	TSharedPtr<FJsonObject> J = MakeShareable(new FJsonObject);
 	J->SetStringField(TEXT("name"), Actor->GetName());
@@ -144,6 +150,12 @@ TSharedPtr<FJsonObject> UQueryLevelTool::ActorToJson(AActor* Actor, bool bCompon
 		J->SetArrayField(TEXT("tags"), Tags);
 	}
 
+	// Actor-level properties
+	if (bProperties)
+	{
+		J->SetArrayField(TEXT("properties"), CollectProperties(Actor, PropertyFilter));
+	}
+
 	if (bComponents)
 	{
 		TArray<TSharedPtr<FJsonValue>> Comps;
@@ -156,12 +168,44 @@ TSharedPtr<FJsonObject> UQueryLevelTool::ActorToJson(AActor* Actor, bool bCompon
 			CJ->SetStringField(TEXT("name"), C->GetName());
 			CJ->SetStringField(TEXT("class"), C->GetClass()->GetName());
 			CJ->SetBoolField(TEXT("is_active"), C->IsActive());
+
+			// Component-level properties
+			if (bProperties)
+			{
+				CJ->SetArrayField(TEXT("properties"), CollectProperties(C, PropertyFilter));
+			}
+
 			Comps.Add(MakeShareable(new FJsonValueObject(CJ)));
 		}
 		J->SetArrayField(TEXT("components"), Comps);
 	}
 
 	return J;
+}
+
+TArray<TSharedPtr<FJsonValue>> UQueryLevelTool::CollectProperties(UObject* Object, const FString& PropertyFilter) const
+{
+	TArray<TSharedPtr<FJsonValue>> PropsArr;
+	for (TFieldIterator<FProperty> PropIt(Object->GetClass()); PropIt; ++PropIt)
+	{
+		FProperty* Prop = *PropIt;
+		if (!Prop) continue;
+
+		if (!PropertyFilter.IsEmpty() && !MatchesWildcard(Prop->GetName(), PropertyFilter))
+		{
+			continue;
+		}
+
+		void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(Object);
+		if (!ValuePtr) continue;
+
+		TSharedPtr<FJsonObject> PropJson = PropertyToJson(Prop, ValuePtr, Object);
+		if (PropJson.IsValid())
+		{
+			PropsArr.Add(MakeShareable(new FJsonValueObject(PropJson)));
+		}
+	}
+	return PropsArr;
 }
 
 TSharedPtr<FJsonObject> UQueryLevelTool::TransformToJson(const FTransform& T) const
@@ -185,4 +229,64 @@ TSharedPtr<FJsonObject> UQueryLevelTool::TransformToJson(const FTransform& T) co
 	J->SetObjectField(TEXT("rotation"), RotJ);
 	J->SetObjectField(TEXT("scale"), Vec3(T.GetScale3D()));
 	return J;
+}
+
+TSharedPtr<FJsonObject> UQueryLevelTool::PropertyToJson(FProperty* Property, void* Container, UObject* Owner) const
+{
+	if (!Property || !Container)
+	{
+		return nullptr;
+	}
+
+	TSharedPtr<FJsonObject> PropJson = MakeShareable(new FJsonObject);
+
+	PropJson->SetStringField(TEXT("name"), Property->GetName());
+	PropJson->SetStringField(TEXT("type"), GetPropertyTypeString(Property));
+
+	FString Value;
+	Property->ExportText_Direct(Value, Container, Container, Owner, PPF_None);
+	PropJson->SetStringField(TEXT("value"), Value);
+
+	return PropJson;
+}
+
+FString UQueryLevelTool::GetPropertyTypeString(FProperty* Property) const
+{
+	if (!Property)
+	{
+		return TEXT("unknown");
+	}
+
+	if (Property->IsA<FBoolProperty>()) return TEXT("bool");
+	if (Property->IsA<FIntProperty>()) return TEXT("int32");
+	if (Property->IsA<FFloatProperty>()) return TEXT("float");
+	if (Property->IsA<FNameProperty>()) return TEXT("FName");
+	if (Property->IsA<FStrProperty>()) return TEXT("FString");
+	if (Property->IsA<FTextProperty>()) return TEXT("FText");
+
+	if (FObjectProperty* ObjectProp = CastField<FObjectProperty>(Property))
+	{
+		if (ObjectProp->PropertyClass)
+		{
+			return FString::Printf(TEXT("TObjectPtr<%s>"), *ObjectProp->PropertyClass->GetName());
+		}
+		return TEXT("TObjectPtr<UObject>");
+	}
+
+	if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
+	{
+		if (StructProp->Struct)
+		{
+			return StructProp->Struct->GetName();
+		}
+		return TEXT("struct");
+	}
+
+	if (FArrayProperty* ArrayProp = CastField<FArrayProperty>(Property))
+	{
+		FString InnerType = GetPropertyTypeString(ArrayProp->Inner);
+		return FString::Printf(TEXT("TArray<%s>"), *InnerType);
+	}
+
+	return Property->GetClass()->GetName();
 }

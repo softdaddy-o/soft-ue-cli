@@ -2,6 +2,21 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.4.0] - 2026-03-24
+
+### Added
+- `get-property` command — read UPROPERTY values from runtime actors/components using UE reflection with dot notation for component properties
+- `query-level --include-properties` — inspect actor and component property values with optional `--property-filter` wildcard filtering
+- `create-asset --skeleton` — dedicated flag for specifying skeleton asset path when creating AnimBlueprints
+- `query-blueprint-graph` now returns interface implementation graphs (type `"interface"`) in addition to event, function, and macro graphs
+
+### Fixed
+- Phantom asset handling: `create-asset` and `delete-asset` now correctly detect and clean up phantom assets (registry entry with no loadable object)
+- `modify-interface add` now auto-generates anim layer function graphs with Root and LinkedInputPose nodes when adding AnimLayerInterface to AnimBlueprints
+- `add-graph-node` properties now correctly resolve through inner `Node` struct for animation graph nodes (e.g. AnimGraphNode_SpringBone BoneToModify, SpringStiffness)
+- `add-graph-node` now returns `property_warnings` in JSON response instead of silently ignoring invalid properties
+- `add-graph-node AnimGraphNode_LinkedAnimLayer` no longer crashes; pins are reconstructed after properties are set
+
 ## [1.3.2] - 2026-03-23
 
 ### Changed

@@ -270,6 +270,12 @@ FBridgeToolResult UAddGraphNodeTool::Execute(
 		PositionJson->SetNumberField(TEXT("y"), Expression->MaterialExpressionEditorY);
 		Result->SetObjectField(TEXT("position"), PositionJson);
 
+		// Report property application warnings
+		if (!Error.IsEmpty())
+		{
+			Result->SetStringField(TEXT("property_warnings"), Error);
+		}
+
 		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("add-graph-node: Added material expression %s (%s) at (%d, %d)"),
 			*Expression->GetName(), *Expression->GetClass()->GetName(),
 			Expression->MaterialExpressionEditorX, Expression->MaterialExpressionEditorY);
@@ -307,6 +313,12 @@ FBridgeToolResult UAddGraphNodeTool::Execute(
 		PositionJson->SetNumberField(TEXT("x"), NewNode->NodePosX);
 		PositionJson->SetNumberField(TEXT("y"), NewNode->NodePosY);
 		Result->SetObjectField(TEXT("position"), PositionJson);
+
+		// Report property application warnings
+		if (!Error.IsEmpty())
+		{
+			Result->SetStringField(TEXT("property_warnings"), Error);
+		}
 
 		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("add-graph-node: Added Blueprint node %s (%s) at (%d, %d)"),
 			*NewNode->NodeGuid.ToString(), *NewNode->GetClass()->GetName(),
@@ -420,7 +432,11 @@ UMaterialExpression* UAddGraphNodeTool::CreateMaterialExpression(
 	// Apply properties if provided
 	if (Properties.IsValid())
 	{
-		ApplyNodeProperties(Expression, Properties);
+		TArray<FString> PropertyErrors = ApplyNodeProperties(Expression, Properties);
+		if (PropertyErrors.Num() > 0)
+		{
+			OutError = FString::Join(PropertyErrors, TEXT("; "));
+		}
 	}
 
 	// Add to material
@@ -529,12 +545,6 @@ UEdGraphNode* UAddGraphNodeTool::CreateBlueprintNode(
 	NewNode->NodePosX = FMath::RoundToInt(FinalPosition.X);
 	NewNode->NodePosY = FMath::RoundToInt(FinalPosition.Y);
 
-	// Apply properties if provided
-	if (Properties.IsValid())
-	{
-		ApplyNodeProperties(NewNode, Properties);
-	}
-
 	// Special handling for certain node types that need extra setup
 	if (UK2Node* K2Node = Cast<UK2Node>(NewNode))
 	{
@@ -555,9 +565,34 @@ UEdGraphNode* UAddGraphNodeTool::CreateBlueprintNode(
 		// Allocate default pins
 		K2Node->AllocateDefaultPins();
 	}
+	else
+	{
+		// Non-K2Node subclasses (AllocateDefaultPins is virtual on UEdGraphNode)
+		NewNode->AllocateDefaultPins();
+	}
 
-	// Add to graph
-	Graph->AddNode(NewNode, true, false);
+	// Add to graph with bFromUI=false to skip PostPlacedNewNode, which can crash
+	// for nodes like LinkedAnimLayer that require prior interface setup.
+	Graph->AddNode(NewNode, false, false);
+
+	// Apply properties AFTER pins are allocated and node is added to the graph.
+	// Animation graph nodes (e.g. AnimGraphNode_SpringBone) require pins to exist
+	// before properties can be applied successfully.
+	if (Properties.IsValid())
+	{
+		TArray<FString> PropertyErrors = ApplyNodeProperties(NewNode, Properties);
+		for (const FString& Err : PropertyErrors)
+		{
+			OutError += (OutError.IsEmpty() ? TEXT("") : TEXT("; ")) + Err;
+		}
+	}
+
+	// LinkedAnimLayer nodes need pin reconstruction after properties are set,
+	// since the interface/layer function determines the pin layout.
+	if (NodeClassName.Contains(TEXT("LinkedAnimLayer")))
+	{
+		NewNode->ReconstructNode();
+	}
 
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 	FBridgeAssetModifier::MarkPackageDirty(Blueprint);
@@ -565,30 +600,59 @@ UEdGraphNode* UAddGraphNodeTool::CreateBlueprintNode(
 	return NewNode;
 }
 
-void UAddGraphNodeTool::ApplyNodeProperties(UObject* Node, const TSharedPtr<FJsonObject>& Properties)
+TArray<FString> UAddGraphNodeTool::ApplyNodeProperties(UObject* Node, const TSharedPtr<FJsonObject>& Properties)
 {
+	TArray<FString> Errors;
 	if (!Node || !Properties.IsValid())
 	{
-		return;
+		return Errors;
 	}
+
+	// Animation graph nodes (e.g. AnimGraphNode_SpringBone) store their data in an inner
+	// FAnimNode_* struct member called "Node". Check if this struct exists so we can
+	// auto-resolve properties through it when direct lookup fails.
+	FStructProperty* InnerNodeProp = CastField<FStructProperty>(Node->GetClass()->FindPropertyByName(TEXT("Node")));
+	void* InnerNodeContainer = InnerNodeProp ? InnerNodeProp->ContainerPtrToValuePtr<void>(Node) : nullptr;
+	UScriptStruct* InnerNodeStruct = InnerNodeProp ? InnerNodeProp->Struct : nullptr;
 
 	for (const auto& Pair : Properties->Values)
 	{
 		const FString& PropertyName = Pair.Key;
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
-		// Find the property - first try direct lookup
+		// Find the property - first try direct lookup on the node
 		FProperty* Property = Node->GetClass()->FindPropertyByName(*PropertyName);
 		void* Container = Node;
 
 		if (!Property)
 		{
-			// Try nested property path
+			// Try nested property path on the node
 			FString FindError;
 			if (!FBridgeAssetModifier::FindPropertyByPath(Node, PropertyName, Property, Container, FindError))
 			{
-				UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("Property not found: %s - %s"), *PropertyName, *FindError);
-				continue;
+				// For animation graph nodes, try the inner "Node" struct member
+				if (InnerNodeStruct && InnerNodeContainer)
+				{
+					Property = InnerNodeStruct->FindPropertyByName(*PropertyName);
+					if (Property)
+					{
+						Container = InnerNodeContainer;
+					}
+					else
+					{
+						// Try nested path within the inner Node struct (e.g. "BoneToModify.BoneName")
+						FString InnerPath = FString::Printf(TEXT("Node.%s"), *PropertyName);
+						FBridgeAssetModifier::FindPropertyByPath(Node, InnerPath, Property, Container, FindError);
+					}
+				}
+
+				if (!Property)
+				{
+					FString Msg = FString::Printf(TEXT("Property not found: %s"), *PropertyName);
+					UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("%s"), *Msg);
+					Errors.Add(Msg);
+					continue;
+				}
 			}
 		}
 
@@ -596,7 +660,11 @@ void UAddGraphNodeTool::ApplyNodeProperties(UObject* Node, const TSharedPtr<FJso
 		FString SetError;
 		if (!FBridgePropertySerializer::DeserializePropertyValue(Property, Container, Value, SetError))
 		{
-			UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("Failed to set property %s: %s"), *PropertyName, *SetError);
+			FString Msg = FString::Printf(TEXT("Failed to set property %s: %s"), *PropertyName, *SetError);
+			UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("%s"), *Msg);
+			Errors.Add(Msg);
 		}
 	}
+
+	return Errors;
 }

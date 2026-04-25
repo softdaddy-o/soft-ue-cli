@@ -15,6 +15,9 @@ public:
 	virtual FBridgeToolResult Execute(const TSharedPtr<FJsonObject>& Args, const FBridgeToolContext& Ctx) override;
 
 private:
-	TSharedPtr<FJsonObject> ActorToJson(AActor* Actor, bool bComponents, bool bTransform) const;
+	TSharedPtr<FJsonObject> ActorToJson(AActor* Actor, bool bComponents, bool bTransform, bool bProperties = false, const FString& PropertyFilter = TEXT("")) const;
 	TSharedPtr<FJsonObject> TransformToJson(const FTransform& T) const;
+	TArray<TSharedPtr<FJsonValue>> CollectProperties(UObject* Object, const FString& PropertyFilter) const;
+	TSharedPtr<FJsonObject> PropertyToJson(FProperty* Property, void* Container, UObject* Owner) const;
+	FString GetPropertyTypeString(FProperty* Property) const;
 };

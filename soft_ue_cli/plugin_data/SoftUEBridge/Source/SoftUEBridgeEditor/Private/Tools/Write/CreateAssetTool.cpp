@@ -25,6 +25,7 @@
 #include "Animation/AnimBlueprint.h"
 #include "Animation/Skeleton.h"
 #include "Animation/AnimInstance.h"
+#include "EditorAssetLibrary.h"
 
 FString UCreateAssetTool::GetToolDescription() const
 {
@@ -51,9 +52,15 @@ TMap<FString, FBridgeSchemaProperty> UCreateAssetTool::GetInputSchema() const
 
 	FBridgeSchemaProperty ParentClass;
 	ParentClass.Type = TEXT("string");
-	ParentClass.Description = TEXT("Parent class for Blueprints (e.g., 'Actor', 'Character'). For AnimBlueprint, specify skeleton asset path.");
+	ParentClass.Description = TEXT("Parent class for Blueprints (e.g., 'Actor', 'Character').");
 	ParentClass.bRequired = false;
 	Schema.Add(TEXT("parent_class"), ParentClass);
+
+	FBridgeSchemaProperty Skeleton;
+	Skeleton.Type = TEXT("string");
+	Skeleton.Description = TEXT("Skeleton asset path for AnimBlueprint (e.g., '/Game/Characters/SK_Mannequin')");
+	Skeleton.bRequired = false;
+	Schema.Add(TEXT("skeleton"), Skeleton);
 
 	FBridgeSchemaProperty RowStruct;
 	RowStruct.Type = TEXT("string");
@@ -76,7 +83,15 @@ FBridgeToolResult UCreateAssetTool::Execute(
 	FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
 	FString AssetClass = GetStringArgOrDefault(Arguments, TEXT("asset_class"));
 	FString ParentClass = GetStringArgOrDefault(Arguments, TEXT("parent_class"));
+	FString Skeleton = GetStringArgOrDefault(Arguments, TEXT("skeleton"));
 	FString RowStruct = GetStringArgOrDefault(Arguments, TEXT("row_struct"));
+
+	// Dedicated --skeleton flag takes priority over --parent-class for AnimBlueprints
+	FString LowerClass = AssetClass.ToLower();
+	if (!Skeleton.IsEmpty() && (LowerClass == TEXT("animblueprint") || LowerClass == TEXT("animbp")))
+	{
+		ParentClass = Skeleton;
+	}
 
 	if (AssetPath.IsEmpty() || AssetClass.IsEmpty())
 	{
@@ -93,7 +108,15 @@ FBridgeToolResult UCreateAssetTool::Execute(
 	// Check if asset already exists
 	if (FBridgeAssetModifier::AssetExists(AssetPath))
 	{
-		return FBridgeToolResult::Error(FString::Printf(TEXT("Asset already exists: %s"), *AssetPath));
+		// Verify it's a real asset, not a phantom (registry entry with no loadable object)
+		UObject* ExistingAsset = UEditorAssetLibrary::LoadAsset(AssetPath);
+		if (ExistingAsset)
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("Asset already exists: %s"), *AssetPath));
+		}
+		// Phantom asset: registry says it exists but LoadAsset fails.
+		// Proceed with creation — FAssetRegistryModule::AssetCreated() below will overwrite the stale registry entry.
+		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("create-asset: Phantom asset detected at %s (registry entry but not loadable). Overwriting."), *AssetPath);
 	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("create-asset: %s of class %s"), *AssetPath, *AssetClass);
@@ -413,7 +436,7 @@ UObject* UCreateAssetTool::CreateAnimBlueprint(
 
 	if (!TargetSkeleton)
 	{
-		OutError = TEXT("AnimBlueprint requires a skeleton. No skeleton found. Specify skeleton path in parent_class parameter.");
+		OutError = TEXT("AnimBlueprint requires a skeleton. No skeleton found. Specify skeleton path via the 'skeleton' parameter.");
 		return nullptr;
 	}
 

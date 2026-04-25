@@ -32,37 +32,36 @@ Claude Code  -->  soft-ue-cli (Python)  -->  HTTP/JSON-RPC  -->  SoftUEBridge pl
 pip install soft-ue-cli
 ```
 
-### 2. Install the plugin into your UE project
+### 2. Set up the plugin using your AI coding agent
 
-```bash
-soft-ue-cli setup /path/to/YourProject
-```
+Open Claude Code (or any LLM-powered coding tool) in your UE project directory and tell it:
 
-This copies the bundled **SoftUEBridge** C++ plugin into your project's `Plugins/` directory.
+> Run `soft-ue-cli setup` and follow the instructions.
 
-### 3. Enable the plugin
+The `setup` command outputs LLM-readable instructions that guide your AI agent through:
+- Copying the bundled SoftUEBridge C++ plugin into your project
+- Enabling it in your `.uproject` file
+- Creating a `CLAUDE.md` so the agent knows how to use the CLI going forward
 
-Add the following entry to the `"Plugins"` array in your `.uproject` file:
+Your AI agent will handle all of this automatically.
 
-```json
-{"Name": "SoftUEBridge", "Enabled": true}
-```
+### 3. Rebuild and launch Unreal Engine
 
-### 4. Rebuild and launch Unreal Engine
-
-After regenerating project files and rebuilding, launch the editor. Look for this log line to confirm the bridge is running:
+After your agent completes the setup, regenerate project files, rebuild, and launch the editor. Look for this log line:
 
 ```
 LogSoftUEBridge: Bridge server started on port 8080
 ```
 
-### 5. Verify the connection
+### 4. Verify the connection
+
+Tell your agent to run:
 
 ```bash
 soft-ue-cli check-setup
 ```
 
-You should see all checks pass:
+All checks should pass:
 
 ```
 [OK]   Plugin files found.
@@ -70,19 +69,7 @@ You should see all checks pass:
 [OK]   Bridge server reachable.
 ```
 
-### 6. Tell Claude Code about the CLI
-
-Create or append to your project's `CLAUDE.md`:
-
-```markdown
-## Unreal Engine control
-
-`soft-ue-cli` controls this UE project via the SoftUEBridge plugin.
-Run `soft-ue-cli --help` to see all available commands.
-The game or editor must be running with SoftUEBridge enabled before using UE commands.
-```
-
-Now Claude Code can autonomously control your Unreal Engine project.
+Your AI coding agent can now control Unreal Engine.
 
 ---
 

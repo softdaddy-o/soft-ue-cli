@@ -13,7 +13,7 @@ Built and maintained by a solo developer. [Support this project](#support-this-p
 Two ways to connect. Same 60+ tools. One pip install. One plugin copy.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/softdaddy-o/soft-ue-expert/master/cli/docs/architecture.svg" alt="soft-ue-cli architecture diagram" width="680">
+  <img src="docs/architecture.svg" alt="soft-ue-cli architecture diagram" width="680">
 </p>
 
 ---

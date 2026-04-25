@@ -6,72 +6,34 @@
 
 **Control Unreal Engine 5 from the command line.** soft-ue-cli is a Python CLI that lets [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic's AI coding agent) -- or any terminal workflow -- spawn actors, edit Blueprints, inspect materials, run Play-In-Editor sessions, capture screenshots, profile performance, and execute 50+ other operations inside a running UE5 editor or packaged build.
 
-One pip install. One plugin copy. Zero manual editor clicks.
-
-```
-Claude Code  -->  soft-ue-cli (Python)  -->  HTTP/JSON-RPC  -->  SoftUEBridge plugin (inside UE)
-```
-
 ---
 
-## Why soft-ue-cli?
-
-- **AI-native UE automation** -- purpose-built so Claude Code can read, modify, and test Unreal Engine projects without a human touching the editor.
-- **50+ commands** covering actors, Blueprints, materials, StateTrees, widgets, assets, PIE sessions, profiling, and more.
-- **Works everywhere UE runs** -- editor, cooked builds, Windows, macOS, Linux.
-- **Single dependency** -- only requires `httpx`. No heavy SDK, no editor scripting setup.
-- **Team-friendly** -- conditional compilation via `SOFT_UE_BRIDGE` environment variable means only developers who need the bridge get it compiled in.
-
----
-
-## Quick Start
-
-### 1. Install the CLI
+## Installation
 
 ```bash
 pip install soft-ue-cli
 ```
 
-### 2. Install the plugin into your UE project
-
-Run the setup command **inside your LLM client** (Claude Code, Cursor, etc.) — it outputs step-by-step instructions that the AI agent will follow to copy the plugin, edit your `.uproject`, and configure itself:
+## Setup
 
 ```bash
-soft-ue-cli setup /path/to/YourProject
+soft-ue-cli setup /path/to/MyProject
 ```
 
-If you're running manually (not via an LLM), follow the printed instructions yourself: copy the plugin directory, add the `"Plugins"` entry to your `.uproject`, and create the `CLAUDE.md` snippet.
-
-### 3. Rebuild and launch Unreal Engine
-
-After regenerating project files and rebuilding, launch the editor. Look for this log line to confirm the bridge is running:
-
-```
-LogSoftUEBridge: Bridge server started on port 8080
-```
-
-### 5. Verify the connection
+This copies the SoftUEBridge C++ plugin into your UE project and prints instructions for enabling it. After rebuilding and launching UE, verify the connection:
 
 ```bash
 soft-ue-cli check-setup
 ```
 
-You should see all checks pass:
-
-```
-[OK]   Plugin files found.
-[OK]   SoftUEBridge enabled in YourGame.uproject.
-[OK]   Bridge server reachable.
-```
-
 ---
 
-## How It Works
+## Architecture
 
 ```
-Claude Code
+Claude Code / Terminal
     |
-    |  (runs CLI commands in terminal)
+    |  (runs CLI commands)
     v
 soft-ue-cli  (Python process)
     |
@@ -90,7 +52,7 @@ All commands output JSON to stdout (except `get-logs --raw`). Exit code 0 means 
 
 ---
 
-## Complete Command Reference
+## Command Reference
 
 Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <command> --help` for detailed options.
 
@@ -222,124 +184,12 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 ---
 
-## Usage Examples
-
-### Spawn an actor at a specific location
-
-```bash
-soft-ue-cli spawn-actor BP_Enemy --location 100,200,50 --rotation 0,90,0
-```
-
-### Query all actors of a specific class
-
-```bash
-soft-ue-cli query-level --class-filter StaticMeshActor --limit 50
-```
-
-### Call a BlueprintCallable function
-
-```bash
-soft-ue-cli call-function BP_GameMode SetDifficulty --args '{"Level": 3}'
-```
-
-### Inspect a Blueprint's components and variables
-
-```bash
-soft-ue-cli query-blueprint /Game/Blueprints/BP_Player --include components,variables
-```
-
-### Start a PIE session and send input
-
-```bash
-soft-ue-cli pie-session start --mode SelectedViewport
-soft-ue-cli trigger-input key --key SpaceBar
-soft-ue-cli pie-session stop
-```
-
-### Capture a screenshot of the editor viewport
-
-```bash
-soft-ue-cli capture-screenshot viewport --output screenshot.png
-```
-
-### Edit a Blueprint graph programmatically
-
-```bash
-soft-ue-cli add-graph-node /Game/BP_Player K2Node_CallFunction \
-  --properties '{"FunctionReference": {"MemberName": "PrintString"}}'
-soft-ue-cli connect-graph-pins /Game/BP_Player node1 "exec" node2 "execute"
-```
-
-### Manage Blueprint interfaces
-
-```bash
-soft-ue-cli modify-interface /Game/ABP_Character add ALI_Locomotion
-soft-ue-cli modify-interface /Game/ABP_Character remove ALI_Locomotion
-soft-ue-cli query-blueprint /Game/ABP_Character --include interfaces
-```
-
-### Create an anim layer function on an AnimLayerInterface
-
-```bash
-soft-ue-cli add-graph-node /Game/ALI_Locomotion AnimLayerFunction --graph-name FullBody
-```
-
-### Profile with UE Insights
-
-```bash
-soft-ue-cli insights-capture start --channels CPU,GPU
-# ... run your scenario ...
-soft-ue-cli insights-capture stop
-soft-ue-cli insights-analyze latest --analysis-type cpu
-```
-
----
-
-## Configuration
-
-### Environment Variables
+## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SOFT_UE_BRIDGE_URL` | *(none)* | Full bridge URL override (e.g. `http://192.168.1.10:8080`) |
 | `SOFT_UE_BRIDGE_PORT` | `8080` | Port override when using localhost |
-| `SOFT_UE_BRIDGE` | *(none)* | Set to `1` to enable conditional compilation in `Target.cs` |
-
-### Server Discovery Order
-
-The CLI finds the bridge server using this priority:
-
-1. `--server` command-line flag
-2. `SOFT_UE_BRIDGE_URL` environment variable
-3. `SOFT_UE_BRIDGE_PORT` environment variable (constructs `http://127.0.0.1:<port>`)
-4. `.soft-ue-bridge/instance.json` file (searched upward from the current working directory -- written automatically by the plugin at startup)
-5. `http://127.0.0.1:8080` (default fallback)
-
-### Conditional Compilation for Teams
-
-If you want only specific developers to compile the bridge plugin (to avoid any overhead for artists or designers), use the `SOFT_UE_BRIDGE` environment variable in your `Target.cs`:
-
-```csharp
-// MyGameEditor.Target.cs
-if (Environment.GetEnvironmentVariable("SOFT_UE_BRIDGE") == "1")
-{
-    ExtraModuleNames.Add("SoftUEBridge");
-}
-```
-
-Developers who need the bridge set `SOFT_UE_BRIDGE=1` in their environment. Everyone else builds without it.
-
----
-
-## Compatibility
-
-| Requirement | Supported Versions |
-|-------------|--------------------|
-| **Unreal Engine** | 5.3, 5.4, 5.5 |
-| **Python** | 3.10+ |
-| **Platforms** | Windows, macOS, Linux |
-| **Build types** | Editor, Development, Shipping (cooked/packaged) |
-| **Dependencies** | `httpx >= 0.27` (sole runtime dependency) |
 
 ---
 
@@ -354,58 +204,6 @@ pytest -v
 
 ---
 
-## Frequently Asked Questions
-
-### What is soft-ue-cli?
-
-soft-ue-cli is a Python command-line tool that controls Unreal Engine 5 from the terminal. It communicates with a C++ plugin (SoftUEBridge) running inside UE via HTTP/JSON-RPC, enabling automation of actor spawning, Blueprint editing, material inspection, Play-In-Editor sessions, screenshot capture, performance profiling, and 50+ other operations.
-
-### How does Claude Code use soft-ue-cli to control Unreal Engine?
-
-Claude Code runs soft-ue-cli commands in the terminal just like a developer would. By adding a `CLAUDE.md` file to your UE project that describes the available commands, Claude Code can autonomously query your level, spawn actors, edit Blueprints, run PIE sessions, and iterate on your game -- all without manual editor interaction.
-
-### Can I use soft-ue-cli without Claude Code?
-
-Yes. soft-ue-cli is a standard Python CLI. You can use it in shell scripts, CI/CD pipelines, custom automation tools, or any workflow that can invoke command-line programs. Every command outputs structured JSON, making it easy to parse and integrate.
-
-### Does it work with packaged/cooked Unreal Engine builds?
-
-Yes. The SoftUEBridge plugin works in both the UE editor and in cooked/packaged builds (Development and Shipping configurations). This makes it useful for automated testing of packaged games.
-
-### What Unreal Engine versions are supported?
-
-soft-ue-cli supports Unreal Engine 5.3, 5.4, and 5.5. The C++ plugin uses stable engine APIs and is compatible across these versions without modification.
-
-### Is there any runtime performance impact?
-
-The SoftUEBridge plugin adds a lightweight HTTP server that listens on a single port. When no requests are being made, the overhead is negligible. The server processes requests on the game thread to ensure thread safety with UE APIs. For production builds where you do not want the bridge, use conditional compilation via the `SOFT_UE_BRIDGE` environment variable.
-
-### How do I change the default port?
-
-Set the `SOFT_UE_BRIDGE_PORT` environment variable before launching UE, or use the `--server` flag when running CLI commands. The default port is 8080.
-
-### Can multiple UE instances run simultaneously?
-
-Yes. Each UE instance writes its port to a `.soft-ue-bridge/instance.json` file in the project directory. Use `SOFT_UE_BRIDGE_URL` or `--server` to target a specific instance when multiple are running.
-
-### How do I edit Blueprints from the command line?
-
-Use `query-blueprint-graph` to inspect existing graph nodes, `add-graph-node` to create new nodes, `connect-graph-pins` to wire them together, and `remove-graph-node` to delete nodes. This enables fully programmatic Blueprint construction -- useful for AI-driven development and automated testing.
-
-### What is the difference between soft-ue-cli and Unreal Engine Remote Control?
-
-Unreal Engine's built-in Remote Control API focuses on property access and preset-based workflows. soft-ue-cli provides a broader command set specifically designed for AI coding agents -- including Blueprint graph editing, StateTree manipulation, PIE session control, UE Insights profiling, widget inspection, and asset creation -- with a simpler setup process (one pip install, one plugin copy).
-
----
-
 ## License
 
-MIT License. See [LICENSE](https://github.com/softdaddy-o/soft-ue-cli/blob/main/LICENSE) for details.
-
----
-
-## Links
-
-- **PyPI**: [pypi.org/project/soft-ue-cli](https://pypi.org/project/soft-ue-cli/)
-- **GitHub**: [github.com/softdaddy-o/soft-ue-cli](https://github.com/softdaddy-o/soft-ue-cli)
-- **Claude Code**: [docs.anthropic.com/en/docs/claude-code](https://docs.anthropic.com/en/docs/claude-code)
+MIT License. See [LICENSE](LICENSE) for details.

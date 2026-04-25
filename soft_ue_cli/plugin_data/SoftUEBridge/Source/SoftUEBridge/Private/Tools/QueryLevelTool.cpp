@@ -40,7 +40,7 @@ TMap<FString, FBridgeSchemaProperty> UQueryLevelTool::GetInputSchema() const
 	};
 
 	S.Add(TEXT("actor_name"),        Prop(TEXT("string"),  TEXT("Find actor by name or label (wildcards: *pattern*)")));
-	S.Add(TEXT("class_filter"),      Prop(TEXT("string"),  TEXT("Filter by class name (wildcards supported)")));
+	S.Add(TEXT("class_filter"),      Prop(TEXT("string"),  TEXT("Filter by class name (matches inherited classes; wildcards supported)")));
 	S.Add(TEXT("tag_filter"),        Prop(TEXT("string"),  TEXT("Filter by actor tag")));
 	S.Add(TEXT("search"),            Prop(TEXT("string"),  TEXT("Filter by name/label substring")));
 	S.Add(TEXT("include_components"),Prop(TEXT("boolean"), TEXT("Include component list (default: false)")));
@@ -97,6 +97,22 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 	TArray<TSharedPtr<FJsonValue>> ActorsArr;
 	bool bLimitReached = false;
 
+	// Resolve class filter: try to find as UClass for inheritance matching,
+	// fall back to wildcard name matching if not found or contains wildcards
+	UClass* FilterClass = nullptr;
+	if (!ClassFilter.IsEmpty() && !ClassFilter.Contains(TEXT("*")) && !ClassFilter.Contains(TEXT("?")))
+	{
+		FilterClass = FindFirstObjectSafe<UClass>(*ClassFilter);
+		if (!FilterClass)
+		{
+			FilterClass = FindFirstObjectSafe<UClass>(*(TEXT("A") + ClassFilter));
+		}
+		if (!FilterClass)
+		{
+			FilterClass = FindFirstObjectSafe<UClass>(*(TEXT("U") + ClassFilter));
+		}
+	}
+
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
 		AActor* Actor = *It;
@@ -104,7 +120,17 @@ FBridgeToolResult UQueryLevelTool::Execute(const TSharedPtr<FJsonObject>& Args, 
 
 		if (!bHidden && Actor->IsHidden()) continue;
 
-		if (!ClassFilter.IsEmpty() && !MatchesWildcard(Actor->GetClass()->GetName(), ClassFilter)) continue;
+		if (!ClassFilter.IsEmpty())
+		{
+			if (FilterClass)
+			{
+				if (!Actor->GetClass()->IsChildOf(FilterClass)) continue;
+			}
+			else
+			{
+				if (!MatchesWildcard(Actor->GetClass()->GetName(), ClassFilter)) continue;
+			}
+		}
 
 		if (!TagFilter.IsEmpty())
 		{

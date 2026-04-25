@@ -1214,7 +1214,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ql.add_argument(
         "--actor-name", metavar="PATTERN", help="Match actor by exact name or label (supports * wildcard)"
     )
-    p_ql.add_argument("--class-filter", metavar="CLASS", help="Only return actors of this class (e.g. PointLight)")
+    p_ql.add_argument("--class-filter", metavar="CLASS", help="Only return actors of this class or subclasses (e.g. PointLight, Character)")
     p_ql.add_argument("--search", metavar="TEXT", help="Search actor names/labels (supports * wildcard)")
     p_ql.add_argument("--tag", metavar="TAG", help="Only return actors with this gameplay tag")
     p_ql.add_argument("--components", action="store_true", help="Include component list for each actor")

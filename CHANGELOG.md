@@ -2,6 +2,11 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.7.1] - 2026-04-02
+
+### Fixed
+- `query-level --class-filter` now matches inherited classes (e.g. `--class-filter Character` finds all Character subclasses)
+
 ## [1.7.0] - 2026-04-01
 
 ### Added

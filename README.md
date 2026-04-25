@@ -34,21 +34,15 @@ pip install soft-ue-cli
 
 ### 2. Install the plugin into your UE project
 
+Run the setup command **inside your LLM client** (Claude Code, Cursor, etc.) — it outputs step-by-step instructions that the AI agent will follow to copy the plugin, edit your `.uproject`, and configure itself:
+
 ```bash
 soft-ue-cli setup /path/to/YourProject
 ```
 
-This copies the bundled **SoftUEBridge** C++ plugin into your project's `Plugins/` directory.
+If you're running manually (not via an LLM), follow the printed instructions yourself: copy the plugin directory, add the `"Plugins"` entry to your `.uproject`, and create the `CLAUDE.md` snippet.
 
-### 3. Enable the plugin
-
-Add the following entry to the `"Plugins"` array in your `.uproject` file:
-
-```json
-{"Name": "SoftUEBridge", "Enabled": true}
-```
-
-### 4. Rebuild and launch Unreal Engine
+### 3. Rebuild and launch Unreal Engine
 
 After regenerating project files and rebuilding, launch the editor. Look for this log line to confirm the bridge is running:
 
@@ -69,20 +63,6 @@ You should see all checks pass:
 [OK]   SoftUEBridge enabled in YourGame.uproject.
 [OK]   Bridge server reachable.
 ```
-
-### 6. Tell Claude Code about the CLI
-
-Create or append to your project's `CLAUDE.md`:
-
-```markdown
-## Unreal Engine control
-
-`soft-ue-cli` controls this UE project via the SoftUEBridge plugin.
-Run `soft-ue-cli --help` to see all available commands.
-The game or editor must be running with SoftUEBridge enabled before using UE commands.
-```
-
-Now Claude Code can autonomously control your Unreal Engine project.
 
 ---
 

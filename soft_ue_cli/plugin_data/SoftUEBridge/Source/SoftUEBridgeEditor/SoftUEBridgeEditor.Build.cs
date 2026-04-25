@@ -13,6 +13,7 @@ public class SoftUEBridgeEditor : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"RHI",
 			"SoftUEBridge"
 		});
 

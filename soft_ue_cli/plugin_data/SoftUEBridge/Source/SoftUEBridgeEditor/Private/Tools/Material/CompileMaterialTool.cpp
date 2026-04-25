@@ -58,7 +58,7 @@ FBridgeToolResult UCompileMaterialTool::Execute(
 		Material->PostEditChange();
 
 		// Check for errors
-		bool bSuccess = (Material->GetMaterialResource(GMaxRHIFeatureLevel) != nullptr);
+		bool bSuccess = (Material->GetMaterialResource(GMaxRHIShaderPlatform) != nullptr);
 		Result->SetBoolField(TEXT("success"), bSuccess);
 		Result->SetBoolField(TEXT("needs_save"), true);
 

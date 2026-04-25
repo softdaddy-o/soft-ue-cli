@@ -1072,6 +1072,21 @@ def cmd_knowledge(args: argparse.Namespace) -> None:
     print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
 
 
+def cmd_skills(args: argparse.Namespace) -> None:
+    from .skills import get_skill, list_skills
+
+    if args.skills_action == "list":
+        for skill in list_skills():
+            print(f"{skill['name']:<24}{skill['description']}")
+        return
+
+    content = get_skill(args.skill_name)
+    if content is None:
+        print(f"error: skill '{args.skill_name}' not found", file=sys.stderr)
+        sys.exit(1)
+    print(content)
+
+
 # -- Argument parser -----------------------------------------------------------
 
 
@@ -2455,6 +2470,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Priority label (default: enhancement)",
     )
     p_rf.set_defaults(func=cmd_request_feature)
+
+    # skills
+    p_skills = sub.add_parser(
+        "skills",
+        help="Discover and retrieve LLM skill prompts shipped with the CLI.",
+        description=(
+            "Skills are markdown prompts that teach an LLM client how to perform\n"
+            "complex workflows using soft-ue-cli commands. They include step-by-step\n"
+            "instructions, type mapping tables, and pre-filled CLI commands.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli skills list\n"
+            "  soft-ue-cli skills get blueprint-to-cpp"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    skills_sub = p_skills.add_subparsers(dest="skills_action", required=True)
+    skills_sub.add_parser("list", help="List all available skills")
+    p_skills_get = skills_sub.add_parser("get", help="Print a skill's full content")
+    p_skills_get.add_argument("skill_name", help="Skill name (e.g. blueprint-to-cpp)")
+    p_skills.set_defaults(func=cmd_skills)
 
     return parser
 

@@ -3,6 +3,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Sponsor](https://img.shields.io/github/sponsors/softdaddy-o?label=Sponsor&logo=github)](https://github.com/sponsors/softdaddy-o)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-ff5e5b?logo=ko-fi)](https://ko-fi.com/softdaddy)
 
 **Control Unreal Engine 5 from the command line.** soft-ue-cli is a Python CLI that lets [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic's AI coding agent) -- or any terminal workflow -- spawn actors, edit Blueprints, inspect materials, run Play-In-Editor sessions, capture screenshots, profile performance, and execute 50+ other operations inside a running UE5 editor or packaged build.
 
@@ -87,6 +89,25 @@ Unreal Engine 5 editor or runtime
 The **SoftUEBridge** plugin is a lightweight C++ `UGameInstanceSubsystem` that starts an embedded HTTP server on port 8080 when UE launches. The CLI sends JSON-RPC requests to this server, and the plugin executes the corresponding UE operations on the game thread, returning structured JSON responses.
 
 All commands output JSON to stdout (except `get-logs --raw`). Exit code 0 means success, 1 means error.
+
+### Skills Architecture
+
+```
+LLM client (Claude Code, Cursor, etc.)
+    |
+    |  soft-ue-cli skills get <name>
+    v
+Skill file  (markdown shipped with CLI pip package)
+    |
+    |  LLM reads instructions, type mappings, pre-filled commands
+    v
+LLM executes soft-ue-cli commands (query-blueprint, query-blueprint-graph, ...)
+    |
+    v
+LLM generates output (e.g. .h/.cpp files) following the skill's rules
+```
+
+Skills are **markdown files** at `cli/soft_ue_cli/skills/*.md`, shipped as package data in the pip distribution. Each skill is self-contained: workflow instructions, reference tables, example CLI commands, and verification test cases. The CLI discovers them via `skills list` / `skills get`. When running as an MCP server, the same files are exposed via the `prompts/list` and `prompts/get` protocol.
 
 ---
 
@@ -227,6 +248,21 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `build-and-relaunch` | Trigger a full C++ rebuild and optionally relaunch the editor (`--wait` to monitor progress) |
 | `trigger-live-coding` | Trigger a Live Coding compile (hot reload); waits for result by default |
 
+### Skills (LLM Workflow Prompts)
+
+| Command | Description |
+|---------|-------------|
+| `skills list` | List all available LLM skill prompts shipped with the CLI |
+| `skills get <name>` | Print a skill's full content to stdout for LLM consumption |
+
+Skills are markdown prompts that teach an LLM client how to perform complex multi-step workflows using soft-ue-cli commands. They include step-by-step instructions, type mapping tables, and pre-filled CLI commands.
+
+**Available skills:**
+
+| Skill | Description |
+|-------|-------------|
+| `blueprint-to-cpp` | Generate C++ `.h`/`.cpp` from a Blueprint asset -- Layer 1 (class scaffolding) + Layer 2 (graph logic translation) |
+
 ---
 
 ## Usage Examples
@@ -310,6 +346,20 @@ soft-ue-cli save-asset /Game/ABP_Hero
 ```bash
 soft-ue-cli disconnect-graph-pin /Game/ABP_Hero {node-guid} OutputPose \
   --target-node {other-guid} --target-pin InputPose
+```
+
+### Convert a Blueprint to C++ using the LLM skill
+
+```bash
+# List available skills
+soft-ue-cli skills list
+
+# Feed the blueprint-to-cpp skill to your LLM client
+soft-ue-cli skills get blueprint-to-cpp
+# The LLM reads the skill instructions, then runs:
+#   soft-ue-cli query-blueprint /Game/BP_Player --include all --include-inherited
+#   soft-ue-cli query-blueprint-graph /Game/BP_Player --list-callables
+# ...and generates the .h/.cpp files from the JSON responses
 ```
 
 ### Profile with UE Insights

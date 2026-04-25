@@ -2,6 +2,16 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.8.0] - 2026-04-03
+
+### Added
+- `skills list` command — discover LLM workflow prompts shipped with the CLI
+- `skills get <name>` command — retrieve a skill's full content for LLM consumption
+- `blueprint-to-cpp` skill — instructs an LLM to generate C++ `.h`/`.cpp` from Blueprint assets using Layer 1 (class scaffolding) and Layer 2 (graph logic translation with 100+ node type mappings)
+
+### Fixed
+- `compile-material` now uses `GMaxRHIShaderPlatform` instead of deprecated `GMaxRHIFeatureLevel` (UE 5.7 compatibility)
+
 ## [1.7.1] - 2026-04-02
 
 ### Fixed

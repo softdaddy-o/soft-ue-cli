@@ -1,0 +1,39 @@
+# Changelog
+
+All notable changes to soft-ue-cli will be documented in this file.
+
+## [1.2.0] - 2026-03-20
+
+### Added
+- `inspect-runtime-widgets` command — inspect live UMG widget geometry during PIE sessions
+  - Query by widget name or class with keyword search
+  - Returns computed geometry (absolute position, local size, accumulated render transform)
+  - Includes slot properties and render settings
+  - Optional `--include-slate` flag for underlying Slate widget data
+  - Supports multiple PIE instances via `--pie-index`
+
+## [1.1.1] - 2026-03-19
+
+### Fixed
+- UE5 build error: replaced deprecated `FAssetRegistryModule` with `IAssetRegistry::GetChecked()` in ModifyInterfaceTool
+- UE5 build error: fixed `AddFunctionGraph` template deduction failure in AddGraphNodeTool
+
+## [1.1.0] - 2026-03-19
+
+### Added
+- `modify-interface` command — add or remove implemented interfaces on Blueprints and AnimBlueprints
+- `add-graph-node AnimLayerFunction` — create anim layer function graphs on AnimLayerInterface assets with Root and Input Pose nodes
+- `query-blueprint --include interfaces` — list implemented interfaces on a Blueprint
+
+### Fixed
+- `.gitignore` `build/` rule no longer excludes `Tools/Build/` plugin source files
+
+## [1.0.0] - 2026-03-15
+
+### Added
+- Initial release with 50+ commands for controlling Unreal Engine 5
+- Actor spawning, Blueprint editing, material inspection, PIE control
+- Screenshot capture, performance profiling, Python scripting
+- StateTree editing, widget inspection, DataTable editing
+- Build and Live Coding support
+- Automatic server discovery via `.soft-ue-bridge/instance.json`

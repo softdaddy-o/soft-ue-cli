@@ -534,6 +534,27 @@ def cmd_inspect_widget_blueprint(args: argparse.Namespace) -> None:
     _print_json(call_tool("inspect-widget-blueprint", arguments))
 
 
+def cmd_inspect_runtime_widgets(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.filter:
+        arguments["filter"] = args.filter
+    if args.class_filter:
+        arguments["class_filter"] = args.class_filter
+    if args.depth_limit is not None:
+        arguments["depth_limit"] = args.depth_limit
+    if args.include_slate:
+        arguments["include_slate"] = True
+    if args.pie_index is not None:
+        arguments["pie_index"] = args.pie_index
+    if args.no_geometry:
+        arguments["include_geometry"] = False
+    if args.no_properties:
+        arguments["include_properties"] = False
+    if args.root_widget:
+        arguments["root_widget"] = args.root_widget
+    _print_json(call_tool("inspect-runtime-widgets", arguments))
+
+
 def cmd_set_asset_property(args: argparse.Namespace) -> None:
     arguments: dict = {
         "asset_path": args.asset_path,
@@ -1732,6 +1753,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_iwb.add_argument("--no-bindings", action="store_true", help="Exclude property binding information")
     p_iwb.set_defaults(func=cmd_inspect_widget_blueprint)
 
+    p_irw = sub.add_parser(
+        "inspect-runtime-widgets",
+        help="Inspect live UMG widget geometry during a PIE session.",
+        description=(
+            "Walk the live UMG widget tree during a PIE session and return computed\n"
+            "geometry, slot info, properties, and optionally Slate widget data.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli inspect-runtime-widgets\n"
+            "  soft-ue-cli inspect-runtime-widgets --filter HealthBar\n"
+            "  soft-ue-cli inspect-runtime-widgets --class-filter TextBlock --include-slate\n"
+            "  soft-ue-cli inspect-runtime-widgets --pie-index 1 --root-widget WBP_HUD_C_0"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_irw.add_argument("--filter", help="Keyword search (substring match against name, class)")
+    p_irw.add_argument("--class-filter", help="Filter by widget class name (substring match)")
+    p_irw.add_argument("--depth-limit", type=int, metavar="N", help="Max hierarchy depth (-1 = unlimited)")
+    p_irw.add_argument("--include-slate", action="store_true", help="Include underlying Slate widget data")
+    p_irw.add_argument("--pie-index", type=int, metavar="N", help="PIE instance index (default: 0)")
+    p_irw.add_argument("--no-geometry", action="store_true", help="Exclude computed geometry data")
+    p_irw.add_argument("--no-properties", action="store_true", help="Exclude widget properties")
+    p_irw.add_argument("--root-widget", metavar="NAME", help="Start traversal from a specific widget")
+    p_irw.set_defaults(func=cmd_inspect_runtime_widgets)
+
     # -------------------------------------------------------------------------
     # Editor tools — Write
     # -------------------------------------------------------------------------
@@ -1952,14 +1997,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
+        help="Query the knowledge server for UE API docs.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")
-    p_k.add_argument("--max-results", type=int, default=5, metavar="N", help="Max results to return (default: 5)")
-    p_k.add_argument("--type", choices=["skill"], metavar="TYPE", help="Filter by type: 'skill' for workflow skills")
-    p_k.add_argument("--list-skills", action="store_true", help="List all available workflow skills")
     p_k.set_defaults(func=cmd_knowledge)
 
     # -------------------------------------------------------------------------

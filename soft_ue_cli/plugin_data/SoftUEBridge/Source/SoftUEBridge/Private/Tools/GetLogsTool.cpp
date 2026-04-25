@@ -4,6 +4,7 @@
 #include "Tools/BridgeToolRegistry.h"
 #include "SoftUEBridgeModule.h"
 #include "Misc/OutputDeviceRedirector.h"
+#include "Algo/Reverse.h"
 
 // ── FBridgeLogCapture ─────────────────────────────────────────────────────────
 
@@ -60,14 +61,25 @@ TArray<FString> FBridgeLogCapture::GetLines(int32 N, const FString& Filter, cons
 	FScopeLock ScopeLock(&Lock);
 
 	TArray<FString> Result;
-	const int32 Start = FMath::Max(0, Lines.Num() - N);
-	for (int32 i = Start; i < Lines.Num(); ++i)
+	if (N <= 0) return Result;
+
+	const bool bHasFilter = !Filter.IsEmpty() || !Category.IsEmpty();
+	const FString CategoryBracket = Category.IsEmpty() ? FString() : (TEXT("[") + Category + TEXT("]"));
+
+	// When filtering, scan all lines (newest first) and stop after N matches.
+	// When not filtering, return the last N lines directly.
+	const int32 Start = bHasFilter ? 0 : FMath::Max(0, Lines.Num() - N);
+	Result.Reserve(FMath::Min(N, Lines.Num()));
+	for (int32 i = Lines.Num() - 1; i >= Start; --i)
 	{
 		const FString& Line = Lines[i];
 		if (!Filter.IsEmpty() && !Line.Contains(Filter, ESearchCase::IgnoreCase)) continue;
-		if (!Category.IsEmpty() && !Line.Contains(TEXT("[") + Category + TEXT("]"), ESearchCase::IgnoreCase)) continue;
+		if (!CategoryBracket.IsEmpty() && !Line.Contains(CategoryBracket, ESearchCase::IgnoreCase)) continue;
 		Result.Add(Line);
+		if (Result.Num() >= N) break;
 	}
+	// Reverse so results are in chronological order (oldest first)
+	Algo::Reverse(Result);
 	return Result;
 }
 

@@ -1,4 +1,4 @@
-// Copyright softdaddy-o 2024. All Rights Reserved.
+// Copyright soft-ue-expert. All Rights Reserved.
 
 #pragma once
 
@@ -7,13 +7,7 @@
 #include "WidgetBlueprintTool.generated.h"
 
 class UWidget;
-class UPanelSlot;
-class UWidgetTree;
 class UWidgetBlueprint;
-class UCanvasPanelSlot;
-class UOverlaySlot;
-class UGridSlot;
-class UWidgetAnimation;
 
 /**
  * Tool for inspecting Widget Blueprint-specific data including
@@ -48,18 +42,6 @@ private:
 		int32 MaxDepth,
 		bool bIncludeDefaults);
 
-	/** Extract slot information for a widget */
-	TSharedPtr<FJsonObject> ExtractSlotInfo(UPanelSlot* Slot);
-
-	/** Extract CanvasPanelSlot-specific properties */
-	TSharedPtr<FJsonObject> ExtractCanvasSlotInfo(UCanvasPanelSlot* CanvasSlot);
-
-	/** Extract OverlaySlot properties */
-	TSharedPtr<FJsonObject> ExtractOverlaySlotInfo(UOverlaySlot* OverlaySlot);
-
-	/** Extract GridSlot properties */
-	TSharedPtr<FJsonObject> ExtractGridSlotInfo(UGridSlot* GridSlot);
-
 	/** Extract common widget properties */
 	TSharedPtr<FJsonObject> ExtractWidgetProperties(UWidget* Widget, bool bIncludeDefaults);
 
@@ -68,15 +50,6 @@ private:
 
 	/** Extract animations from widget blueprint */
 	TArray<TSharedPtr<FJsonValue>> ExtractAnimations(UWidgetBlueprint* WidgetBP);
-
-	/** Get visibility as string */
-	static FString VisibilityToString(ESlateVisibility Visibility);
-
-	/** Get horizontal alignment as string */
-	static FString HAlignToString(EHorizontalAlignment Align);
-
-	/** Get vertical alignment as string */
-	static FString VAlignToString(EVerticalAlignment Align);
 
 	/** Collect all widget names for flat listing */
 	void CollectWidgetNames(UWidget* Widget, TArray<FString>& OutNames);

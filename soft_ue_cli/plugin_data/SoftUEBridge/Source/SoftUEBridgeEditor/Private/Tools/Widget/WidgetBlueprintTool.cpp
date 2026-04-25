@@ -1,25 +1,13 @@
-// Copyright softdaddy-o 2024. All Rights Reserved.
+// Copyright soft-ue-expert. All Rights Reserved.
 
 #include "Tools/Widget/WidgetBlueprintTool.h"
+#include "Tools/Widget/WidgetToolUtils.h"
 #include "WidgetBlueprint.h"
 #include "Blueprint/WidgetTree.h"
 #include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Components/Widget.h"
 #include "Components/PanelWidget.h"
 #include "Components/PanelSlot.h"
-#include "Components/CanvasPanelSlot.h"
-#include "Components/VerticalBoxSlot.h"
-#include "Components/HorizontalBoxSlot.h"
-#include "Components/OverlaySlot.h"
-#include "Components/GridSlot.h"
-#include "Components/SizeBoxSlot.h"
-#include "Components/BorderSlot.h"
-#include "Components/ButtonSlot.h"
-#include "Components/ScaleBoxSlot.h"
-#include "Components/ScrollBoxSlot.h"
-#include "Components/UniformGridSlot.h"
-#include "Components/WidgetSwitcherSlot.h"
-#include "Components/WrapBoxSlot.h"
 #include "Components/NamedSlot.h"
 #include "Binding/DynamicPropertyPath.h"
 #include "Animation/WidgetAnimation.h"
@@ -61,14 +49,12 @@ FBridgeToolResult UWidgetBlueprintTool::Execute(
 	const TSharedPtr<FJsonObject>& Arguments,
 	const FBridgeToolContext& Context)
 {
-	// Get required parameter
 	FString AssetPath;
 	if (!GetStringArg(Arguments, TEXT("asset_path"), AssetPath))
 	{
 		return FBridgeToolResult::Error(TEXT("Missing required parameter: asset_path"));
 	}
 
-	// Get optional parameters
 	bool bIncludeDefaults = GetBoolArgOrDefault(Arguments, TEXT("include_defaults"), false);
 	int32 DepthLimit = GetIntArgOrDefault(Arguments, TEXT("depth_limit"), -1);
 	bool bIncludeBindings = GetBoolArgOrDefault(Arguments, TEXT("include_bindings"), true);
@@ -204,7 +190,7 @@ TSharedPtr<FJsonObject> UWidgetBlueprintTool::BuildWidgetNode(
 	NodeObj->SetStringField(TEXT("class"), Widget->GetClass()->GetName());
 
 	// Visibility
-	NodeObj->SetStringField(TEXT("visibility"), VisibilityToString(Widget->GetVisibility()));
+	NodeObj->SetStringField(TEXT("visibility"), WidgetToolUtils::VisibilityToString(Widget->GetVisibility()));
 
 	// Is variable (exposed to Blueprint)
 	NodeObj->SetBoolField(TEXT("is_variable"), Widget->bIsVariable);
@@ -212,7 +198,7 @@ TSharedPtr<FJsonObject> UWidgetBlueprintTool::BuildWidgetNode(
 	// Slot information (if widget is in a panel)
 	if (UPanelSlot* Slot = Widget->Slot)
 	{
-		TSharedPtr<FJsonObject> SlotInfo = ExtractSlotInfo(Slot);
+		TSharedPtr<FJsonObject> SlotInfo = WidgetToolUtils::ExtractSlotInfo(Slot);
 		if (SlotInfo.IsValid())
 		{
 			NodeObj->SetObjectField(TEXT("slot"), SlotInfo);
@@ -258,317 +244,6 @@ TSharedPtr<FJsonObject> UWidgetBlueprintTool::BuildWidgetNode(
 	return NodeObj;
 }
 
-TSharedPtr<FJsonObject> UWidgetBlueprintTool::ExtractSlotInfo(UPanelSlot* Slot)
-{
-	if (!Slot)
-	{
-		return nullptr;
-	}
-
-	// Try specific slot types
-	if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Slot))
-	{
-		return ExtractCanvasSlotInfo(CanvasSlot);
-	}
-
-	if (UVerticalBoxSlot* VBoxSlot = Cast<UVerticalBoxSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("VerticalBoxSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(VBoxSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(VBoxSlot->GetVerticalAlignment()));
-
-		FSlateChildSize Size = VBoxSlot->GetSize();
-		SlotObj->SetStringField(TEXT("size_rule"),
-			Size.SizeRule == ESlateSizeRule::Automatic ? TEXT("Auto") : TEXT("Fill"));
-		SlotObj->SetNumberField(TEXT("size_value"), Size.Value);
-
-		FMargin Padding = VBoxSlot->GetPadding();
-		TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-		PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-		PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-		PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-		PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-		SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-		return SlotObj;
-	}
-
-	if (UHorizontalBoxSlot* HBoxSlot = Cast<UHorizontalBoxSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("HorizontalBoxSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(HBoxSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(HBoxSlot->GetVerticalAlignment()));
-
-		FSlateChildSize Size = HBoxSlot->GetSize();
-		SlotObj->SetStringField(TEXT("size_rule"),
-			Size.SizeRule == ESlateSizeRule::Automatic ? TEXT("Auto") : TEXT("Fill"));
-		SlotObj->SetNumberField(TEXT("size_value"), Size.Value);
-
-		FMargin Padding = HBoxSlot->GetPadding();
-		TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-		PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-		PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-		PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-		PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-		SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-		return SlotObj;
-	}
-
-	if (UOverlaySlot* OverlaySlot = Cast<UOverlaySlot>(Slot))
-	{
-		return ExtractOverlaySlotInfo(OverlaySlot);
-	}
-
-	if (UGridSlot* GridSlot = Cast<UGridSlot>(Slot))
-	{
-		return ExtractGridSlotInfo(GridSlot);
-	}
-
-	if (UUniformGridSlot* UniformGridSlot = Cast<UUniformGridSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("UniformGridSlot"));
-		SlotObj->SetNumberField(TEXT("row"), UniformGridSlot->GetRow());
-		SlotObj->SetNumberField(TEXT("column"), UniformGridSlot->GetColumn());
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(UniformGridSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(UniformGridSlot->GetVerticalAlignment()));
-		return SlotObj;
-	}
-
-	if (UBorderSlot* BorderSlot = Cast<UBorderSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("BorderSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(BorderSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(BorderSlot->GetVerticalAlignment()));
-
-		FMargin Padding = BorderSlot->GetPadding();
-		TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-		PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-		PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-		PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-		PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-		SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-		return SlotObj;
-	}
-
-	if (UButtonSlot* ButtonSlot = Cast<UButtonSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("ButtonSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(ButtonSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(ButtonSlot->GetVerticalAlignment()));
-
-		FMargin Padding = ButtonSlot->GetPadding();
-		TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-		PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-		PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-		PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-		PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-		SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-		return SlotObj;
-	}
-
-	if (USizeBoxSlot* SizeBoxSlot = Cast<USizeBoxSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("SizeBoxSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(SizeBoxSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(SizeBoxSlot->GetVerticalAlignment()));
-
-		FMargin Padding = SizeBoxSlot->GetPadding();
-		TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-		PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-		PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-		PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-		PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-		SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-		return SlotObj;
-	}
-
-	if (UScaleBoxSlot* ScaleBoxSlot = Cast<UScaleBoxSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("ScaleBoxSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(ScaleBoxSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(ScaleBoxSlot->GetVerticalAlignment()));
-
-		// Note: UScaleBoxSlot doesn't expose GetPadding() publicly in UE 5.6-5.7
-
-		return SlotObj;
-	}
-
-	if (UScrollBoxSlot* ScrollBoxSlot = Cast<UScrollBoxSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("ScrollBoxSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(ScrollBoxSlot->GetHorizontalAlignment()));
-
-		FMargin Padding = ScrollBoxSlot->GetPadding();
-		TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-		PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-		PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-		PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-		PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-		SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-		return SlotObj;
-	}
-
-	if (UWrapBoxSlot* WrapBoxSlot = Cast<UWrapBoxSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("WrapBoxSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(WrapBoxSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(WrapBoxSlot->GetVerticalAlignment()));
-
-		return SlotObj;
-	}
-
-	if (UWidgetSwitcherSlot* SwitcherSlot = Cast<UWidgetSwitcherSlot>(Slot))
-	{
-		TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-		SlotObj->SetStringField(TEXT("type"), TEXT("WidgetSwitcherSlot"));
-		SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(SwitcherSlot->GetHorizontalAlignment()));
-		SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(SwitcherSlot->GetVerticalAlignment()));
-
-		FMargin Padding = SwitcherSlot->GetPadding();
-		TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-		PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-		PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-		PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-		PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-		SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-		return SlotObj;
-	}
-
-	// Fallback for unknown slot types
-	TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-	SlotObj->SetStringField(TEXT("type"), Slot->GetClass()->GetName());
-	return SlotObj;
-}
-
-TSharedPtr<FJsonObject> UWidgetBlueprintTool::ExtractCanvasSlotInfo(UCanvasPanelSlot* CanvasSlot)
-{
-	if (!CanvasSlot)
-	{
-		return nullptr;
-	}
-
-	TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-	SlotObj->SetStringField(TEXT("type"), TEXT("CanvasPanelSlot"));
-
-	// Anchors
-	FAnchorData LayoutData = CanvasSlot->GetLayout();
-	TSharedPtr<FJsonObject> AnchorsObj = MakeShareable(new FJsonObject);
-
-	TArray<TSharedPtr<FJsonValue>> MinArray;
-	MinArray.Add(MakeShareable(new FJsonValueNumber(LayoutData.Anchors.Minimum.X)));
-	MinArray.Add(MakeShareable(new FJsonValueNumber(LayoutData.Anchors.Minimum.Y)));
-	AnchorsObj->SetArrayField(TEXT("min"), MinArray);
-
-	TArray<TSharedPtr<FJsonValue>> MaxArray;
-	MaxArray.Add(MakeShareable(new FJsonValueNumber(LayoutData.Anchors.Maximum.X)));
-	MaxArray.Add(MakeShareable(new FJsonValueNumber(LayoutData.Anchors.Maximum.Y)));
-	AnchorsObj->SetArrayField(TEXT("max"), MaxArray);
-
-	SlotObj->SetObjectField(TEXT("anchors"), AnchorsObj);
-
-	// Offsets
-	TSharedPtr<FJsonObject> OffsetsObj = MakeShareable(new FJsonObject);
-	OffsetsObj->SetNumberField(TEXT("left"), LayoutData.Offsets.Left);
-	OffsetsObj->SetNumberField(TEXT("top"), LayoutData.Offsets.Top);
-	OffsetsObj->SetNumberField(TEXT("right"), LayoutData.Offsets.Right);
-	OffsetsObj->SetNumberField(TEXT("bottom"), LayoutData.Offsets.Bottom);
-	SlotObj->SetObjectField(TEXT("offsets"), OffsetsObj);
-
-	// Size (derived from offsets when not stretching)
-	FVector2D Size = CanvasSlot->GetSize();
-	TArray<TSharedPtr<FJsonValue>> SizeArray;
-	SizeArray.Add(MakeShareable(new FJsonValueNumber(Size.X)));
-	SizeArray.Add(MakeShareable(new FJsonValueNumber(Size.Y)));
-	SlotObj->SetArrayField(TEXT("size"), SizeArray);
-
-	// Position
-	FVector2D Position = CanvasSlot->GetPosition();
-	TArray<TSharedPtr<FJsonValue>> PosArray;
-	PosArray.Add(MakeShareable(new FJsonValueNumber(Position.X)));
-	PosArray.Add(MakeShareable(new FJsonValueNumber(Position.Y)));
-	SlotObj->SetArrayField(TEXT("position"), PosArray);
-
-	// Alignment
-	FVector2D Alignment = CanvasSlot->GetAlignment();
-	TArray<TSharedPtr<FJsonValue>> AlignArray;
-	AlignArray.Add(MakeShareable(new FJsonValueNumber(Alignment.X)));
-	AlignArray.Add(MakeShareable(new FJsonValueNumber(Alignment.Y)));
-	SlotObj->SetArrayField(TEXT("alignment"), AlignArray);
-
-	// Z-Order
-	SlotObj->SetNumberField(TEXT("z_order"), CanvasSlot->GetZOrder());
-
-	// Auto size
-	SlotObj->SetBoolField(TEXT("auto_size"), CanvasSlot->GetAutoSize());
-
-	return SlotObj;
-}
-
-TSharedPtr<FJsonObject> UWidgetBlueprintTool::ExtractOverlaySlotInfo(UOverlaySlot* OverlaySlot)
-{
-	if (!OverlaySlot)
-	{
-		return nullptr;
-	}
-
-	TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-	SlotObj->SetStringField(TEXT("type"), TEXT("OverlaySlot"));
-	SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(OverlaySlot->GetHorizontalAlignment()));
-	SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(OverlaySlot->GetVerticalAlignment()));
-
-	FMargin Padding = OverlaySlot->GetPadding();
-	TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-	PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-	PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-	PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-	PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-	SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-	return SlotObj;
-}
-
-TSharedPtr<FJsonObject> UWidgetBlueprintTool::ExtractGridSlotInfo(UGridSlot* GridSlot)
-{
-	if (!GridSlot)
-	{
-		return nullptr;
-	}
-
-	TSharedPtr<FJsonObject> SlotObj = MakeShareable(new FJsonObject);
-	SlotObj->SetStringField(TEXT("type"), TEXT("GridSlot"));
-	SlotObj->SetNumberField(TEXT("row"), GridSlot->GetRow());
-	SlotObj->SetNumberField(TEXT("column"), GridSlot->GetColumn());
-	SlotObj->SetNumberField(TEXT("row_span"), GridSlot->GetRowSpan());
-	SlotObj->SetNumberField(TEXT("column_span"), GridSlot->GetColumnSpan());
-	SlotObj->SetStringField(TEXT("horizontal_alignment"), HAlignToString(GridSlot->GetHorizontalAlignment()));
-	SlotObj->SetStringField(TEXT("vertical_alignment"), VAlignToString(GridSlot->GetVerticalAlignment()));
-
-	FMargin Padding = GridSlot->GetPadding();
-	TSharedPtr<FJsonObject> PaddingObj = MakeShareable(new FJsonObject);
-	PaddingObj->SetNumberField(TEXT("left"), Padding.Left);
-	PaddingObj->SetNumberField(TEXT("top"), Padding.Top);
-	PaddingObj->SetNumberField(TEXT("right"), Padding.Right);
-	PaddingObj->SetNumberField(TEXT("bottom"), Padding.Bottom);
-	SlotObj->SetObjectField(TEXT("padding"), PaddingObj);
-
-	return SlotObj;
-}
-
 TSharedPtr<FJsonObject> UWidgetBlueprintTool::ExtractWidgetProperties(UWidget* Widget, bool bIncludeDefaults)
 {
 	TSharedPtr<FJsonObject> PropsObj = MakeShareable(new FJsonObject);
@@ -578,24 +253,10 @@ TSharedPtr<FJsonObject> UWidgetBlueprintTool::ExtractWidgetProperties(UWidget* W
 	if (bIncludeDefaults || !RenderTransform.IsIdentity())
 	{
 		TSharedPtr<FJsonObject> TransformObj = MakeShareable(new FJsonObject);
-
-		TArray<TSharedPtr<FJsonValue>> TranslationArray;
-		TranslationArray.Add(MakeShareable(new FJsonValueNumber(RenderTransform.Translation.X)));
-		TranslationArray.Add(MakeShareable(new FJsonValueNumber(RenderTransform.Translation.Y)));
-		TransformObj->SetArrayField(TEXT("translation"), TranslationArray);
-
+		TransformObj->SetArrayField(TEXT("translation"), WidgetToolUtils::Vector2dToJsonArray(RenderTransform.Translation));
 		TransformObj->SetNumberField(TEXT("angle"), RenderTransform.Angle);
-
-		TArray<TSharedPtr<FJsonValue>> ScaleArray;
-		ScaleArray.Add(MakeShareable(new FJsonValueNumber(RenderTransform.Scale.X)));
-		ScaleArray.Add(MakeShareable(new FJsonValueNumber(RenderTransform.Scale.Y)));
-		TransformObj->SetArrayField(TEXT("scale"), ScaleArray);
-
-		TArray<TSharedPtr<FJsonValue>> ShearArray;
-		ShearArray.Add(MakeShareable(new FJsonValueNumber(RenderTransform.Shear.X)));
-		ShearArray.Add(MakeShareable(new FJsonValueNumber(RenderTransform.Shear.Y)));
-		TransformObj->SetArrayField(TEXT("shear"), ShearArray);
-
+		TransformObj->SetArrayField(TEXT("scale"), WidgetToolUtils::Vector2dToJsonArray(RenderTransform.Scale));
+		TransformObj->SetArrayField(TEXT("shear"), WidgetToolUtils::Vector2dToJsonArray(RenderTransform.Shear));
 		PropsObj->SetObjectField(TEXT("render_transform"), TransformObj);
 	}
 
@@ -632,14 +293,12 @@ TArray<TSharedPtr<FJsonValue>> UWidgetBlueprintTool::ExtractBindings(UWidgetBlue
 		return BindingsArray;
 	}
 
-	// Get the generated class which contains binding information
 	UWidgetBlueprintGeneratedClass* GeneratedClass = Cast<UWidgetBlueprintGeneratedClass>(WidgetBP->GeneratedClass);
 	if (!GeneratedClass)
 	{
 		return BindingsArray;
 	}
 
-	// Extract bindings from the generated class
 	for (const FDelegateRuntimeBinding& Binding : GeneratedClass->Bindings)
 	{
 		TSharedPtr<FJsonObject> BindingObj = MakeShareable(new FJsonObject);
@@ -691,7 +350,6 @@ TArray<TSharedPtr<FJsonValue>> UWidgetBlueprintTool::ExtractAnimations(UWidgetBl
 		return AnimationsArray;
 	}
 
-	// UWidgetBlueprint has Animations property
 	for (UWidgetAnimation* Animation : WidgetBP->Animations)
 	{
 		if (!Animation)
@@ -791,58 +449,5 @@ void UWidgetBlueprintTool::CollectWidgetNames(UWidget* Widget, TArray<FString>& 
 		{
 			CollectWidgetNames(PanelWidget->GetChildAt(i), OutNames);
 		}
-	}
-}
-
-FString UWidgetBlueprintTool::VisibilityToString(ESlateVisibility Visibility)
-{
-	switch (Visibility)
-	{
-	case ESlateVisibility::Visible:
-		return TEXT("Visible");
-	case ESlateVisibility::Collapsed:
-		return TEXT("Collapsed");
-	case ESlateVisibility::Hidden:
-		return TEXT("Hidden");
-	case ESlateVisibility::HitTestInvisible:
-		return TEXT("HitTestInvisible");
-	case ESlateVisibility::SelfHitTestInvisible:
-		return TEXT("SelfHitTestInvisible");
-	default:
-		return TEXT("Unknown");
-	}
-}
-
-FString UWidgetBlueprintTool::HAlignToString(EHorizontalAlignment Align)
-{
-	switch (Align)
-	{
-	case HAlign_Fill:
-		return TEXT("Fill");
-	case HAlign_Left:
-		return TEXT("Left");
-	case HAlign_Center:
-		return TEXT("Center");
-	case HAlign_Right:
-		return TEXT("Right");
-	default:
-		return TEXT("Unknown");
-	}
-}
-
-FString UWidgetBlueprintTool::VAlignToString(EVerticalAlignment Align)
-{
-	switch (Align)
-	{
-	case VAlign_Fill:
-		return TEXT("Fill");
-	case VAlign_Top:
-		return TEXT("Top");
-	case VAlign_Center:
-		return TEXT("Center");
-	case VAlign_Bottom:
-		return TEXT("Bottom");
-	default:
-		return TEXT("Unknown");
 	}
 }

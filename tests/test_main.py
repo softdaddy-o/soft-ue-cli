@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from unittest.mock import patch
 
 import pytest
@@ -545,3 +544,43 @@ def test_cmd_capture_viewport_all_options():
     with patch("soft_ue_cli.__main__.call_tool", return_value={"image_base64": "..."}) as mock_call:
         cmd_capture_viewport(args)
     mock_call.assert_called_once_with("capture-viewport", {"format": "jpeg", "output": "base64"})
+
+
+# -- inspect-runtime-widgets ---------------------------------------------------
+
+
+def test_parser_inspect_runtime_widgets_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["inspect-runtime-widgets"])
+    assert args.func.__name__ == "cmd_inspect_runtime_widgets"
+    assert args.filter is None
+    assert args.class_filter is None
+    assert args.depth_limit is None
+    assert args.include_slate is False
+    assert args.pie_index is None
+    assert args.no_geometry is False
+    assert args.no_properties is False
+    assert args.root_widget is None
+
+
+def test_parser_inspect_runtime_widgets_all_args():
+    parser = build_parser()
+    args = parser.parse_args([
+        "inspect-runtime-widgets",
+        "--filter", "HealthBar",
+        "--class-filter", "TextBlock",
+        "--depth-limit", "3",
+        "--include-slate",
+        "--pie-index", "1",
+        "--no-geometry",
+        "--no-properties",
+        "--root-widget", "WBP_HUD_C_0",
+    ])
+    assert args.filter == "HealthBar"
+    assert args.class_filter == "TextBlock"
+    assert args.depth_limit == 3
+    assert args.include_slate is True
+    assert args.pie_index == 1
+    assert args.no_geometry is True
+    assert args.no_properties is True
+    assert args.root_widget == "WBP_HUD_C_0"

@@ -15,11 +15,24 @@
 #include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
 
+#if WITH_EDITOR
+#include "Editor.h"
+#include "LevelEditorViewport.h"
+#include "RenderingThread.h"
+#endif
+
 REGISTER_BRIDGE_TOOL(UCaptureViewportTool)
 
 TMap<FString, FBridgeSchemaProperty> UCaptureViewportTool::GetInputSchema() const
 {
 	TMap<FString, FBridgeSchemaProperty> Schema;
+
+	Schema.Add(TEXT("source"), FBridgeSchemaProperty{
+		TEXT("string"),
+		TEXT("Which viewport to capture: 'game' for PIE/standalone (default), 'editor' for the level editor viewport"),
+		false,
+		{TEXT("game"), TEXT("editor")}
+	});
 
 	Schema.Add(TEXT("format"), FBridgeSchemaProperty{
 		TEXT("string"),
@@ -42,30 +55,48 @@ FBridgeToolResult UCaptureViewportTool::Execute(
 	const TSharedPtr<FJsonObject>& Arguments,
 	const FBridgeToolContext& Context)
 {
+	const FString Source = GetStringArgOrDefault(Arguments, TEXT("source"), TEXT("game"));
 	const FString Format = GetStringArgOrDefault(Arguments, TEXT("format"), TEXT("png"));
 	const FString OutputMode = GetStringArgOrDefault(Arguments, TEXT("output"), TEXT("file"));
 
+	if (Source == TEXT("editor"))
+	{
+#if WITH_EDITOR
+		return CaptureEditorViewport(Format, OutputMode);
+#else
+		return FBridgeToolResult::Error(TEXT("Editor viewport capture is only available in editor builds"));
+#endif
+	}
+
+	if (Source != TEXT("game"))
+	{
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("Unknown source '%s'. Valid values: 'game', 'editor'"), *Source));
+	}
+
+	return CaptureGameViewport(Format, OutputMode);
+}
+
+FBridgeToolResult UCaptureViewportTool::CaptureGameViewport(const FString& Format, const FString& OutputMode)
+{
 	// Find a game viewport — works for both PIE and standalone
 	FViewport* GameViewport = nullptr;
 	FString WorldTypeName;
 
 	for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
 	{
-		if (WorldContext.GameViewport && WorldContext.GameViewport->Viewport)
+		const bool bHasViewport = WorldContext.GameViewport && WorldContext.GameViewport->Viewport;
+		const bool bIsPlayable = WorldContext.WorldType == EWorldType::PIE
+			|| WorldContext.WorldType == EWorldType::Game;
+
+		if (!bHasViewport || !bIsPlayable)
 		{
-			if (WorldContext.WorldType == EWorldType::PIE)
-			{
-				GameViewport = WorldContext.GameViewport->Viewport;
-				WorldTypeName = TEXT("PIE");
-				break;
-			}
-			else if (WorldContext.WorldType == EWorldType::Game)
-			{
-				GameViewport = WorldContext.GameViewport->Viewport;
-				WorldTypeName = TEXT("Standalone");
-				break;
-			}
+			continue;
 		}
+
+		GameViewport = WorldContext.GameViewport->Viewport;
+		WorldTypeName = (WorldContext.WorldType == EWorldType::PIE) ? TEXT("PIE") : TEXT("Standalone");
+		break;
 	}
 
 	if (!GameViewport)
@@ -74,7 +105,8 @@ FBridgeToolResult UCaptureViewportTool::Execute(
 			TEXT("No game viewport found. Start a PIE session or run as standalone first."));
 	}
 
-	// Read pixels from the game viewport
+	// ReadPixels internally enqueues a render command and flushes,
+	// so it handles render thread synchronization.
 	TArray<FColor> RawData;
 	if (!GameViewport->ReadPixels(RawData))
 	{
@@ -87,7 +119,6 @@ FBridgeToolResult UCaptureViewportTool::Execute(
 		return FBridgeToolResult::Error(TEXT("Game viewport has no valid image data"));
 	}
 
-	// Compress and output
 	TArray<uint8> ImageData = CompressImage(RawData, ViewportSize.X, ViewportSize.Y, Format);
 	if (ImageData.Num() == 0)
 	{
@@ -100,16 +131,73 @@ FBridgeToolResult UCaptureViewportTool::Execute(
 	return OutputImage(ImageData, Format, OutputMode);
 }
 
+#if WITH_EDITOR
+FBridgeToolResult UCaptureViewportTool::CaptureEditorViewport(const FString& Format, const FString& OutputMode)
+{
+	if (!GEditor)
+	{
+		return FBridgeToolResult::Error(
+			TEXT("GEditor is not available. The editor may not be fully initialized."));
+	}
+
+	FViewport* EditorViewport = GEditor->GetActiveViewport();
+	if (!EditorViewport)
+	{
+		return FBridgeToolResult::Error(
+			TEXT("No active editor viewport found. Click on the level editor viewport first."));
+	}
+
+	const FIntPoint ViewportSize = EditorViewport->GetSizeXY();
+	if (ViewportSize.X <= 0 || ViewportSize.Y <= 0)
+	{
+		return FBridgeToolResult::Error(TEXT("Editor viewport has invalid size"));
+	}
+
+	// Editor viewports render to a render target (not a swapchain backbuffer),
+	// so we can force a draw and then read pixels directly.
+	EditorViewport->Draw(false);
+	FlushRenderingCommands();
+
+	TArray<FColor> RawData;
+	if (!EditorViewport->ReadPixels(RawData))
+	{
+		return FBridgeToolResult::Error(TEXT("Failed to read pixels from editor viewport"));
+	}
+
+	if (RawData.Num() == 0)
+	{
+		return FBridgeToolResult::Error(TEXT("Editor viewport returned no pixel data"));
+	}
+
+	TArray<uint8> ImageData = CompressImage(RawData, ViewportSize.X, ViewportSize.Y, Format);
+	if (ImageData.Num() == 0)
+	{
+		return FBridgeToolResult::Error(TEXT("Failed to compress editor viewport screenshot"));
+	}
+
+	UE_LOG(LogSoftUEBridge, Log, TEXT("capture-viewport: Captured editor viewport %dx%d as %s (%d bytes)"),
+		ViewportSize.X, ViewportSize.Y, *Format, ImageData.Num());
+
+	return OutputImage(ImageData, Format, OutputMode);
+}
+#endif
+
 TArray<uint8> UCaptureViewportTool::CompressImage(
-	const TArray<FColor>& RawData,
+	TArray<FColor>& RawData,
 	int32 Width,
 	int32 Height,
 	const FString& Format)
 {
+	// Validate pixel count matches dimensions (can diverge if viewport resizes mid-capture)
+	if (RawData.Num() != Width * Height)
+	{
+		return {};
+	}
+
 	IImageWrapperModule& ImageWrapperModule =
 		FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
 
-	EImageFormat ImageFormat = (Format == TEXT("jpeg")) ? EImageFormat::JPEG : EImageFormat::PNG;
+	const EImageFormat ImageFormat = (Format == TEXT("jpeg")) ? EImageFormat::JPEG : EImageFormat::PNG;
 	TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(ImageFormat);
 
 	if (!ImageWrapper.IsValid())
@@ -117,29 +205,24 @@ TArray<uint8> UCaptureViewportTool::CompressImage(
 		return {};
 	}
 
-	// FColor is BGRA internally; IImageWrapper expects RGBA
-	const int32 DataSize = Width * Height * 4;
-	TArray<uint8> RawBytes;
-	RawBytes.SetNumUninitialized(DataSize);
-
-	for (int32 i = 0; i < RawData.Num(); ++i)
+	// DX12/Vulkan backbuffers may have undefined alpha (often 0),
+	// which produces a fully transparent PNG, so force alpha to 255.
+	for (FColor& Pixel : RawData)
 	{
-		RawBytes[i * 4 + 0] = RawData[i].R;
-		RawBytes[i * 4 + 1] = RawData[i].G;
-		RawBytes[i * 4 + 2] = RawData[i].B;
-		RawBytes[i * 4 + 3] = RawData[i].A;
+		Pixel.A = 255;
 	}
 
-	if (!ImageWrapper->SetRaw(RawBytes.GetData(), RawBytes.Num(), Width, Height, ERGBFormat::RGBA, 8))
+	// FColor is BGRA in memory on little-endian; pass directly using ERGBFormat::BGRA
+	if (!ImageWrapper->SetRaw(RawData.GetData(), RawData.Num() * 4, Width, Height, ERGBFormat::BGRA, 8))
 	{
 		return {};
 	}
 
-	int32 Quality = (Format == TEXT("jpeg")) ? 85 : 0;
-	TArray<uint8, FDefaultAllocator64> CompressedData64 = ImageWrapper->GetCompressed(Quality);
-	TArray<uint8> CompressedData;
-	CompressedData.Append(CompressedData64);
-	return CompressedData;
+	const int32 Quality = (Format == TEXT("jpeg")) ? 85 : 0;
+	const TArray<uint8, FDefaultAllocator64> CompressedData64 = ImageWrapper->GetCompressed(Quality);
+	TArray<uint8> Result;
+	Result.Append(CompressedData64);
+	return Result;
 }
 
 FBridgeToolResult UCaptureViewportTool::OutputImage(
@@ -147,11 +230,6 @@ FBridgeToolResult UCaptureViewportTool::OutputImage(
 	const FString& Format,
 	const FString& OutputMode)
 {
-	if (ImageData.Num() == 0)
-	{
-		return FBridgeToolResult::Error(TEXT("Empty image data"));
-	}
-
 	// Base64 mode
 	if (OutputMode == TEXT("base64"))
 	{

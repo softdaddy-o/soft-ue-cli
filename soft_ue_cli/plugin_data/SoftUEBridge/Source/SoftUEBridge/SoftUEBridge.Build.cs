@@ -45,5 +45,11 @@ public class SoftUEBridge : ModuleRules
 			"AIModule",
 			"NavigationSystem"
 		});
+
+		// Editor viewport capture (only available in editor builds)
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
 	}
 }

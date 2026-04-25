@@ -54,6 +54,7 @@
 
 // Widget
 #include "Tools/Widget/WidgetBlueprintTool.h"
+#include "Tools/Widget/InspectRuntimeWidgetsTool.h"
 
 // Write
 #include "Tools/Write/EditorSpawnActorTool.h"
@@ -127,6 +128,7 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 	// Widget
 	Registry.RegisterToolClass<UWidgetBlueprintTool>();
+	Registry.RegisterToolClass<UInspectRuntimeWidgetsTool>();
 
 	// Write
 	Registry.RegisterToolClass<UEditorSpawnActorTool>();

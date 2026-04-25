@@ -97,6 +97,26 @@ All commands output JSON to stdout (except `get-logs --raw`). Exit code 0 means 
 
 ---
 
+## Design Philosophy
+
+### C++ core — works everywhere UE runs
+
+The bridge is a native C++ `UGameInstanceSubsystem`, not a Python or editor-only scripting plugin. This means it runs in the **Editor, Play-In-Editor, and cooked/packaged builds** with identical behavior. If your game can run it, the bridge runs with it.
+
+### Extensible with Python
+
+The C++ core handles the reliable, low-level UE integration. For custom workflows, `run-python-script` lets you execute arbitrary Python inside UE's embedded interpreter — extending the bridge without recompiling C++.
+
+### Minimal bridge, maximum LLM autonomy
+
+The CLI is intentionally thin. It exposes **raw UE capabilities** (spawn, query, set, call) rather than opinionated high-level workflows. The LLM client brings its own reasoning — it reads `--help`, understands the project context, and composes commands to achieve goals. The bridge doesn't try to be smart; it lets the AI be smart.
+
+### Why a CLI and not MCP?
+
+MCP servers require per-client integration and a running server process. A CLI works with **any** LLM tool that can run shell commands — Claude Code, Cursor, Windsurf, custom agents, shell scripts, CI pipelines. One interface, every client.
+
+---
+
 ## Complete Command Reference
 
 Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <command> --help` for detailed options.

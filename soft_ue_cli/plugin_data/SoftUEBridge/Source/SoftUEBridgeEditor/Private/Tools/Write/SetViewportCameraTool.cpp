@@ -40,7 +40,9 @@ TMap<FString, FBridgeSchemaProperty> USetViewportCameraTool::GetInputSchema() co
 
 	FBridgeSchemaProperty OrthoWidth;
 	OrthoWidth.Type = TEXT("number");
-	OrthoWidth.Description = TEXT("Orthographic view width (zoom level). Larger = more zoomed out. Default: 5000.");
+	OrthoWidth.Description = TEXT("Orthographic zoom factor. Larger = more zoomed out. "
+		"Typical values: 1000 (tight), 10000 (medium), 50000 (wide), 200000 (very wide). "
+		"UE default is ~175000. Only applies to orthographic views.");
 	OrthoWidth.bRequired = false;
 	Schema.Add(TEXT("ortho_width"), OrthoWidth);
 
@@ -73,7 +75,7 @@ FBridgeToolResult USetViewportCameraTool::Execute(
 	FLevelEditorViewportClient& ViewportClient = ActiveViewport->GetLevelViewportClient();
 
 	const FString Preset = GetStringArgOrDefault(Arguments, TEXT("preset"));
-	const float OrthoWidth = GetFloatArgOrDefault(Arguments, TEXT("ortho_width"), 5000.0f);
+	const float OrthoWidth = GetFloatArgOrDefault(Arguments, TEXT("ortho_width"), 0.0f);
 
 	// Handle presets
 	if (!Preset.IsEmpty())
@@ -81,38 +83,26 @@ FBridgeToolResult USetViewportCameraTool::Execute(
 		if (Preset.Equals(TEXT("top"), ESearchCase::IgnoreCase))
 		{
 			ViewportClient.SetViewportType(LVT_OrthoXY);
-			ViewportClient.SetOrthoZoom(OrthoWidth);
-			ViewportClient.SetViewRotation(FRotator(-90, 0, 0));
 		}
 		else if (Preset.Equals(TEXT("bottom"), ESearchCase::IgnoreCase))
 		{
 			ViewportClient.SetViewportType(LVT_OrthoNegativeXY);
-			ViewportClient.SetOrthoZoom(OrthoWidth);
-			ViewportClient.SetViewRotation(FRotator(90, 0, 0));
 		}
 		else if (Preset.Equals(TEXT("front"), ESearchCase::IgnoreCase))
 		{
 			ViewportClient.SetViewportType(LVT_OrthoXZ);
-			ViewportClient.SetOrthoZoom(OrthoWidth);
-			ViewportClient.SetViewRotation(FRotator(0, -90, 0));
 		}
 		else if (Preset.Equals(TEXT("back"), ESearchCase::IgnoreCase))
 		{
 			ViewportClient.SetViewportType(LVT_OrthoNegativeXZ);
-			ViewportClient.SetOrthoZoom(OrthoWidth);
-			ViewportClient.SetViewRotation(FRotator(0, 90, 0));
 		}
 		else if (Preset.Equals(TEXT("left"), ESearchCase::IgnoreCase))
 		{
 			ViewportClient.SetViewportType(LVT_OrthoYZ);
-			ViewportClient.SetOrthoZoom(OrthoWidth);
-			ViewportClient.SetViewRotation(FRotator(0, 0, 0));
 		}
 		else if (Preset.Equals(TEXT("right"), ESearchCase::IgnoreCase))
 		{
 			ViewportClient.SetViewportType(LVT_OrthoNegativeYZ);
-			ViewportClient.SetOrthoZoom(OrthoWidth);
-			ViewportClient.SetViewRotation(FRotator(0, 180, 0));
 		}
 		else if (Preset.Equals(TEXT("perspective"), ESearchCase::IgnoreCase))
 		{
@@ -123,6 +113,15 @@ FBridgeToolResult USetViewportCameraTool::Execute(
 			return FBridgeToolResult::Error(FString::Printf(
 				TEXT("Unknown preset '%s'. Use: top, bottom, front, back, left, right, perspective"), *Preset));
 		}
+	}
+
+	// Apply ortho zoom if provided (must be after SetViewportType)
+	// OrthoZoom in UE is a zoom factor — larger values zoom out.
+	// Typical range: 1 (very zoomed in) to 500000+ (very zoomed out).
+	// Default is ~175000. Use ortho_width as a direct zoom value.
+	if (OrthoWidth > 0.0f)
+	{
+		ViewportClient.SetOrthoZoom(OrthoWidth);
 	}
 
 	// Apply custom location if provided

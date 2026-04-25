@@ -13,7 +13,7 @@ Built and maintained by a solo developer. [Support this project](#support-this-p
 Two ways to connect. Same 60+ tools. One pip install. One plugin copy.
 
 <p align="center">
-  <img src="docs/architecture.svg" alt="soft-ue-cli architecture diagram" width="680">
+  <img src="https://raw.githubusercontent.com/softdaddy-o/soft-ue-expert/master/cli/docs/architecture.svg" alt="soft-ue-cli architecture diagram" width="680">
 </p>
 
 ---
@@ -229,6 +229,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | Command | Description |
 |---------|-------------|
 | `capture-screenshot` | Capture the editor viewport, PIE window, or a specific editor panel |
+| `capture-viewport` | Capture the current viewport (auto-detects PIE, standalone, or editor) |
 | `set-viewport-camera` | Set editor viewport camera position, rotation, or preset view (top/front/right/perspective) |
 
 ### Logging and Console Variables
@@ -301,6 +302,7 @@ Skills are markdown prompts that teach an LLM client how to perform complex mult
 | Skill | Description |
 |-------|-------------|
 | `blueprint-to-cpp` | Generate C++ `.h`/`.cpp` from a Blueprint asset -- Layer 1 (class scaffolding) + Layer 2 (graph logic translation) |
+| `level-from-image` | Populate a UE level from a reference image -- analyzes the image, maps scene elements to project assets, batch-places actors, then iterates with visual feedback (viewport screenshots) |
 
 ### MCP Server Mode
 
@@ -421,7 +423,7 @@ soft-ue-cli skills get level-from-image
 # The LLM analyzes the image, searches for matching assets, places them,
 # then enters a visual feedback loop:
 #   soft-ue-cli set-viewport-camera --preset top --ortho-width 8000
-#   soft-ue-cli capture-screenshot window --output file
+#   soft-ue-cli capture-viewport --source editor --output file
 # Compares screenshot to reference, auto-corrects, then asks for human feedback
 ```
 

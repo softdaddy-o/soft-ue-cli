@@ -220,6 +220,7 @@ FBridgeToolResult UBatchSpawnActorTool::Execute(
 		}
 
 		// Set static mesh if provided
+		FString MeshWarning;
 		if (!MeshPath.IsEmpty())
 		{
 			if (AStaticMeshActor* SMActor = Cast<AStaticMeshActor>(SpawnedActor))
@@ -230,12 +231,24 @@ FBridgeToolResult UBatchSpawnActorTool::Execute(
 					SMActor->GetStaticMeshComponent()->Modify();
 					SMActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 				}
+				else if (!Mesh)
+				{
+					MeshWarning = FString::Printf(TEXT("Mesh not found: %s"), *MeshPath);
+				}
+			}
+			else
+			{
+				MeshWarning = TEXT("mesh field ignored: actor is not a StaticMeshActor");
 			}
 		}
 
 		// Build result entry
 		TSharedPtr<FJsonObject> Entry = MakeShareable(new FJsonObject);
 		Entry->SetNumberField(TEXT("index"), i);
+		if (!MeshWarning.IsEmpty())
+		{
+			Entry->SetStringField(TEXT("mesh_warning"), MeshWarning);
+		}
 		Entry->SetStringField(TEXT("actor_name"), SpawnedActor->GetName());
 		Entry->SetStringField(TEXT("actor_label"), SpawnedActor->GetActorLabel());
 		Entry->SetStringField(TEXT("actor_class"), SpawnClass->GetName());

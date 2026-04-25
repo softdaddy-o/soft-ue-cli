@@ -35,6 +35,40 @@ def _print_json(data: object) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
 
+def _run_tool(tool_name: str, arguments: dict) -> dict:
+    """Call a bridge tool, handle errors with nudge hints, and track streak.
+
+    On success: records the daily streak, prints testimonial nudge if earned, returns result.
+    On error: prints to stderr, appends bug nudge for unexpected errors, exits.
+    """
+    from .errors import BridgeError, ErrorKind, format_bug_nudge
+
+    try:
+        result = call_tool(tool_name, arguments)
+    except BridgeError as exc:
+        print(f"error: {exc.message}", file=sys.stderr)
+        if exc.kind == ErrorKind.UNEXPECTED:
+            print(format_bug_nudge(exc.tool_name, exc.message), file=sys.stderr)
+        sys.exit(1)
+
+    # Record daily streak on success (best-effort, never fail the command)
+    try:
+        from .streak import record_success, should_nudge_testimonial, mark_nudged
+
+        record_success(tool_name)
+        if should_nudge_testimonial():
+            print(
+                '\nEnjoying soft-ue-cli? Share your experience:'
+                ' soft-ue-cli submit-testimonial --message "..."',
+                file=sys.stderr,
+            )
+            mark_nudged()
+    except Exception:
+        pass
+
+    return result
+
+
 def _parse_vector(csv: str) -> list[float]:
     """Parse a comma-separated string like '1.0,2.0,3.0' into a list of floats."""
     try:
@@ -70,22 +104,22 @@ def cmd_spawn_actor(args: argparse.Namespace) -> None:
         arguments["label"] = args.label
     if args.world:
         arguments["world"] = args.world
-    _print_json(call_tool("spawn-actor", arguments))
+    _print_json(_run_tool("spawn-actor", arguments))
 
 
 def cmd_batch_spawn_actors(args: argparse.Namespace) -> None:
     arguments: dict = {"actors": _parse_json_arg(args.actors, "--actors")}
-    _print_json(call_tool("batch-spawn-actors", arguments))
+    _print_json(_run_tool("batch-spawn-actors", arguments))
 
 
 def cmd_batch_modify_actors(args: argparse.Namespace) -> None:
     arguments: dict = {"modifications": _parse_json_arg(args.modifications, "--modifications")}
-    _print_json(call_tool("batch-modify-actors", arguments))
+    _print_json(_run_tool("batch-modify-actors", arguments))
 
 
 def cmd_batch_delete_actors(args: argparse.Namespace) -> None:
     arguments: dict = {"actors": _parse_json_arg(args.actors, "--actors")}
-    _print_json(call_tool("batch-delete-actors", arguments))
+    _print_json(_run_tool("batch-delete-actors", arguments))
 
 
 def cmd_query_level(args: argparse.Namespace) -> None:
@@ -108,7 +142,7 @@ def cmd_query_level(args: argparse.Namespace) -> None:
         arguments["include_foliage"] = True
     if args.include_grass:
         arguments["include_grass"] = True
-    _print_json(call_tool("query-level", arguments))
+    _print_json(_run_tool("query-level", arguments))
 
 
 def cmd_call_function(args: argparse.Namespace) -> None:
@@ -118,12 +152,12 @@ def cmd_call_function(args: argparse.Namespace) -> None:
     }
     if args.args:
         arguments["args"] = _parse_json_arg(args.args, "--args")
-    _print_json(call_tool("call-function", arguments))
+    _print_json(_run_tool("call-function", arguments))
 
 
 def cmd_set_property(args: argparse.Namespace) -> None:
     _print_json(
-        call_tool(
+        _run_tool(
             "set-property",
             {
                 "actor_name": args.actor_name,
@@ -136,7 +170,7 @@ def cmd_set_property(args: argparse.Namespace) -> None:
 
 def cmd_get_property(args: argparse.Namespace) -> None:
     _print_json(
-        call_tool(
+        _run_tool(
             "get-property",
             {
                 "actor_name": args.actor_name,
@@ -152,7 +186,7 @@ def cmd_get_logs(args: argparse.Namespace) -> None:
         arguments["filter"] = args.filter
     if args.category:
         arguments["category"] = args.category
-    result = call_tool("get-logs", arguments)
+    result = _run_tool("get-logs", arguments)
     if args.raw:
         for line in result.get("lines", []):
             print(line)
@@ -161,11 +195,11 @@ def cmd_get_logs(args: argparse.Namespace) -> None:
 
 
 def cmd_get_console_var(args: argparse.Namespace) -> None:
-    _print_json(call_tool("get-console-var", {"name": args.name}))
+    _print_json(_run_tool("get-console-var", {"name": args.name}))
 
 
 def cmd_set_console_var(args: argparse.Namespace) -> None:
-    _print_json(call_tool("set-console-var", {"name": args.name, "value": args.value}))
+    _print_json(_run_tool("set-console-var", {"name": args.name, "value": args.value}))
 
 
 # -- Editor tool handlers ------------------------------------------------------
@@ -179,7 +213,7 @@ def cmd_class_hierarchy(args: argparse.Namespace) -> None:
         arguments["depth"] = args.depth
     if args.no_blueprints:
         arguments["include_blueprints"] = False
-    _print_json(call_tool("get-class-hierarchy", arguments))
+    _print_json(_run_tool("get-class-hierarchy", arguments))
 
 
 def cmd_query_asset(args: argparse.Namespace) -> None:
@@ -206,11 +240,11 @@ def cmd_query_asset(args: argparse.Namespace) -> None:
         arguments["row_filter"] = args.row_filter
     if args.search:
         arguments["search"] = args.search
-    _print_json(call_tool("query-asset", arguments))
+    _print_json(_run_tool("query-asset", arguments))
 
 
 def cmd_delete_asset(args: argparse.Namespace) -> None:
-    _print_json(call_tool("delete-asset", {"asset_path": args.asset_path}))
+    _print_json(_run_tool("delete-asset", {"asset_path": args.asset_path}))
 
 
 def cmd_get_asset_diff(args: argparse.Namespace) -> None:
@@ -219,7 +253,7 @@ def cmd_get_asset_diff(args: argparse.Namespace) -> None:
         arguments["scm_type"] = args.scm_type
     if args.base_revision:
         arguments["base_revision"] = args.base_revision
-    _print_json(call_tool("get-asset-diff", arguments))
+    _print_json(_run_tool("get-asset-diff", arguments))
 
 
 def cmd_get_asset_preview(args: argparse.Namespace) -> None:
@@ -230,7 +264,7 @@ def cmd_get_asset_preview(args: argparse.Namespace) -> None:
         arguments["format"] = args.format
     if args.output:
         arguments["output"] = args.output
-    _print_json(call_tool("get-asset-preview", arguments))
+    _print_json(_run_tool("get-asset-preview", arguments))
 
 
 def cmd_open_asset(args: argparse.Namespace) -> None:
@@ -241,7 +275,7 @@ def cmd_open_asset(args: argparse.Namespace) -> None:
         arguments["window_name"] = args.window_name
     if args.no_focus:
         arguments["bring_to_front"] = False
-    _print_json(call_tool("open-asset", arguments))
+    _print_json(_run_tool("open-asset", arguments))
 
 
 def cmd_query_blueprint(args: argparse.Namespace) -> None:
@@ -262,7 +296,7 @@ def cmd_query_blueprint(args: argparse.Namespace) -> None:
         arguments["include_non_overridden"] = True
     if args.search:
         arguments["search"] = args.search
-    _print_json(call_tool("query-blueprint", arguments))
+    _print_json(_run_tool("query-blueprint", arguments))
 
 
 def cmd_query_blueprint_graph(args: argparse.Namespace) -> None:
@@ -283,7 +317,7 @@ def cmd_query_blueprint_graph(args: argparse.Namespace) -> None:
         arguments["search"] = args.search
     if args.include_anim_props:
         arguments["include_anim_node_properties"] = True
-    _print_json(call_tool("query-blueprint-graph", arguments))
+    _print_json(_run_tool("query-blueprint-graph", arguments))
 
 
 def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
@@ -292,7 +326,7 @@ def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
         arguments["build_config"] = args.config
     if args.skip_relaunch:
         arguments["skip_relaunch"] = True
-    result = call_tool("build-and-relaunch", arguments)
+    result = _run_tool("build-and-relaunch", arguments)
 
     if not args.wait:
         _print_json(result)
@@ -413,7 +447,7 @@ def cmd_trigger_live_coding(args: argparse.Namespace) -> None:
     arguments: dict = {}
     if not args.no_wait:
         arguments["wait_for_completion"] = True
-    _print_json(call_tool("trigger-live-coding", arguments))
+    _print_json(_run_tool("trigger-live-coding", arguments))
 
 
 def cmd_capture_screenshot(args: argparse.Namespace) -> None:
@@ -426,7 +460,7 @@ def cmd_capture_screenshot(args: argparse.Namespace) -> None:
         arguments["format"] = args.format
     if args.output:
         arguments["output"] = args.output
-    _print_json(call_tool("capture-screenshot", arguments))
+    _print_json(_run_tool("capture-screenshot", arguments))
 
 
 def cmd_capture_viewport(args: argparse.Namespace) -> None:
@@ -435,7 +469,7 @@ def cmd_capture_viewport(args: argparse.Namespace) -> None:
         arguments["format"] = args.format
     if args.output:
         arguments["output"] = args.output
-    _print_json(call_tool("capture-viewport", arguments))
+    _print_json(_run_tool("capture-viewport", arguments))
 
 
 def cmd_query_material(args: argparse.Namespace) -> None:
@@ -450,7 +484,7 @@ def cmd_query_material(args: argparse.Namespace) -> None:
         arguments["parameter_filter"] = args.parameter_filter
     if args.parent_chain:
         arguments["parent_chain"] = True
-    _print_json(call_tool("query-material", arguments))
+    _print_json(_run_tool("query-material", arguments))
 
 
 def cmd_query_mpc(args: argparse.Namespace) -> None:
@@ -467,7 +501,7 @@ def cmd_query_mpc(args: argparse.Namespace) -> None:
             arguments["value"] = float(val)
     if args.world:
         arguments["world"] = args.world
-    _print_json(call_tool("query-mpc", arguments))
+    _print_json(_run_tool("query-mpc", arguments))
 
 
 def cmd_pie_session(args: argparse.Namespace) -> None:
@@ -490,7 +524,7 @@ def cmd_pie_session(args: argparse.Namespace) -> None:
         arguments["expected"] = _parse_json_arg(args.expected, "--expected")
     if args.wait_timeout is not None:
         arguments["wait_timeout"] = args.wait_timeout
-    _print_json(call_tool("pie-session", arguments))
+    _print_json(_run_tool("pie-session", arguments))
 
 
 def cmd_trigger_input(args: argparse.Namespace) -> None:
@@ -507,7 +541,7 @@ def cmd_trigger_input(args: argparse.Namespace) -> None:
         arguments["target"] = _parse_vector(args.target)
     if args.target_actor:
         arguments["target_actor"] = args.target_actor
-    _print_json(call_tool("trigger-input", arguments))
+    _print_json(_run_tool("trigger-input", arguments))
 
 
 def cmd_insights_capture(args: argparse.Namespace) -> None:
@@ -516,28 +550,28 @@ def cmd_insights_capture(args: argparse.Namespace) -> None:
         arguments["channels"] = args.channels.split(",")
     if args.output_file:
         arguments["output_file"] = args.output_file
-    _print_json(call_tool("insights-capture", arguments))
+    _print_json(_run_tool("insights-capture", arguments))
 
 
 def cmd_insights_list_traces(args: argparse.Namespace) -> None:
     arguments: dict = {}
     if args.directory:
         arguments["directory"] = args.directory
-    _print_json(call_tool("insights-list-traces", arguments))
+    _print_json(_run_tool("insights-list-traces", arguments))
 
 
 def cmd_insights_analyze(args: argparse.Namespace) -> None:
     arguments: dict = {"trace_file": args.trace_file}
     if args.analysis_type:
         arguments["analysis_type"] = args.analysis_type
-    _print_json(call_tool("insights-analyze", arguments))
+    _print_json(_run_tool("insights-analyze", arguments))
 
 
 def cmd_project_info(args: argparse.Namespace) -> None:
     arguments: dict = {}
     if args.section:
         arguments["section"] = args.section
-    _print_json(call_tool("get-project-info", arguments))
+    _print_json(_run_tool("get-project-info", arguments))
 
 
 def cmd_find_references(args: argparse.Namespace) -> None:
@@ -555,7 +589,7 @@ def cmd_find_references(args: argparse.Namespace) -> None:
         arguments["limit"] = args.limit
     if args.search:
         arguments["search"] = args.search
-    _print_json(call_tool("find-references", arguments))
+    _print_json(_run_tool("find-references", arguments))
 
 
 _SCRIPTS_DIR = Path.home() / ".soft-ue-bridge" / "scripts"
@@ -600,7 +634,7 @@ def cmd_run_python_script(args: argparse.Namespace) -> None:
         arguments["python_paths"] = args.python_paths
     if args.arguments:
         arguments["arguments"] = _parse_json_arg(args.arguments, "--arguments")
-    _print_json(call_tool("run-python-script", arguments))
+    _print_json(_run_tool("run-python-script", arguments))
 
 
 def cmd_save_script(args: argparse.Namespace) -> None:
@@ -656,7 +690,7 @@ def cmd_query_statetree(args: argparse.Namespace) -> None:
         arguments["include"] = args.include
     if args.no_detail:
         arguments["detailed"] = False
-    _print_json(call_tool("query-statetree", arguments))
+    _print_json(_run_tool("query-statetree", arguments))
 
 
 def cmd_add_statetree_state(args: argparse.Namespace) -> None:
@@ -670,7 +704,7 @@ def cmd_add_statetree_state(args: argparse.Namespace) -> None:
         arguments["parent_state"] = args.parent_state
     if args.selection_behavior:
         arguments["selection_behavior"] = args.selection_behavior
-    _print_json(call_tool("add-statetree-state", arguments))
+    _print_json(_run_tool("add-statetree-state", arguments))
 
 
 def cmd_add_statetree_task(args: argparse.Namespace) -> None:
@@ -681,7 +715,7 @@ def cmd_add_statetree_task(args: argparse.Namespace) -> None:
     }
     if args.task_name:
         arguments["task_name"] = args.task_name
-    _print_json(call_tool("add-statetree-task", arguments))
+    _print_json(_run_tool("add-statetree-task", arguments))
 
 
 def cmd_add_statetree_transition(args: argparse.Namespace) -> None:
@@ -694,12 +728,12 @@ def cmd_add_statetree_transition(args: argparse.Namespace) -> None:
         arguments["trigger"] = args.trigger
     if args.priority is not None:
         arguments["priority"] = args.priority
-    _print_json(call_tool("add-statetree-transition", arguments))
+    _print_json(_run_tool("add-statetree-transition", arguments))
 
 
 def cmd_remove_statetree_state(args: argparse.Namespace) -> None:
     _print_json(
-        call_tool(
+        _run_tool(
             "remove-statetree-state",
             {
                 "asset_path": args.asset_path,
@@ -717,7 +751,7 @@ def cmd_inspect_widget_blueprint(args: argparse.Namespace) -> None:
         arguments["depth_limit"] = args.depth_limit
     if args.no_bindings:
         arguments["include_bindings"] = False
-    _print_json(call_tool("inspect-widget-blueprint", arguments))
+    _print_json(_run_tool("inspect-widget-blueprint", arguments))
 
 
 def cmd_inspect_runtime_widgets(args: argparse.Namespace) -> None:
@@ -738,7 +772,7 @@ def cmd_inspect_runtime_widgets(args: argparse.Namespace) -> None:
         arguments["include_properties"] = False
     if args.root_widget:
         arguments["root_widget"] = args.root_widget
-    _print_json(call_tool("inspect-runtime-widgets", arguments))
+    _print_json(_run_tool("inspect-runtime-widgets", arguments))
 
 
 def cmd_set_asset_property(args: argparse.Namespace) -> None:
@@ -752,7 +786,7 @@ def cmd_set_asset_property(args: argparse.Namespace) -> None:
         arguments["component_name"] = args.component_name
     if args.clear_override:
         arguments["clear_override"] = True
-    _print_json(call_tool("set-asset-property", arguments))
+    _print_json(_run_tool("set-asset-property", arguments))
 
 
 def cmd_add_component(args: argparse.Namespace) -> None:
@@ -764,7 +798,7 @@ def cmd_add_component(args: argparse.Namespace) -> None:
         arguments["component_name"] = args.component_name
     if args.attach_to:
         arguments["attach_to"] = args.attach_to
-    _print_json(call_tool("add-component", arguments))
+    _print_json(_run_tool("add-component", arguments))
 
 
 def cmd_add_widget(args: argparse.Namespace) -> None:
@@ -775,7 +809,7 @@ def cmd_add_widget(args: argparse.Namespace) -> None:
     }
     if args.parent_widget:
         arguments["parent_widget"] = args.parent_widget
-    _print_json(call_tool("add-widget", arguments))
+    _print_json(_run_tool("add-widget", arguments))
 
 
 def cmd_add_datatable_row(args: argparse.Namespace) -> None:
@@ -785,7 +819,7 @@ def cmd_add_datatable_row(args: argparse.Namespace) -> None:
     }
     if args.row_data:
         arguments["row_data"] = _parse_json_arg(args.row_data, "--row-data")
-    _print_json(call_tool("add-datatable-row", arguments))
+    _print_json(_run_tool("add-datatable-row", arguments))
 
 
 def cmd_add_graph_node(args: argparse.Namespace) -> None:
@@ -805,7 +839,7 @@ def cmd_add_graph_node(args: argparse.Namespace) -> None:
         arguments["connect_to_pin"] = args.connect_to_pin
     if args.properties:
         arguments["properties"] = _parse_json_arg(args.properties, "--properties")
-    _print_json(call_tool("add-graph-node", arguments))
+    _print_json(_run_tool("add-graph-node", arguments))
 
 
 def cmd_modify_interface(args: argparse.Namespace) -> None:
@@ -814,12 +848,12 @@ def cmd_modify_interface(args: argparse.Namespace) -> None:
         "action": args.action,
         "interface_class": args.interface_class,
     }
-    _print_json(call_tool("modify-interface", arguments))
+    _print_json(_run_tool("modify-interface", arguments))
 
 
 def cmd_remove_graph_node(args: argparse.Namespace) -> None:
     _print_json(
-        call_tool(
+        _run_tool(
             "remove-graph-node",
             {
                 "asset_path": args.asset_path,
@@ -831,7 +865,7 @@ def cmd_remove_graph_node(args: argparse.Namespace) -> None:
 
 def cmd_connect_graph_pins(args: argparse.Namespace) -> None:
     _print_json(
-        call_tool(
+        _run_tool(
             "connect-graph-pins",
             {
                 "asset_path": args.asset_path,
@@ -854,7 +888,7 @@ def cmd_disconnect_graph_pin(args: argparse.Namespace) -> None:
         arguments["target_node"] = args.target_node
     if args.target_pin:
         arguments["target_pin"] = args.target_pin
-    _print_json(call_tool("disconnect-graph-pin", arguments))
+    _print_json(_run_tool("disconnect-graph-pin", arguments))
 
 
 def cmd_set_node_position(args: argparse.Namespace) -> None:
@@ -864,7 +898,7 @@ def cmd_set_node_position(args: argparse.Namespace) -> None:
     }
     if args.graph_name:
         arguments["graph_name"] = args.graph_name
-    _print_json(call_tool("set-node-position", arguments))
+    _print_json(_run_tool("set-node-position", arguments))
 
 
 def cmd_create_asset(args: argparse.Namespace) -> None:
@@ -878,22 +912,22 @@ def cmd_create_asset(args: argparse.Namespace) -> None:
         arguments["skeleton"] = args.skeleton
     if args.row_struct:
         arguments["row_struct"] = args.row_struct
-    _print_json(call_tool("create-asset", arguments))
+    _print_json(_run_tool("create-asset", arguments))
 
 
 def cmd_save_asset(args: argparse.Namespace) -> None:
     arguments: dict = {"asset_path": args.asset_path}
     if args.checkout:
         arguments["checkout"] = True
-    _print_json(call_tool("save-asset", arguments))
+    _print_json(_run_tool("save-asset", arguments))
 
 
 def cmd_compile_blueprint(args: argparse.Namespace) -> None:
-    _print_json(call_tool("compile-blueprint", {"asset_path": args.asset_path}))
+    _print_json(_run_tool("compile-blueprint", {"asset_path": args.asset_path}))
 
 
 def cmd_compile_material(args: argparse.Namespace) -> None:
-    _print_json(call_tool("compile-material", {"asset_path": args.asset_path}))
+    _print_json(_run_tool("compile-material", {"asset_path": args.asset_path}))
 
 
 def cmd_insert_graph_node(args: argparse.Namespace) -> None:
@@ -913,7 +947,7 @@ def cmd_insert_graph_node(args: argparse.Namespace) -> None:
         arguments["new_output_pin"] = args.new_output_pin
     if args.properties:
         arguments["properties"] = _parse_json_arg(args.properties, "--properties")
-    _print_json(call_tool("insert-graph-node", arguments))
+    _print_json(_run_tool("insert-graph-node", arguments))
 
 
 def cmd_set_node_property(args: argparse.Namespace) -> None:
@@ -922,7 +956,7 @@ def cmd_set_node_property(args: argparse.Namespace) -> None:
         "node_guid": args.node_guid,
         "properties": _parse_json_arg(args.properties, "--properties"),
     }
-    _print_json(call_tool("set-node-property", arguments))
+    _print_json(_run_tool("set-node-property", arguments))
 
 
 def _gather_system_info() -> str:
@@ -982,6 +1016,11 @@ def cmd_request_feature(args: argparse.Namespace) -> None:
 
     result = create_issue(args.title, body, labels)
     _print_json(result)
+
+
+def _cmd_submit_testimonial(args: argparse.Namespace) -> None:
+    from .testimonial import cmd_submit_testimonial
+    cmd_submit_testimonial(args)
 
 
 # -- Setup/utility handlers ----------------------------------------------------
@@ -2546,6 +2585,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Priority label (default: enhancement)",
     )
     p_rf.set_defaults(func=cmd_request_feature)
+
+    p_st = sub.add_parser(
+        "submit-testimonial",
+        help="Share a testimonial about soft-ue-cli via GitHub Discussions.",
+        description=(
+            "Posts a testimonial to the soft-ue-cli GitHub Discussions page.\n"
+            "Auto-collects metadata (CLI version, usage streak, top tools).\n"
+            "Prompts for user consent before posting unless --yes is passed.\n\n"
+            "AUTHENTICATION:\n"
+            "  Set GITHUB_TOKEN env var or run 'gh auth login'.\n"
+            "  Required scope: 'repo' (private) or 'public_repo' (public).\n\n"
+            "EXAMPLES:\n"
+            '  soft-ue-cli submit-testimonial --message "Great tool for UE automation!"\n'
+            '  soft-ue-cli submit-testimonial --message "Loved it" --agent-name "Claude Code" --rating 5\n'
+            '  soft-ue-cli submit-testimonial --message "Helpful" --yes'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_st.add_argument("--message", required=True, help="Your testimonial message")
+    p_st.add_argument("--agent-name", help="Name of the LLM agent submitting (e.g. 'Claude Code')")
+    p_st.add_argument("--rating", type=int, choices=[1, 2, 3, 4, 5], help="Rating from 1-5")
+    p_st.add_argument("--yes", "-y", action="store_true", help="Skip consent prompt")
+    p_st.set_defaults(func=_cmd_submit_testimonial)
 
     # skills
     p_skills = sub.add_parser(

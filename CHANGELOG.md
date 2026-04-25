@@ -2,6 +2,18 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.10.0] - 2026-04-05
+
+### Added
+- `submit-testimonial` command — share feedback via GitHub Discussions with auto-collected metadata (CLI version, usage streak, top tools), consent prompt before posting
+- Bug report nudge — unexpected errors now suggest filing a bug with a pre-filled `report-bug` command
+- Daily usage streak tracking — after 3+ consecutive days of use, a one-time testimonial nudge appears
+- MCP server returns structured `bug_report_hint` and `testimonial_nudge` payloads for LLM agents
+- GitHub Discussions integration via GraphQL API for testimonial posting
+
+### Changed
+- `call_tool()` now raises `BridgeError` with error classification (expected vs unexpected) instead of calling `sys.exit(1)` directly — enables richer error handling downstream
+
 ## [1.9.0] - 2026-04-03
 
 ### Added

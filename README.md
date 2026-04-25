@@ -12,15 +12,9 @@ Built and maintained by a solo developer. [Support this project](#support-this-p
 
 Two ways to connect. Same 60+ tools. One pip install. One plugin copy.
 
-```
-MCP client (Claude Desktop, Cursor, Windsurf, …)         Claude Code / terminal / CI
-    |                                                          |
-    |  stdio (MCP protocol)                                    |  shell commands
-    v                                                          v
-soft-ue-cli mcp-serve                                    soft-ue-cli <command>
-    \                                                        /
-     '----->  HTTP / JSON-RPC  ----->  SoftUEBridge plugin (inside UE)
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="soft-ue-cli architecture diagram" width="680">
+</p>
 
 ---
 
@@ -508,6 +502,43 @@ cd soft-ue-cli
 pip install -e .
 pytest -v
 ```
+
+---
+
+## Feedback
+
+### Report a bug
+
+```bash
+soft-ue-cli report-bug \
+  --title "Short bug summary" \
+  --description "Detailed description"
+```
+
+Optional flags: `--steps`, `--expected`, `--actual`, `--severity critical|major|minor`, `--no-system-info`.
+
+### Request a feature
+
+```bash
+soft-ue-cli request-feature \
+  --title "Short feature summary" \
+  --description "What the feature should do"
+```
+
+Optional flags: `--use-case`, `--priority enhancement|nice-to-have`.
+
+### Share a testimonial
+
+```bash
+soft-ue-cli submit-testimonial \
+  --message "Great tool for UE automation!" \
+  --agent-name "Claude Code" \
+  --rating 5
+```
+
+Posts to [GitHub Discussions](https://github.com/softdaddy-o/soft-ue-cli/discussions) with auto-collected metadata (CLI version, usage streak, top tools). A consent prompt appears before posting unless `--yes` is passed.
+
+All feedback commands require GitHub auth: set `GITHUB_TOKEN` env var or run `gh auth login`.
 
 ---
 

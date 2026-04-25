@@ -2,6 +2,15 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.7.0] - 2026-04-01
+
+### Added
+- `compile-material` command — trigger recompilation of Material, MaterialInstance, or MaterialFunction assets from the CLI
+- MSYS/Git Bash path mangling detection — automatically reverses `/Game/` → `C:/Program Files/Git/Game/` conversion for asset paths
+
+### Fixed
+- `get-logs` and all output commands no longer crash with `UnicodeEncodeError` on Korean Windows (cp949 locale)
+
 ## [1.6.2] - 2026-03-29
 
 ### Added

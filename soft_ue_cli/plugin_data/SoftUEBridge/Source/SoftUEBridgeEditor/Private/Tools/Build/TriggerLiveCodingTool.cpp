@@ -1,4 +1,4 @@
-// Copyright soft-ue-expert. All Rights Reserved.
+// Copyright softdaddy-o 2024. All Rights Reserved.
 
 #include "Tools/Build/TriggerLiveCodingTool.h"
 #include "SoftUEBridgeEditorModule.h"
@@ -85,6 +85,7 @@ FBridgeToolResult UTriggerLiveCodingTool::ExecuteSynchronous(ILiveCodingModule* 
 {
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("trigger-live-coding: Starting synchronous compilation..."));
 
+	// Record start time for log filtering
 	const double StartTime = FPlatformTime::Seconds();
 
 	// Use WaitForCompletion flag - this blocks until compilation finishes

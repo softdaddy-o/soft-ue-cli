@@ -4,22 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soft-ue-cli"
-version = "1.0.3"
+version = "1.1.0"
 description = "CLI tool for controlling Unreal Engine via soft-ue-bridge plugin"
 requires-python = ">=3.10"
-readme = "README.md"
-license = {text = "MIT"}
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Games/Entertainment",
-]
 dependencies = [
     "httpx>=0.27",
 ]

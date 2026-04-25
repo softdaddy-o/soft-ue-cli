@@ -63,10 +63,6 @@ public class SoftUEBridgeEditor : ModuleRules
 			// Input
 			"InputCore",
 
-			// AI/Navigation (for PIE input tools)
-			"AIModule",
-			"NavigationSystem",
-
 			// Project Settings
 			"GameplayTags",
 			"EngineSettings",

@@ -2,16 +2,13 @@
 
 #include "Tools/Asset/DeleteAssetTool.h"
 #include "SoftUEBridgeEditorModule.h"
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/Blueprint.h"
-#include "Engine/BlueprintGeneratedClass.h"
 #include "UObject/UObjectGlobals.h"
-#include "UObject/Class.h"
 #include "EditorAssetLibrary.h"
 
 FString UDeleteAssetTool::GetToolDescription() const
 {
-	return TEXT("Delete an asset with proper cleanup of Blueprint generated classes. Handles the case where Blueprint generated classes persist in memory after deletion.");
+	return TEXT("Delete an asset. For Blueprints, runs garbage collection to ensure generated classes are fully cleaned up.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UDeleteAssetTool::GetInputSchema() const
@@ -46,30 +43,9 @@ FBridgeToolResult UDeleteAssetTool::Execute(
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Asset not found: %s"), *AssetPath));
 	}
 
-	// Special handling for Blueprints to cleanup generated classes
-	UBlueprint* Blueprint = Cast<UBlueprint>(Asset);
-	if (Blueprint)
-	{
-		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("delete-asset: Blueprint detected, cleaning up generated class"));
+	bool bIsBlueprint = Asset->IsA<UBlueprint>();
 
-		// Get the generated class before deletion
-		UBlueprintGeneratedClass* GeneratedClass = Cast<UBlueprintGeneratedClass>(Blueprint->GeneratedClass);
-
-		if (GeneratedClass)
-		{
-			// Unregister the class from the class hierarchy
-			// This prevents it from persisting in memory after deletion
-			GeneratedClass->ClearFunctionMapsCaches();
-
-			// Mark for pending kill
-			GeneratedClass->MarkAsGarbage();
-
-			UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("delete-asset: Marked generated class for garbage collection: %s"),
-				*GeneratedClass->GetName());
-		}
-	}
-
-	// Delete the asset
+	// UEditorAssetLibrary handles Blueprint generated class cleanup internally
 	bool bSuccess = UEditorAssetLibrary::DeleteAsset(AssetPath);
 
 	if (!bSuccess)
@@ -77,13 +53,12 @@ FBridgeToolResult UDeleteAssetTool::Execute(
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to delete asset: %s"), *AssetPath));
 	}
 
-	// Force garbage collection if it was a Blueprint
-	if (Blueprint)
+	// Two GC passes for Blueprints: first collects the Blueprint and marks
+	// generated class for deletion, second cleans up dependent objects
+	if (bIsBlueprint)
 	{
-		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("delete-asset: Running garbage collection"));
-		// First pass collects the Blueprint and marks generated class for deletion
+		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("delete-asset: Running garbage collection for Blueprint"));
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
-		// Second pass ensures complete cleanup of dependent objects
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 	}
 
@@ -92,7 +67,7 @@ FBridgeToolResult UDeleteAssetTool::Execute(
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Asset deleted successfully: %s"), *AssetPath));
 
-	if (Blueprint)
+	if (bIsBlueprint)
 	{
 		Result->SetBoolField(TEXT("was_blueprint"), true);
 		Result->SetStringField(TEXT("note"), TEXT("Blueprint generated class cleanup performed"));

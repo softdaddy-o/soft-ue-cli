@@ -37,6 +37,7 @@ def _parse_json_arg(value: str, flag: str) -> object:
 
 # -- Command handlers ----------------------------------------------------------
 
+
 def cmd_status(args: argparse.Namespace) -> None:
     _print_json(health_check())
 
@@ -80,11 +81,16 @@ def cmd_call_function(args: argparse.Namespace) -> None:
 
 
 def cmd_set_property(args: argparse.Namespace) -> None:
-    _print_json(call_tool("set-property", {
-        "actor_name":    args.actor_name,
-        "property_name": args.property_name,
-        "value":         args.value,
-    }))
+    _print_json(
+        call_tool(
+            "set-property",
+            {
+                "actor_name": args.actor_name,
+                "property_name": args.property_name,
+                "value": args.value,
+            },
+        )
+    )
 
 
 def cmd_get_logs(args: argparse.Namespace) -> None:
@@ -110,6 +116,7 @@ def cmd_set_console_var(args: argparse.Namespace) -> None:
 
 
 # -- Editor tool handlers ------------------------------------------------------
+
 
 def cmd_class_hierarchy(args: argparse.Namespace) -> None:
     arguments: dict = {"class_name": args.class_name}
@@ -255,6 +262,15 @@ def cmd_capture_screenshot(args: argparse.Namespace) -> None:
     _print_json(call_tool("capture-screenshot", arguments))
 
 
+def cmd_capture_viewport(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.format:
+        arguments["format"] = args.format
+    if args.output:
+        arguments["output"] = args.output
+    _print_json(call_tool("capture-viewport", arguments))
+
+
 def cmd_query_material(args: argparse.Namespace) -> None:
     arguments: dict = {"asset_path": args.asset_path}
     if args.include:
@@ -291,7 +307,7 @@ def cmd_pie_session(args: argparse.Namespace) -> None:
     _print_json(call_tool("pie-session", arguments))
 
 
-def cmd_pie_input(args: argparse.Namespace) -> None:
+def cmd_trigger_input(args: argparse.Namespace) -> None:
     arguments: dict = {"action": args.action}
     if args.player_index is not None:
         arguments["player_index"] = args.player_index
@@ -299,19 +315,13 @@ def cmd_pie_input(args: argparse.Namespace) -> None:
         arguments["key"] = args.key
     if args.action_name:
         arguments["action_name"] = args.action_name
-    if args.axis_name:
-        arguments["axis_name"] = args.axis_name
-    if args.value is not None:
-        arguments["value"] = args.value
     if args.release:
         arguments["pressed"] = False
     if args.target:
         arguments["target"] = _parse_vector(args.target)
     if args.target_actor:
         arguments["target_actor"] = args.target_actor
-    if args.acceptance_radius is not None:
-        arguments["acceptance_radius"] = args.acceptance_radius
-    _print_json(call_tool("pie-input", arguments))
+    _print_json(call_tool("trigger-input", arguments))
 
 
 def cmd_insights_capture(args: argparse.Namespace) -> None:
@@ -364,9 +374,7 @@ def cmd_find_references(args: argparse.Namespace) -> None:
 
 _SCRIPTS_DIR = Path.home() / ".soft-ue-bridge" / "scripts"
 
-_VALID_SCRIPT_NAME_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
-)
+_VALID_SCRIPT_NAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
 
 
 def _ensure_scripts_dir() -> Path:
@@ -435,12 +443,14 @@ def cmd_list_scripts(args: argparse.Namespace) -> None:
     if _SCRIPTS_DIR.exists():
         for f in sorted(_SCRIPTS_DIR.glob("*.py")):
             stat = f.stat()
-            scripts.append({
-                "name": f.stem,
-                "path": str(f),
-                "size": stat.st_size,
-                "modified": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
-            })
+            scripts.append(
+                {
+                    "name": f.stem,
+                    "path": str(f),
+                    "size": stat.st_size,
+                    "modified": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(stat.st_mtime)),
+                }
+            )
     _print_json({"scripts": scripts, "count": len(scripts)})
 
 
@@ -502,10 +512,15 @@ def cmd_add_statetree_transition(args: argparse.Namespace) -> None:
 
 
 def cmd_remove_statetree_state(args: argparse.Namespace) -> None:
-    _print_json(call_tool("remove-statetree-state", {
-        "asset_path": args.asset_path,
-        "state_name": args.state_name,
-    }))
+    _print_json(
+        call_tool(
+            "remove-statetree-state",
+            {
+                "asset_path": args.asset_path,
+                "state_name": args.state_name,
+            },
+        )
+    )
 
 
 def cmd_inspect_widget_blueprint(args: argparse.Namespace) -> None:
@@ -586,29 +601,53 @@ def cmd_add_graph_node(args: argparse.Namespace) -> None:
     _print_json(call_tool("add-graph-node", arguments))
 
 
-def cmd_remove_graph_node(args: argparse.Namespace) -> None:
-    _print_json(call_tool("remove-graph-node", {
+def cmd_modify_interface(args: argparse.Namespace) -> None:
+    arguments: dict = {
         "asset_path": args.asset_path,
-        "node_id": args.node_id,
-    }))
+        "action": args.action,
+        "interface_class": args.interface_class,
+    }
+    _print_json(call_tool("modify-interface", arguments))
+
+
+def cmd_remove_graph_node(args: argparse.Namespace) -> None:
+    _print_json(
+        call_tool(
+            "remove-graph-node",
+            {
+                "asset_path": args.asset_path,
+                "node_id": args.node_id,
+            },
+        )
+    )
 
 
 def cmd_connect_graph_pins(args: argparse.Namespace) -> None:
-    _print_json(call_tool("connect-graph-pins", {
-        "asset_path":  args.asset_path,
-        "source_node": args.source_node,
-        "source_pin":  args.source_pin,
-        "target_node": args.target_node,
-        "target_pin":  args.target_pin,
-    }))
+    _print_json(
+        call_tool(
+            "connect-graph-pins",
+            {
+                "asset_path": args.asset_path,
+                "source_node": args.source_node,
+                "source_pin": args.source_pin,
+                "target_node": args.target_node,
+                "target_pin": args.target_pin,
+            },
+        )
+    )
 
 
 def cmd_disconnect_graph_pin(args: argparse.Namespace) -> None:
-    _print_json(call_tool("disconnect-graph-pin", {
-        "asset_path": args.asset_path,
-        "node_id":    args.node_id,
-        "pin_name":   args.pin_name,
-    }))
+    _print_json(
+        call_tool(
+            "disconnect-graph-pin",
+            {
+                "asset_path": args.asset_path,
+                "node_id": args.node_id,
+                "pin_name": args.pin_name,
+            },
+        )
+    )
 
 
 def cmd_set_node_position(args: argparse.Namespace) -> None:
@@ -623,7 +662,7 @@ def cmd_set_node_position(args: argparse.Namespace) -> None:
 
 def cmd_create_asset(args: argparse.Namespace) -> None:
     arguments: dict = {
-        "asset_path":  args.asset_path,
+        "asset_path": args.asset_path,
         "asset_class": args.asset_class,
     }
     if args.parent_class:
@@ -633,7 +672,67 @@ def cmd_create_asset(args: argparse.Namespace) -> None:
     _print_json(call_tool("create-asset", arguments))
 
 
+def _gather_system_info() -> str:
+    """Collect CLI version, Python, OS, and bridge status for bug reports."""
+    import importlib.metadata
+    import platform
+
+    try:
+        cli_version = importlib.metadata.version("soft-ue-cli")
+    except importlib.metadata.PackageNotFoundError:
+        cli_version = "unknown"
+    try:
+        bridge = "reachable" if "error" not in health_check() else "unreachable"
+    except Exception:
+        bridge = "unreachable"
+
+    return (
+        "## System Information\n"
+        f"- CLI version: {cli_version}\n"
+        f"- Python: {platform.python_version()}\n"
+        f"- OS: {platform.platform()}\n"
+        f"- Bridge: {bridge}"
+    )
+
+
+def cmd_report_bug(args: argparse.Namespace) -> None:
+    from .github import create_issue
+
+    sections = [f"## Description\n{args.description}"]
+    if args.steps:
+        sections.append(f"## Steps to Reproduce\n{args.steps}")
+    if args.expected:
+        sections.append(f"## Expected Behavior\n{args.expected}")
+    if args.actual:
+        sections.append(f"## Actual Behavior\n{args.actual}")
+    if not args.no_system_info:
+        sections.append(_gather_system_info())
+
+    body = "\n\n".join(sections)
+    labels = ["bug"]
+    if args.severity:
+        labels.append(args.severity)
+
+    result = create_issue(args.title, body, labels)
+    _print_json(result)
+
+
+def cmd_request_feature(args: argparse.Namespace) -> None:
+    from .github import create_issue
+
+    sections = [f"## Description\n{args.description}"]
+    if args.use_case:
+        sections.append(f"## Use Case\n{args.use_case}")
+
+    body = "\n\n".join(sections)
+    labels = [args.priority]
+
+    result = create_issue(args.title, body, labels)
+    _print_json(result)
+
+
 # -- Setup/utility handlers ----------------------------------------------------
+
 
 def _claude_md_section(cli_cmd: str) -> str:
     return (
@@ -669,7 +768,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
         f"     {plugin_dest}\n\n"
         f'2. Edit {uproject_hint} - add to the "Plugins" array:\n'
         f'     {{"Name": "SoftUEBridge", "Enabled": true}}\n\n'
-        f"3. Append to {claude_md} (create if it doesn't exist):\n\n"
+        f"3. Create or append to {claude_md}:\n\n"
         f"{_claude_md_section(cli_cmd)}\n"
         f"After the user rebuilds and launches UE, verify with:\n"
         f"  {cli_cmd} check-setup"
@@ -678,11 +777,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
 
 def cmd_check_setup(args: argparse.Namespace) -> None:
     """Verify plugin files, project settings, and bridge server reachability."""
-    project_path = (
-        Path(args.project_path).expanduser().resolve()
-        if args.project_path
-        else Path.cwd()
-    )
+    project_path = Path(args.project_path).expanduser().resolve() if args.project_path else Path.cwd()
 
     ok = "[OK]  "
     fail = "[FAIL]"
@@ -708,10 +803,7 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
         try:
             data = json.loads(uproject_path.read_text(encoding="utf-8"))
             plugins = data.get("Plugins", [])
-            enabled = any(
-                p.get("Name") == "SoftUEBridge" and p.get("Enabled", False)
-                for p in plugins
-            )
+            enabled = any(p.get("Name") == "SoftUEBridge" and p.get("Enabled", False) for p in plugins)
             if enabled:
                 print(f"{ok} SoftUEBridge enabled in {uproject_path.name}.")
             else:
@@ -744,6 +836,7 @@ def cmd_knowledge(args: argparse.Namespace) -> None:
 
 # -- Argument parser -----------------------------------------------------------
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="soft-ue-cli",
@@ -759,7 +852,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--server", metavar="URL",
+        "--server",
+        metavar="URL",
         help=(
             "Override the bridge server URL (e.g. http://127.0.0.1:9000). "
             "By default the URL is auto-discovered from the SOFT_UE_BRIDGE_URL env var, "
@@ -768,7 +862,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--timeout", type=float, metavar="SEC",
+        "--timeout",
+        type=float,
+        metavar="SEC",
         help=(
             "HTTP request timeout in seconds (default: 30). "
             "Increase for slow operations such as build-and-relaunch (e.g. --timeout 300)."
@@ -794,10 +890,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_setup.add_argument("project_path", nargs="?", default=None,
-        help="Path to UE project root (default: current directory)")
     p_setup.add_argument(
-        "--plugin-src", metavar="PATH",
+        "project_path", nargs="?", default=None, help="Path to UE project root (default: current directory)"
+    )
+    p_setup.add_argument(
+        "--plugin-src",
+        metavar="PATH",
         help="Path to SoftUEBridge plugin source (auto-detected from repo if not specified)",
     )
     p_setup.set_defaults(func=cmd_setup)
@@ -815,14 +913,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cs.add_argument("project_path", nargs="?", default=None,
-        help="Path to UE project root (default: current directory)")
+    p_cs.add_argument(
+        "project_path", nargs="?", default=None, help="Path to UE project root (default: current directory)"
+    )
     p_cs.set_defaults(func=cmd_check_setup)
 
     # status
     p_status = sub.add_parser(
         "status",
-        help="Quick health check -- returns {\"status\": \"ok\"} if the bridge is running.",
+        help='Quick health check -- returns {"status": "ok"} if the bridge is running.',
         description="Sends a GET request to the bridge server and returns its health status.",
     )
     p_status.set_defaults(func=cmd_status)
@@ -867,17 +966,19 @@ def build_parser() -> argparse.ArgumentParser:
             "  List all actors:                   soft-ue-cli query-level\n"
             "  Find all lights:                   soft-ue-cli query-level --class-filter PointLight\n"
             "  Find actor by name:                soft-ue-cli query-level --actor-name BP_Hero\n"
-            "  Wildcard search:                   soft-ue-cli query-level --search \"Enemy*\"\n"
+            '  Wildcard search:                   soft-ue-cli query-level --search "Enemy*"\n'
             "  Tagged actors with components:     soft-ue-cli query-level --tag hostile --components"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_ql.add_argument("--actor-name",   metavar="PATTERN", help="Match actor by exact name or label (supports * wildcard)")
-    p_ql.add_argument("--class-filter", metavar="CLASS",   help="Only return actors of this class (e.g. PointLight)")
-    p_ql.add_argument("--search",       metavar="TEXT",    help="Search actor names/labels (supports * wildcard)")
-    p_ql.add_argument("--tag",          metavar="TAG",     help="Only return actors with this gameplay tag")
-    p_ql.add_argument("--components",   action="store_true", help="Include component list for each actor")
-    p_ql.add_argument("--limit",        type=int, default=100, metavar="N", help="Max actors to return (default: 100)")
+    p_ql.add_argument(
+        "--actor-name", metavar="PATTERN", help="Match actor by exact name or label (supports * wildcard)"
+    )
+    p_ql.add_argument("--class-filter", metavar="CLASS", help="Only return actors of this class (e.g. PointLight)")
+    p_ql.add_argument("--search", metavar="TEXT", help="Search actor names/labels (supports * wildcard)")
+    p_ql.add_argument("--tag", metavar="TAG", help="Only return actors with this gameplay tag")
+    p_ql.add_argument("--components", action="store_true", help="Include component list for each actor")
+    p_ql.add_argument("--limit", type=int, default=100, metavar="N", help="Max actors to return (default: 100)")
     p_ql.set_defaults(func=cmd_query_level)
 
     # call-function
@@ -889,16 +990,16 @@ def build_parser() -> argparse.ArgumentParser:
             "The function must be BlueprintCallable or marked with UFUNCTION().\n"
             "Returns any output parameters and the return value as JSON.\n\n"
             "ARGS format: JSON object mapping parameter names to values.\n"
-            "  e.g. '{\"damage\": 25.0, \"cause\": \"fire\"}'\n\n"
+            '  e.g. \'{"damage": 25.0, "cause": "fire"}\'\n\n'
             "EXAMPLES:\n"
             "  No args:    soft-ue-cli call-function BP_Hero Jump\n"
             "  With args:  soft-ue-cli call-function BP_Hero TakeDamage --args '{\"damage\": 25.0}'"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cf.add_argument("actor_name",    help="Actor name or label as shown in query-level output")
+    p_cf.add_argument("actor_name", help="Actor name or label as shown in query-level output")
     p_cf.add_argument("function_name", help="Exact function name (case-sensitive)")
-    p_cf.add_argument("--args",        metavar="JSON", help="Function arguments as a JSON object")
+    p_cf.add_argument("--args", metavar="JSON", help="Function arguments as a JSON object")
     p_cf.set_defaults(func=cmd_call_function)
 
     # set-property (runtime actors)
@@ -914,13 +1015,13 @@ def build_parser() -> argparse.ArgumentParser:
             "  Actor property:     soft-ue-cli set-property PointLight_0 Intensity 5000\n"
             "  Component property: soft-ue-cli set-property BP_Hero LightComponent.Intensity 3000\n"
             "  Boolean:            soft-ue-cli set-property BP_Enemy bIsHostile true\n"
-            "  Vector:             soft-ue-cli set-property BP_Hero RelativeScale3D \"2,2,2\""
+            '  Vector:             soft-ue-cli set-property BP_Hero RelativeScale3D "2,2,2"'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_sp.add_argument("actor_name",    help="Actor name or label as shown in query-level output")
+    p_sp.add_argument("actor_name", help="Actor name or label as shown in query-level output")
     p_sp.add_argument("property_name", help="Property name, or ComponentName.PropertyName for component properties")
-    p_sp.add_argument("value",         help="New value as a string (UE reflection converts the type)")
+    p_sp.add_argument("value", help="New value as a string (UE reflection converts the type)")
     p_sp.set_defaults(func=cmd_set_property)
 
     # get-logs
@@ -941,10 +1042,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_gl.add_argument("--lines",    type=int, default=100, metavar="N", help="Number of recent lines to return (default: 100)")
-    p_gl.add_argument("--filter",   metavar="TEXT",  help="Case-insensitive substring filter on log text")
-    p_gl.add_argument("--category", metavar="CAT",   help="Filter by log category (e.g. LogAI, LogTemp, LogEngine)")
-    p_gl.add_argument("--raw",      action="store_true", help="Output plain text lines instead of JSON")
+    p_gl.add_argument(
+        "--lines", type=int, default=100, metavar="N", help="Number of recent lines to return (default: 100)"
+    )
+    p_gl.add_argument("--filter", metavar="TEXT", help="Case-insensitive substring filter on log text")
+    p_gl.add_argument("--category", metavar="CAT", help="Filter by log category (e.g. LogAI, LogTemp, LogEngine)")
+    p_gl.add_argument("--raw", action="store_true", help="Output plain text lines instead of JSON")
     p_gl.set_defaults(func=cmd_get_logs)
 
     # get-console-var
@@ -953,7 +1056,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read the current value of a UE console variable (CVar).",
         description=(
             "Reads a console variable value using IConsoleManager.\n"
-            "Returns {\"name\": \"...\", \"value\": \"...\"}.\n\n"
+            'Returns {"name": "...", "value": "..."}.\n\n'
             "EXAMPLES:\n"
             "  soft-ue-cli get-console-var r.ScreenPercentage\n"
             "  soft-ue-cli get-console-var t.MaxFPS"
@@ -977,7 +1080,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_scv.add_argument("name",  help="CVar name (case-sensitive)")
+    p_scv.add_argument("name", help="CVar name (case-sensitive)")
     p_scv.add_argument("value", help="New value as a string")
     p_scv.set_defaults(func=cmd_set_console_var)
 
@@ -1016,23 +1119,25 @@ def build_parser() -> argparse.ArgumentParser:
             "  Search mode (--query, --class, --path): find assets matching the filter.\n"
             "  Inspect mode (--asset-path): read properties of a specific asset.\n\n"
             "EXAMPLES:\n"
-            "  soft-ue-cli query-asset --query \"BP_*\" --class Blueprint\n"
+            '  soft-ue-cli query-asset --query "BP_*" --class Blueprint\n'
             "  soft-ue-cli query-asset --asset-path /Game/Data/DT_Items\n"
             "  soft-ue-cli query-asset --path /Game/Characters --class SkeletalMesh"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_qa.add_argument("--query",           metavar="PATTERN", help="Search pattern (supports * and ?)")
-    p_qa.add_argument("--class",           metavar="CLASS", dest="asset_class", help="Filter by asset class (e.g. Blueprint, StaticMesh)")
-    p_qa.add_argument("--path",            metavar="PATH", help="Filter by path prefix (e.g. /Game/Blueprints)")
-    p_qa.add_argument("--limit",           type=int, metavar="N", help="Max search results (default: 100)")
-    p_qa.add_argument("--asset-path",      metavar="PATH", help="Asset path to inspect")
-    p_qa.add_argument("--depth",           type=int, metavar="N", help="Recursion depth for inspect (default: 2)")
+    p_qa.add_argument("--query", metavar="PATTERN", help="Search pattern (supports * and ?)")
+    p_qa.add_argument(
+        "--class", metavar="CLASS", dest="asset_class", help="Filter by asset class (e.g. Blueprint, StaticMesh)"
+    )
+    p_qa.add_argument("--path", metavar="PATH", help="Filter by path prefix (e.g. /Game/Blueprints)")
+    p_qa.add_argument("--limit", type=int, metavar="N", help="Max search results (default: 100)")
+    p_qa.add_argument("--asset-path", metavar="PATH", help="Asset path to inspect")
+    p_qa.add_argument("--depth", type=int, metavar="N", help="Recursion depth for inspect (default: 2)")
     p_qa.add_argument("--include-defaults", action="store_true", help="Include default/empty properties")
     p_qa.add_argument("--property-filter", metavar="PATTERN", help="Filter properties by name")
     p_qa.add_argument("--category-filter", metavar="CAT", help="Filter properties by category")
-    p_qa.add_argument("--row-filter",      metavar="PATTERN", help="Filter DataTable rows by name")
-    p_qa.add_argument("--search",          metavar="TEXT", help="General search filter")
+    p_qa.add_argument("--row-filter", metavar="PATTERN", help="Filter DataTable rows by name")
+    p_qa.add_argument("--search", metavar="TEXT", help="General search filter")
     p_qa.set_defaults(func=cmd_query_asset)
 
     p_da = sub.add_parser(
@@ -1082,7 +1187,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_gap.add_argument("asset_path", help="Asset path (e.g. /Game/Textures/T_Player)")
-    p_gap.add_argument("--resolution", type=int, metavar="N", help="Output resolution in pixels, 64-1024 (default: 256)")
+    p_gap.add_argument(
+        "--resolution", type=int, metavar="N", help="Output resolution in pixels, 64-1024 (default: 256)"
+    )
     p_gap.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
     p_gap.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
     p_gap.set_defaults(func=cmd_get_asset_preview)
@@ -1101,9 +1208,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_oa.add_argument("--asset-path",  metavar="PATH", help="Asset path to open (e.g. /Game/Blueprints/BP_Player)")
+    p_oa.add_argument("--asset-path", metavar="PATH", help="Asset path to open (e.g. /Game/Blueprints/BP_Player)")
     p_oa.add_argument("--window-name", metavar="NAME", help="Editor window to open (e.g. OutputLog, ContentBrowser)")
-    p_oa.add_argument("--no-focus",    action="store_true", help="Do not bring the window to front")
+    p_oa.add_argument("--no-focus", action="store_true", help="Do not bring the window to front")
     p_oa.set_defaults(func=cmd_open_asset)
 
     # -------------------------------------------------------------------------
@@ -1117,20 +1224,23 @@ def build_parser() -> argparse.ArgumentParser:
             "EXAMPLES:\n"
             "  soft-ue-cli query-blueprint /Game/Blueprints/BP_Character\n"
             "  soft-ue-cli query-blueprint /Game/Blueprints/BP_Character --include variables\n"
-            "  soft-ue-cli query-blueprint /Game/Blueprints/BP_Character --search \"*Health*\""
+            '  soft-ue-cli query-blueprint /Game/Blueprints/BP_Character --search "*Health*"'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_qb.add_argument("asset_path", help="Blueprint asset path")
-    p_qb.add_argument("--include", metavar="SECTION",
-        help="Sections to include: functions, variables, components, defaults, graph, component_overrides, all (default: all)")
-    p_qb.add_argument("--no-detail",            action="store_true", help="Omit detailed flags and metadata")
-    p_qb.add_argument("--property-filter",      metavar="PATTERN", help="Filter properties by name (wildcards)")
-    p_qb.add_argument("--category-filter",      metavar="CAT", help="Filter properties by category")
-    p_qb.add_argument("--include-inherited",    action="store_true", help="Include inherited properties")
-    p_qb.add_argument("--component-filter",     metavar="PATTERN", help="Filter components by name (wildcards)")
+    p_qb.add_argument(
+        "--include",
+        metavar="SECTION",
+        help="Sections to include: functions, variables, components, defaults, graph, component_overrides, all (default: all)",
+    )
+    p_qb.add_argument("--no-detail", action="store_true", help="Omit detailed flags and metadata")
+    p_qb.add_argument("--property-filter", metavar="PATTERN", help="Filter properties by name (wildcards)")
+    p_qb.add_argument("--category-filter", metavar="CAT", help="Filter properties by category")
+    p_qb.add_argument("--include-inherited", action="store_true", help="Include inherited properties")
+    p_qb.add_argument("--component-filter", metavar="PATTERN", help="Filter components by name (wildcards)")
     p_qb.add_argument("--include-non-overridden", action="store_true", help="Include non-overridden properties")
-    p_qb.add_argument("--search",               metavar="TEXT", help="Filter items by name (wildcards)")
+    p_qb.add_argument("--search", metavar="TEXT", help="Filter items by name (wildcards)")
     p_qb.set_defaults(func=cmd_query_blueprint)
 
     p_qbg = sub.add_parser(
@@ -1145,14 +1255,16 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_qbg.add_argument("asset_path", help="Blueprint asset path")
-    p_qbg.add_argument("--node-guid",          metavar="GUID", help="Get a specific node by GUID")
-    p_qbg.add_argument("--callable-name",      metavar="NAME", help="Get a specific event/function/macro graph")
-    p_qbg.add_argument("--list-callables",     action="store_true", help="List all callables without full graph")
-    p_qbg.add_argument("--graph-name",         metavar="NAME", help="Filter by graph name")
-    p_qbg.add_argument("--graph-type",         metavar="TYPE", help="Filter by type: event, function, macro, anim_graph, etc.")
-    p_qbg.add_argument("--include-positions",  action="store_true", help="Include node X/Y positions")
-    p_qbg.add_argument("--search",             metavar="TEXT", help="Filter nodes by title (wildcards)")
-    p_qbg.add_argument("--include-anim-props", action="store_true", help="Include AnimNode struct properties on AnimGraph nodes")
+    p_qbg.add_argument("--node-guid", metavar="GUID", help="Get a specific node by GUID")
+    p_qbg.add_argument("--callable-name", metavar="NAME", help="Get a specific event/function/macro graph")
+    p_qbg.add_argument("--list-callables", action="store_true", help="List all callables without full graph")
+    p_qbg.add_argument("--graph-name", metavar="NAME", help="Filter by graph name")
+    p_qbg.add_argument("--graph-type", metavar="TYPE", help="Filter by type: event, function, macro, anim_graph, etc.")
+    p_qbg.add_argument("--include-positions", action="store_true", help="Include node X/Y positions")
+    p_qbg.add_argument("--search", metavar="TEXT", help="Filter nodes by title (wildcards)")
+    p_qbg.add_argument(
+        "--include-anim-props", action="store_true", help="Include AnimNode struct properties on AnimGraph nodes"
+    )
     p_qbg.set_defaults(func=cmd_query_blueprint_graph)
 
     # -------------------------------------------------------------------------
@@ -1173,8 +1285,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_bar.add_argument("--config", choices=["Development", "Debug", "Shipping"],
-        help="Build configuration (default: Development)")
+    p_bar.add_argument(
+        "--config", choices=["Development", "Debug", "Shipping"], help="Build configuration (default: Development)"
+    )
     p_bar.add_argument("--skip-relaunch", action="store_true", help="Build only, do not relaunch the editor")
     p_bar.set_defaults(func=cmd_build_and_relaunch)
 
@@ -1202,22 +1315,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Capture a screenshot of the editor window or a specific panel.",
         description=(
             "Modes:\n"
-            "  window  — capture the entire editor\n"
-            "  tab     — capture a specific editor panel (use --window-name)\n"
-            "  region  — capture a screen region (use --region X,Y,W,H)\n\n"
+            "  window    — capture the entire editor\n"
+            "  tab       — capture a specific editor panel (use --window-name)\n"
+            "  region    — capture a screen region (use --region X,Y,W,H)\n"
+            "  viewport  — capture the PIE game screen\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli capture-screenshot window\n"
             "  soft-ue-cli capture-screenshot tab --window-name Blueprint\n"
-            "  soft-ue-cli capture-screenshot region --region 0,0,800,600 --output base64"
+            "  soft-ue-cli capture-screenshot region --region 0,0,800,600 --output base64\n"
+            "  soft-ue-cli capture-screenshot viewport"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cs2.add_argument("mode", choices=["window", "tab", "region"], help="Capture mode")
+    p_cs2.add_argument("mode", choices=["window", "tab", "region", "viewport"], help="Capture mode")
     p_cs2.add_argument("--window-name", metavar="NAME", help="Editor panel name for 'tab' mode")
-    p_cs2.add_argument("--region",      metavar="X,Y,W,H", help="Screen coordinates for 'region' mode")
-    p_cs2.add_argument("--format",  choices=["png", "jpeg"], help="Image format (default: png)")
-    p_cs2.add_argument("--output",  choices=["file", "base64"], help="Output mode: file (default) or base64")
+    p_cs2.add_argument("--region", metavar="X,Y,W,H", help="Screen coordinates for 'region' mode")
+    p_cs2.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
+    p_cs2.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
     p_cs2.set_defaults(func=cmd_capture_screenshot)
+
+    # ---- capture-viewport (runtime — works in PIE and standalone) ----
+
+    p_cv = sub.add_parser(
+        "capture-viewport",
+        help="Capture the game viewport (PIE or standalone). Saves to temp file.",
+        description=(
+            "Capture the game viewport screenshot.\n"
+            "Works in both PIE and standalone/packaged builds.\n"
+            "Returns a temp file path by default.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli capture-viewport\n"
+            "  soft-ue-cli capture-viewport --format jpeg\n"
+            "  soft-ue-cli capture-viewport --output base64"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_cv.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
+    p_cv.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
+    p_cv.set_defaults(func=cmd_capture_viewport)
 
     # -------------------------------------------------------------------------
     # Editor tools — Material
@@ -1232,15 +1367,15 @@ def build_parser() -> argparse.ArgumentParser:
             "EXAMPLES:\n"
             "  soft-ue-cli query-material /Game/Materials/M_Rock\n"
             "  soft-ue-cli query-material /Game/Materials/MI_Rock --include parameters\n"
-            "  soft-ue-cli query-material /Game/Materials/M_Rock --parameter-filter \"*Color*\""
+            '  soft-ue-cli query-material /Game/Materials/M_Rock --parameter-filter "*Color*"'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_qm.add_argument("asset_path", help="Material or MaterialInstance asset path")
     p_qm.add_argument("--include", metavar="SECTION", help="What to include: graph, parameters, all (default: all)")
     p_qm.add_argument("--include-positions", action="store_true", help="Include expression X/Y positions")
-    p_qm.add_argument("--no-defaults",       action="store_true", help="Exclude default parameter values")
-    p_qm.add_argument("--parameter-filter",  metavar="PATTERN", help="Filter parameters by name (wildcards)")
+    p_qm.add_argument("--no-defaults", action="store_true", help="Exclude default parameter values")
+    p_qm.add_argument("--parameter-filter", metavar="PATTERN", help="Filter parameters by name (wildcards)")
     p_qm.set_defaults(func=cmd_query_material)
 
     # -------------------------------------------------------------------------
@@ -1266,47 +1401,47 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_ps.add_argument("action", choices=["start", "stop", "pause", "resume", "get-state", "wait-for"])
-    p_ps.add_argument("--mode",         choices=["viewport", "new_window", "standalone"], help="PIE launch mode (for start)")
-    p_ps.add_argument("--map",          metavar="PATH", help="Map to load (for start)")
-    p_ps.add_argument("--timeout",      type=float, metavar="SEC", help="Timeout waiting for PIE ready (for start, default: 30)")
-    p_ps.add_argument("--include",      metavar="LIST", help="Comma-separated: world,players (for get-state)")
-    p_ps.add_argument("--actor-name",   metavar="NAME", help="Actor to monitor (for wait-for)")
-    p_ps.add_argument("--property",     metavar="PROP", help="Property to check (for wait-for)")
-    p_ps.add_argument("--operator",     choices=["equals", "not_equals", "less_than", "greater_than", "contains"],
-        help="Comparison operator (for wait-for)")
-    p_ps.add_argument("--expected",     metavar="JSON", help="Expected value as JSON (for wait-for)")
+    p_ps.add_argument("--mode", choices=["viewport", "new_window", "standalone"], help="PIE launch mode (for start)")
+    p_ps.add_argument("--map", metavar="PATH", help="Map to load (for start)")
+    p_ps.add_argument(
+        "--timeout", type=float, metavar="SEC", help="Timeout waiting for PIE ready (for start, default: 30)"
+    )
+    p_ps.add_argument("--include", metavar="LIST", help="Comma-separated: world,players (for get-state)")
+    p_ps.add_argument("--actor-name", metavar="NAME", help="Actor to monitor (for wait-for)")
+    p_ps.add_argument("--property", metavar="PROP", help="Property to check (for wait-for)")
+    p_ps.add_argument(
+        "--operator",
+        choices=["equals", "not_equals", "less_than", "greater_than", "contains"],
+        help="Comparison operator (for wait-for)",
+    )
+    p_ps.add_argument("--expected", metavar="JSON", help="Expected value as JSON (for wait-for)")
     p_ps.add_argument("--wait-timeout", type=float, metavar="SEC", help="Timeout for wait-for (default: 10)")
     p_ps.set_defaults(func=cmd_pie_session)
 
-    p_pi = sub.add_parser(
-        "pie-input",
-        help="Send input events to PIE (key press, action, axis, move-to, look-at).",
+    p_ti = sub.add_parser(
+        "trigger-input",
+        help="Send input events to a running game (PIE or packaged build).",
         description=(
             "Actions:\n"
             "  key      — press/release a key (use --key)\n"
             "  action   — trigger an input action (use --action-name)\n"
-            "  axis     — set an axis value (use --axis-name --value)\n"
             "  move-to  — move character to location (use --target X,Y,Z)\n"
             "  look-at  — rotate character toward target (use --target or --target-actor)\n\n"
             "EXAMPLES:\n"
-            "  soft-ue-cli pie-input key --key Space\n"
-            "  soft-ue-cli pie-input action --action-name Jump\n"
-            "  soft-ue-cli pie-input axis --axis-name MoveForward --value 1.0\n"
-            "  soft-ue-cli pie-input move-to --target 100,200,0"
+            "  soft-ue-cli trigger-input key --key Space\n"
+            "  soft-ue-cli trigger-input action --action-name Jump\n"
+            "  soft-ue-cli trigger-input move-to --target 100,200,0"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_pi.add_argument("action", choices=["key", "action", "axis", "move-to", "look-at"])
-    p_pi.add_argument("--player-index",      type=int, metavar="N", help="Player index (default: 0)")
-    p_pi.add_argument("--key",               metavar="KEY", help="Key name (e.g. W, Space, LeftMouseButton)")
-    p_pi.add_argument("--action-name",       metavar="NAME", help="Input action name (e.g. Jump)")
-    p_pi.add_argument("--axis-name",         metavar="NAME", help="Input axis name (e.g. MoveForward)")
-    p_pi.add_argument("--value",             type=float, help="Axis value (-1.0 to 1.0)")
-    p_pi.add_argument("--release",           action="store_true", help="Release (instead of press) for key/action")
-    p_pi.add_argument("--target",            metavar="X,Y,Z", help="Target location for move-to/look-at")
-    p_pi.add_argument("--target-actor",      metavar="NAME", help="Target actor name for look-at")
-    p_pi.add_argument("--acceptance-radius", type=float, metavar="CM", help="Acceptance radius for move-to (default: 50)")
-    p_pi.set_defaults(func=cmd_pie_input)
+    p_ti.add_argument("action", choices=["key", "action", "move-to", "look-at"])
+    p_ti.add_argument("--player-index", type=int, metavar="N", help="Player index (default: 0)")
+    p_ti.add_argument("--key", metavar="KEY", help="Key name (e.g. W, Space, LeftMouseButton)")
+    p_ti.add_argument("--action-name", metavar="NAME", help="Input action name (e.g. Jump)")
+    p_ti.add_argument("--release", action="store_true", help="Release (instead of press) for key/action")
+    p_ti.add_argument("--target", metavar="X,Y,Z", help="Target location for move-to/look-at")
+    p_ti.add_argument("--target-actor", metavar="NAME", help="Target actor name for look-at")
+    p_ti.set_defaults(func=cmd_trigger_input)
 
     # -------------------------------------------------------------------------
     # Editor tools — Performance
@@ -1327,8 +1462,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_ic.add_argument("action", choices=["start", "stop", "status"])
-    p_ic.add_argument("--channels",     metavar="LIST", help="Comma-separated trace channels (for start, e.g. cpu,gpu,memory)")
-    p_ic.add_argument("--output-file",  metavar="FILE", help="Output filename for trace (for start)")
+    p_ic.add_argument(
+        "--channels", metavar="LIST", help="Comma-separated trace channels (for start, e.g. cpu,gpu,memory)"
+    )
+    p_ic.add_argument("--output-file", metavar="FILE", help="Output filename for trace (for start)")
     p_ic.set_defaults(func=cmd_insights_capture)
 
     p_ilt = sub.add_parser(
@@ -1377,8 +1514,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_pinfo.add_argument("--section", choices=["input", "collision", "tags", "maps", "all"],
-        help="Settings section to include")
+    p_pinfo.add_argument(
+        "--section", choices=["input", "collision", "tags", "maps", "all"], help="Settings section to include"
+    )
     p_pinfo.set_defaults(func=cmd_project_info)
 
     # -------------------------------------------------------------------------
@@ -1403,10 +1541,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_fr.add_argument("type", choices=["asset", "property", "node"])
     p_fr.add_argument("asset_path", help="Asset path to search from/within")
     p_fr.add_argument("--variable-name", metavar="NAME", help="Variable name to find usages of (for type=property)")
-    p_fr.add_argument("--node-class",    metavar="CLASS", help="Node class to search for (for type=node)")
+    p_fr.add_argument("--node-class", metavar="CLASS", help="Node class to search for (for type=node)")
     p_fr.add_argument("--function-name", metavar="NAME", help="Function name filter for CallFunction nodes")
-    p_fr.add_argument("--limit",         type=int, metavar="N", help="Max results (default: 100)")
-    p_fr.add_argument("--search",        metavar="PATTERN", help="Filter results by asset name (wildcards)")
+    p_fr.add_argument("--limit", type=int, metavar="N", help="Max results (default: 100)")
+    p_fr.add_argument("--search", metavar="PATTERN", help="Filter results by asset name (wildcards)")
     p_fr.set_defaults(func=cmd_find_references)
 
     # -------------------------------------------------------------------------
@@ -1420,17 +1558,19 @@ def build_parser() -> argparse.ArgumentParser:
             "Requires PythonScriptPlugin to be enabled in the project.\n"
             "Provide either --script (inline code) or --script-path (file path), not both.\n\n"
             "EXAMPLES:\n"
-            "  soft-ue-cli run-python-script --script \"import unreal; print(unreal.SystemLibrary.get_engine_version())\"\n"
+            '  soft-ue-cli run-python-script --script "import unreal; print(unreal.SystemLibrary.get_engine_version())"\n'
             "  soft-ue-cli run-python-script --script-path /path/to/my_script.py\n"
             "  soft-ue-cli run-python-script --script-path my_script.py --arguments '{\"count\": 5}'"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_rps.add_argument("--name",        metavar="NAME", help="Name of a saved script to run (see save-script / list-scripts)")
-    p_rps.add_argument("--script",      metavar="CODE", help="Inline Python code to execute")
+    p_rps.add_argument("--name", metavar="NAME", help="Name of a saved script to run (see save-script / list-scripts)")
+    p_rps.add_argument("--script", metavar="CODE", help="Inline Python code to execute")
     p_rps.add_argument("--script-path", metavar="PATH", help="Path to a Python script file")
     p_rps.add_argument("--python-paths", metavar="PATH", nargs="+", help="Additional sys.path directories")
-    p_rps.add_argument("--arguments",   metavar="JSON", help="Arguments as JSON object (accessible via unreal.get_mcp_args())")
+    p_rps.add_argument(
+        "--arguments", metavar="JSON", help="Arguments as JSON object (accessible via unreal.get_mcp_args())"
+    )
     p_rps.set_defaults(func=cmd_run_python_script)
 
     p_ss = sub.add_parser(
@@ -1446,7 +1586,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_ss.add_argument("name", help="Name for the saved script (no .py extension)")
-    p_ss.add_argument("--script",      metavar="CODE", help="Inline Python code to save")
+    p_ss.add_argument("--script", metavar="CODE", help="Inline Python code to save")
     p_ss.add_argument("--script-path", metavar="PATH", help="Path to an existing Python script to copy")
     p_ss.set_defaults(func=cmd_save_script)
 
@@ -1482,8 +1622,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_qst.add_argument("asset_path", help="StateTree asset path (e.g. /Game/AI/ST_EnemyBehavior)")
-    p_qst.add_argument("--include", metavar="SECTION",
-        help="Sections to include: states, transitions, tasks, evaluators, parameters, all (default: all)")
+    p_qst.add_argument(
+        "--include",
+        metavar="SECTION",
+        help="Sections to include: states, transitions, tasks, evaluators, parameters, all (default: all)",
+    )
     p_qst.add_argument("--no-detail", action="store_true", help="Omit detailed info")
     p_qst.set_defaults(func=cmd_query_statetree)
 
@@ -1502,12 +1645,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_asss.add_argument("asset_path", help="StateTree asset path")
     p_asss.add_argument("state_name", help="Name for the new state")
-    p_asss.add_argument("--state-type", choices=["State", "Group", "Linked", "Subtree"],
-        help="State type (default: State)")
+    p_asss.add_argument(
+        "--state-type", choices=["State", "Group", "Linked", "Subtree"], help="State type (default: State)"
+    )
     p_asss.add_argument("--parent-state", metavar="NAME", help="Parent state name (creates root state if omitted)")
-    p_asss.add_argument("--selection-behavior",
+    p_asss.add_argument(
+        "--selection-behavior",
         choices=["None", "TryEnterState", "TrySelectChildrenInOrder", "TryFollowTransitions"],
-        help="Selection behavior (default: TryEnterState)")
+        help="Selection behavior (default: TryEnterState)",
+    )
     p_asss.set_defaults(func=cmd_add_statetree_state)
 
     p_asst = sub.add_parser(
@@ -1522,9 +1668,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_asst.add_argument("asset_path",  help="StateTree asset path")
-    p_asst.add_argument("state_name",  help="Name of the state to add the task to")
-    p_asst.add_argument("task_class",  help="Task class name (e.g. UStateTreeTask_PlayAnimation)")
+    p_asst.add_argument("asset_path", help="StateTree asset path")
+    p_asst.add_argument("state_name", help="Name of the state to add the task to")
+    p_asst.add_argument("task_class", help="Task class name (e.g. UStateTreeTask_PlayAnimation)")
     p_asst.add_argument("--task-name", metavar="NAME", help="Optional display name for the task")
     p_asst.set_defaults(func=cmd_add_statetree_task)
 
@@ -1540,11 +1686,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_astr.add_argument("asset_path",   help="StateTree asset path")
+    p_astr.add_argument("asset_path", help="StateTree asset path")
     p_astr.add_argument("source_state", help="Source state name")
     p_astr.add_argument("target_state", help="Target state name")
-    p_astr.add_argument("--trigger",    metavar="TRIGGER", help="Transition trigger condition")
-    p_astr.add_argument("--priority",   type=int, metavar="N", help="Transition priority")
+    p_astr.add_argument("--trigger", metavar="TRIGGER", help="Transition trigger condition")
+    p_astr.add_argument("--priority", type=int, metavar="N", help="Transition priority")
     p_astr.set_defaults(func=cmd_add_statetree_transition)
 
     p_rsss = sub.add_parser(
@@ -1582,8 +1728,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_iwb.add_argument("asset_path", help="Widget Blueprint asset path (e.g. /Game/UI/WBP_MainMenu)")
     p_iwb.add_argument("--include-defaults", action="store_true", help="Include widget property default values")
-    p_iwb.add_argument("--depth-limit",      type=int, metavar="N", help="Max hierarchy depth (-1 = unlimited)")
-    p_iwb.add_argument("--no-bindings",      action="store_true", help="Exclude property binding information")
+    p_iwb.add_argument("--depth-limit", type=int, metavar="N", help="Max hierarchy depth (-1 = unlimited)")
+    p_iwb.add_argument("--no-bindings", action="store_true", help="Exclude property binding information")
     p_iwb.set_defaults(func=cmd_inspect_widget_blueprint)
 
     # -------------------------------------------------------------------------
@@ -1608,10 +1754,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_sap.add_argument("asset_path",    help="Asset path (e.g. /Game/Blueprints/BP_Player)")
+    p_sap.add_argument("asset_path", help="Asset path (e.g. /Game/Blueprints/BP_Player)")
     p_sap.add_argument("property_path", help="Dot-separated property path (e.g. Health, Stats.MaxHealth)")
-    p_sap.add_argument("value",         nargs="?", default=None,
-        help="Value as JSON (number, string, boolean, array, object). Required unless --clear-override.")
+    p_sap.add_argument(
+        "value",
+        nargs="?",
+        default=None,
+        help="Value as JSON (number, string, boolean, array, object). Required unless --clear-override.",
+    )
     p_sap.add_argument("--component-name", metavar="NAME", help="Component name for component property overrides")
     p_sap.add_argument("--clear-override", action="store_true", help="Revert property to default value")
     p_sap.set_defaults(func=cmd_set_asset_property)
@@ -1629,10 +1779,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_ac.add_argument("actor_name",      help="Actor name or label")
+    p_ac.add_argument("actor_name", help="Actor name or label")
     p_ac.add_argument("component_class", help="Component class (e.g. PointLightComponent, StaticMeshComponent)")
     p_ac.add_argument("--component-name", metavar="NAME", help="Name for the new component")
-    p_ac.add_argument("--attach-to",      metavar="NAME", help="Parent component to attach to")
+    p_ac.add_argument("--attach-to", metavar="NAME", help="Parent component to attach to")
     p_ac.set_defaults(func=cmd_add_component)
 
     p_aw = sub.add_parser(
@@ -1648,9 +1798,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_aw.add_argument("asset_path",   help="WidgetBlueprint asset path")
+    p_aw.add_argument("asset_path", help="WidgetBlueprint asset path")
     p_aw.add_argument("widget_class", help="Widget class (e.g. Button, TextBlock, Image, ProgressBar)")
-    p_aw.add_argument("widget_name",  help="Name for the new widget")
+    p_aw.add_argument("widget_name", help="Name for the new widget")
     p_aw.add_argument("--parent-widget", metavar="NAME", help="Parent widget name (adds to root if omitted)")
     p_aw.set_defaults(func=cmd_add_widget)
 
@@ -1663,14 +1813,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Use query-asset --asset-path to inspect the struct layout first.\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli add-datatable-row /Game/Data/DT_Items Sword\n"
-            "  soft-ue-cli add-datatable-row /Game/Data/DT_Items Sword --row-data '{\"Damage\": 50, \"Name\": \"Iron Sword\"}'"
+            '  soft-ue-cli add-datatable-row /Game/Data/DT_Items Sword --row-data \'{"Damage": 50, "Name": "Iron Sword"}\''
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_adr.add_argument("asset_path", help="DataTable asset path")
-    p_adr.add_argument("row_name",   help="Name for the new row")
-    p_adr.add_argument("--row-data", metavar="JSON",
-        help="Row data as JSON object with property names matching the row struct")
+    p_adr.add_argument("row_name", help="Name for the new row")
+    p_adr.add_argument(
+        "--row-data", metavar="JSON", help="Row data as JSON object with property names matching the row struct"
+    )
     p_adr.set_defaults(func=cmd_add_datatable_row)
 
     p_agn = sub.add_parser(
@@ -1685,13 +1836,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_agn.add_argument("asset_path", help="Blueprint or Material asset path")
     p_agn.add_argument("node_class", help="Node class (e.g. K2Node_CallFunction, MaterialExpressionAdd)")
-    p_agn.add_argument("--graph-name",      metavar="NAME", help="Graph name for Blueprints (default: EventGraph)")
-    p_agn.add_argument("--position",        metavar="X,Y", help="Node position as X,Y")
+    p_agn.add_argument("--graph-name", metavar="NAME", help="Graph name for Blueprints (default: EventGraph)")
+    p_agn.add_argument("--position", metavar="X,Y", help="Node position as X,Y")
     p_agn.add_argument("--no-auto-position", action="store_true", help="Disable automatic positioning")
     p_agn.add_argument("--connect-to-node", metavar="GUID", help="Node GUID to position relative to")
-    p_agn.add_argument("--connect-to-pin",  metavar="PIN", help="Pin name to position relative to")
-    p_agn.add_argument("--properties",      metavar="JSON", help="Node properties as JSON object")
+    p_agn.add_argument("--connect-to-pin", metavar="PIN", help="Pin name to position relative to")
+    p_agn.add_argument("--properties", metavar="JSON", help="Node properties as JSON object")
     p_agn.set_defaults(func=cmd_add_graph_node)
+
+    p_mi = sub.add_parser(
+        "modify-interface",
+        help="Add or remove an implemented interface on a Blueprint.",
+        description=(
+            "EXAMPLES:\n"
+            "  soft-ue-cli modify-interface /Game/ABP_Character add ALI_Locomotion\n"
+            "  soft-ue-cli modify-interface /Game/ABP_Character remove ALI_Locomotion\n"
+            "  soft-ue-cli modify-interface /Game/ABP_Character add /Game/Animation/ALI_Locomotion.ALI_Locomotion_C"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_mi.add_argument("asset_path", help="Blueprint or AnimBlueprint asset path")
+    p_mi.add_argument("action", choices=["add", "remove"], help="Action: add or remove")
+    p_mi.add_argument("interface_class", help="Interface class name or full path")
+    p_mi.set_defaults(func=cmd_modify_interface)
 
     p_rgn = sub.add_parser(
         "remove-graph-node",
@@ -1706,7 +1873,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_rgn.add_argument("asset_path", help="Blueprint or Material asset path")
-    p_rgn.add_argument("node_id",    help="Node GUID (Blueprint) or expression name (Material)")
+    p_rgn.add_argument("node_id", help="Node GUID (Blueprint) or expression name (Material)")
     p_rgn.set_defaults(func=cmd_remove_graph_node)
 
     p_cgp = sub.add_parser(
@@ -1721,11 +1888,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cgp.add_argument("asset_path",  help="Blueprint or Material asset path")
+    p_cgp.add_argument("asset_path", help="Blueprint or Material asset path")
     p_cgp.add_argument("source_node", help="Source node GUID or expression name")
-    p_cgp.add_argument("source_pin",  help="Source pin name")
+    p_cgp.add_argument("source_pin", help="Source pin name")
     p_cgp.add_argument("target_node", help="Target node GUID or expression name")
-    p_cgp.add_argument("target_pin",  help="Target pin name")
+    p_cgp.add_argument("target_pin", help="Target pin name")
     p_cgp.set_defaults(func=cmd_connect_graph_pins)
 
     p_dgp = sub.add_parser(
@@ -1741,8 +1908,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_dgp.add_argument("asset_path", help="Blueprint or Material asset path")
-    p_dgp.add_argument("node_id",    help="Node GUID or expression name")
-    p_dgp.add_argument("pin_name",   help="Pin name to disconnect")
+    p_dgp.add_argument("node_id", help="Node GUID or expression name")
+    p_dgp.add_argument("pin_name", help="Pin name to disconnect")
     p_dgp.set_defaults(func=cmd_disconnect_graph_pin)
 
     p_snp = sub.add_parser(
@@ -1773,10 +1940,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cas.add_argument("asset_path",  help="Full asset path including name (e.g. /Game/Blueprints/BP_NewActor)")
+    p_cas.add_argument("asset_path", help="Full asset path including name (e.g. /Game/Blueprints/BP_NewActor)")
     p_cas.add_argument("asset_class", help="Asset class (e.g. Blueprint, Material, DataTable, WidgetBlueprint)")
     p_cas.add_argument("--parent-class", metavar="CLASS", help="Parent class for Blueprints (e.g. Actor, Character)")
-    p_cas.add_argument("--row-struct",   metavar="PATH", help="Row struct path for DataTables")
+    p_cas.add_argument("--row-struct", metavar="PATH", help="Row struct path for DataTables")
     p_cas.set_defaults(func=cmd_create_asset)
 
     # -------------------------------------------------------------------------
@@ -1785,11 +1952,71 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
+        help="Query UE knowledge base (coming soon).",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")
     p_k.set_defaults(func=cmd_knowledge)
+
+    # -------------------------------------------------------------------------
+    # Feedback
+    # -------------------------------------------------------------------------
+
+    p_rb = sub.add_parser(
+        "report-bug",
+        help="Report a bug by creating a GitHub issue on the soft-ue-cli repo.",
+        description=(
+            "Creates a GitHub issue with structured bug report fields.\n"
+            "Auto-enriches with system info (CLI version, Python, OS, bridge status)\n"
+            "unless --no-system-info is passed.\n\n"
+            "AUTHENTICATION:\n"
+            "  Set GITHUB_TOKEN env var or run 'gh auth login'.\n"
+            "  Required scope: 'public_repo' (public repos) or 'repo' (private).\n\n"
+            "EXAMPLES:\n"
+            '  soft-ue-cli report-bug --title "crash on spawn" --description "Editor crashes"\n'
+            '  soft-ue-cli report-bug --title "crash" --description "desc" --severity critical\n'
+            '  soft-ue-cli report-bug --title "bug" --description "desc" --no-system-info'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rb.add_argument("--title", required=True, help="Short bug summary")
+    p_rb.add_argument(
+        "--description", required=True,
+        help="Detailed description. Do not include secrets, tokens, passwords, or private credentials.",
+    )
+    p_rb.add_argument("--steps", help="Steps to reproduce")
+    p_rb.add_argument("--expected", help="Expected behavior")
+    p_rb.add_argument("--actual", help="Actual behavior")
+    p_rb.add_argument("--severity", choices=["critical", "major", "minor"], help="Bug severity label")
+    p_rb.add_argument("--no-system-info", action="store_true", help="Opt out of auto-enriched system information")
+    p_rb.set_defaults(func=cmd_report_bug)
+
+    p_rf = sub.add_parser(
+        "request-feature",
+        help="Request a feature by creating a GitHub issue on the soft-ue-cli repo.",
+        description=(
+            "Creates a GitHub issue with structured feature request fields.\n\n"
+            "AUTHENTICATION:\n"
+            "  Set GITHUB_TOKEN env var or run 'gh auth login'.\n"
+            "  Required scope: 'public_repo' (public repos) or 'repo' (private).\n\n"
+            "EXAMPLES:\n"
+            '  soft-ue-cli request-feature --title "add undo" --description "Support undo for spawn"\n'
+            '  soft-ue-cli request-feature --title "feat" --description "desc" --use-case "motivation"\n'
+            '  soft-ue-cli request-feature --title "feat" --description "desc" --priority nice-to-have'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rf.add_argument("--title", required=True, help="Short feature summary")
+    p_rf.add_argument(
+        "--description", required=True,
+        help="What the feature should do. Do not include secrets, tokens, passwords, or private credentials.",
+    )
+    p_rf.add_argument("--use-case", help="Motivation or use case")
+    p_rf.add_argument(
+        "--priority", choices=["enhancement", "nice-to-have"], default="enhancement",
+        help="Priority label (default: enhancement)",
+    )
+    p_rf.set_defaults(func=cmd_request_feature)
 
     return parser
 

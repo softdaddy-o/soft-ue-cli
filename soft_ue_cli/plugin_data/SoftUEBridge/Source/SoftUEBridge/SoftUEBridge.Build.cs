@@ -32,7 +32,18 @@ public class SoftUEBridge : ModuleRules
 			"InputCore",
 
 			// Project info
-			"Projects"
+			"Projects",
+
+			// Image compression (viewport capture)
+			"ImageWrapper",
+
+			// Rendering (viewport ReadPixels)
+			"RenderCore",
+			"RHI",
+
+			// AI navigation (trigger-input move-to)
+			"AIModule",
+			"NavigationSystem"
 		});
 	}
 }

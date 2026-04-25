@@ -32,36 +32,37 @@ Claude Code  -->  soft-ue-cli (Python)  -->  HTTP/JSON-RPC  -->  SoftUEBridge pl
 pip install soft-ue-cli
 ```
 
-### 2. Set up the plugin
-
-Open your AI coding agent (Claude Code, Cursor, etc.) in your UE project directory and run:
+### 2. Install the plugin into your UE project
 
 ```bash
-soft-ue-cli setup
+soft-ue-cli setup /path/to/YourProject
 ```
 
-The agent will read the output and automatically:
-- Copy the bundled SoftUEBridge C++ plugin into your project
-- Enable it in your `.uproject` file
-- Append CLI usage instructions to your `CLAUDE.md`
+This copies the bundled **SoftUEBridge** C++ plugin into your project's `Plugins/` directory.
 
-### 3. Rebuild and launch Unreal Engine
+### 3. Enable the plugin
 
-After your agent completes the setup, regenerate project files, rebuild, and launch the editor. Look for this log line:
+Add the following entry to the `"Plugins"` array in your `.uproject` file:
+
+```json
+{"Name": "SoftUEBridge", "Enabled": true}
+```
+
+### 4. Rebuild and launch Unreal Engine
+
+After regenerating project files and rebuilding, launch the editor. Look for this log line to confirm the bridge is running:
 
 ```
 LogSoftUEBridge: Bridge server started on port 8080
 ```
 
-### 4. Verify the connection
-
-Tell your agent to run:
+### 5. Verify the connection
 
 ```bash
 soft-ue-cli check-setup
 ```
 
-All checks should pass:
+You should see all checks pass:
 
 ```
 [OK]   Plugin files found.
@@ -69,7 +70,19 @@ All checks should pass:
 [OK]   Bridge server reachable.
 ```
 
-Your AI coding agent can now control Unreal Engine.
+### 6. Tell Claude Code about the CLI
+
+Create or append to your project's `CLAUDE.md`:
+
+```markdown
+## Unreal Engine control
+
+`soft-ue-cli` controls this UE project via the SoftUEBridge plugin.
+Run `soft-ue-cli --help` to see all available commands.
+The game or editor must be running with SoftUEBridge enabled before using UE commands.
+```
+
+Now Claude Code can autonomously control your Unreal Engine project.
 
 ---
 
@@ -94,26 +107,6 @@ Unreal Engine 5 editor or runtime
 The **SoftUEBridge** plugin is a lightweight C++ `UGameInstanceSubsystem` that starts an embedded HTTP server on port 8080 when UE launches. The CLI sends JSON-RPC requests to this server, and the plugin executes the corresponding UE operations on the game thread, returning structured JSON responses.
 
 All commands output JSON to stdout (except `get-logs --raw`). Exit code 0 means success, 1 means error.
-
----
-
-## Design Philosophy
-
-### C++ core — works everywhere UE runs
-
-The bridge is a native C++ `UGameInstanceSubsystem`, not a Python or editor-only scripting plugin. This means it runs in the **Editor, Play-In-Editor, and cooked/packaged builds** with identical behavior. If your game can run it, the bridge runs with it.
-
-### Extensible with Python
-
-The C++ core handles the reliable, low-level UE integration. For custom workflows, `run-python-script` lets you execute arbitrary Python inside UE's embedded interpreter — extending the bridge without recompiling C++.
-
-### Minimal bridge, maximum LLM autonomy
-
-The CLI is intentionally thin. It exposes **raw UE capabilities** (spawn, query, set, call) rather than opinionated high-level workflows. The LLM client brings its own reasoning — it reads `--help`, understands the project context, and composes commands to achieve goals. The bridge doesn't try to be smart; it lets the AI be smart.
-
-### Why a CLI and not MCP?
-
-MCP servers require per-client integration and a running server process. A CLI works with **any** LLM tool that can run shell commands — Claude Code, Cursor, Windsurf, custom agents, shell scripts, CI pipelines. One interface, every client.
 
 ---
 
@@ -144,9 +137,10 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
-| `query-blueprint` | Inspect a Blueprint asset -- components, variables, functions, event dispatchers |
+| `query-blueprint` | Inspect a Blueprint asset -- components, variables, functions, interfaces, event dispatchers |
 | `query-blueprint-graph` | Inspect event graphs, function graphs, and node connections |
-| `add-graph-node` | Add a node to a Blueprint or Material graph |
+| `add-graph-node` | Add a node to a Blueprint or Material graph (supports `AnimLayerFunction` for ALIs) |
+| `modify-interface` | Add or remove an implemented interface on a Blueprint or AnimBlueprint |
 | `remove-graph-node` | Remove a node from a graph |
 | `connect-graph-pins` | Connect two pins between graph nodes |
 | `disconnect-graph-pin` | Disconnect a specific pin |
@@ -182,7 +176,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | Command | Description |
 |---------|-------------|
 | `pie-session` | Start, stop, pause, resume PIE -- also query actor state during play |
-| `pie-input` | Send keyboard, mouse, gamepad, or AI-move input to a PIE session |
+| `trigger-input` | Send input events to a running game (PIE or packaged build) |
 
 ### Screenshot and Visual Capture
 
@@ -277,7 +271,7 @@ soft-ue-cli query-blueprint /Game/Blueprints/BP_Player --include components,vari
 
 ```bash
 soft-ue-cli pie-session start --mode SelectedViewport
-soft-ue-cli pie-input press --key SpaceBar
+soft-ue-cli trigger-input key --key SpaceBar
 soft-ue-cli pie-session stop
 ```
 
@@ -293,6 +287,20 @@ soft-ue-cli capture-screenshot viewport --output screenshot.png
 soft-ue-cli add-graph-node /Game/BP_Player K2Node_CallFunction \
   --properties '{"FunctionReference": {"MemberName": "PrintString"}}'
 soft-ue-cli connect-graph-pins /Game/BP_Player node1 "exec" node2 "execute"
+```
+
+### Manage Blueprint interfaces
+
+```bash
+soft-ue-cli modify-interface /Game/ABP_Character add ALI_Locomotion
+soft-ue-cli modify-interface /Game/ABP_Character remove ALI_Locomotion
+soft-ue-cli query-blueprint /Game/ABP_Character --include interfaces
+```
+
+### Create an anim layer function on an AnimLayerInterface
+
+```bash
+soft-ue-cli add-graph-node /Game/ALI_Locomotion AnimLayerFunction --graph-name FullBody
 ```
 
 ### Profile with UE Insights

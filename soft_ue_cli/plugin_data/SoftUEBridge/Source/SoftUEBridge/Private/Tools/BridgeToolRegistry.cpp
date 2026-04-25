@@ -108,6 +108,19 @@ FBridgeToolResult FBridgeToolRegistry::ExecuteTool(
 			FString::Printf(TEXT("Unknown tool: %s"), *ToolName));
 	}
 
+	// Sanitize asset_path: collapse double slashes that crash CreatePackage/LoadObject
+	if (Arguments.IsValid() && Arguments->HasField(TEXT("asset_path")))
+	{
+		FString Path = Arguments->GetStringField(TEXT("asset_path"));
+		const FString OriginalPath = Path;
+		while (Path.ReplaceInline(TEXT("//"), TEXT("/")) > 0) {}
+		if (Path != OriginalPath)
+		{
+			UE_LOG(LogSoftUEBridge, Warning, TEXT("Sanitized asset_path: '%s' -> '%s'"), *OriginalPath, *Path);
+			Arguments->SetStringField(TEXT("asset_path"), Path);
+		}
+	}
+
 	UE_LOG(LogSoftUEBridge, Log, TEXT("Executing tool: %s"), *ToolName);
 	return Tool->Execute(Arguments, Context);
 }

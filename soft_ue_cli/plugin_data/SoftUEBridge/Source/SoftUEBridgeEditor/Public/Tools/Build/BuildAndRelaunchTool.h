@@ -1,4 +1,5 @@
-// Copyright soft-ue-expert. All Rights Reserved.
+// Copyright softdaddy-o 2024. All Rights Reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -18,20 +19,10 @@ class SOFTUEBRIDGEEDITOR_API UBuildAndRelaunchTool : public UBridgeToolBase
 	GENERATED_BODY()
 
 public:
-	virtual FString GetToolName() const override
-	{
-		return TEXT("build-and-relaunch");
-	}
-
+	virtual FString GetToolName() const override { return TEXT("build-and-relaunch"); }
 	virtual FString GetToolDescription() const override;
-	
 	virtual TMap<FString, FBridgeSchemaProperty> GetInputSchema() const override;
-	
-	virtual TArray<FString> GetRequiredParams() const override
-	{
-		return {};
-	}
-
+	virtual TArray<FString> GetRequiredParams() const override { return {}; }
 	virtual FBridgeToolResult Execute(
 		const TSharedPtr<FJsonObject>& Arguments,
 		const FBridgeToolContext& Context) override;

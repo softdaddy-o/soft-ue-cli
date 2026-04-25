@@ -12,6 +12,7 @@
 #include "Misc/Paths.h"
 #include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
+#include "Tools/BridgeToolRegistry.h"
 #include "Widgets/SWindow.h"
 #include "SoftUEBridgeEditorModule.h"
 
@@ -21,9 +22,9 @@ TMap<FString, FBridgeSchemaProperty> UCaptureScreenshotTool::GetInputSchema() co
 
 	Schema.Add(TEXT("mode"), FBridgeSchemaProperty{
 		TEXT("string"),
-		TEXT("Capture mode: 'window' (entire editor), 'tab' (specific panel), or 'region' (coordinates)"),
+		TEXT("Capture mode: 'window' (entire editor), 'tab' (specific panel), 'region' (coordinates), or 'viewport' (PIE game screen)"),
 		true,
-		{TEXT("window"), TEXT("tab"), TEXT("region")}
+		{TEXT("window"), TEXT("tab"), TEXT("region"), TEXT("viewport")}
 	});
 
 	Schema.Add(TEXT("window_name"), FBridgeSchemaProperty{
@@ -68,7 +69,13 @@ FBridgeToolResult UCaptureScreenshotTool::Execute(
 	const FString Format = GetStringArgOrDefault(Arguments, TEXT("format"), TEXT("png"));
 	const FString OutputMode = GetStringArgOrDefault(Arguments, TEXT("output"), TEXT("file"));
 
-	// Validate Slate is available
+	// Viewport mode delegates to the runtime tool (no Slate needed)
+	if (Mode == TEXT("viewport"))
+	{
+		return CaptureViewport(Format, OutputMode);
+	}
+
+	// All other modes require Slate
 	if (!FSlateApplication::IsInitialized())
 	{
 		return FBridgeToolResult::Error(TEXT("Slate application not initialized"));
@@ -108,8 +115,17 @@ FBridgeToolResult UCaptureScreenshotTool::Execute(
 	else
 	{
 		return FBridgeToolResult::Error(FString::Printf(
-			TEXT("Invalid mode '%s'. Must be 'window', 'tab', or 'region'."), *Mode));
+			TEXT("Invalid mode '%s'. Must be 'window', 'tab', 'region', or 'viewport'."), *Mode));
 	}
+}
+
+FBridgeToolResult UCaptureScreenshotTool::CaptureViewport(const FString& Format, const FString& OutputMode)
+{
+	// Delegate to the runtime capture-viewport tool (works in both PIE and standalone)
+	TSharedPtr<FJsonObject> Args = MakeShareable(new FJsonObject);
+	Args->SetStringField(TEXT("format"), Format);
+	Args->SetStringField(TEXT("output"), OutputMode);
+	return FBridgeToolRegistry::Get().ExecuteTool(TEXT("capture-viewport"), Args, FBridgeToolContext());
 }
 
 FBridgeToolResult UCaptureScreenshotTool::CaptureWindow(const FString& Format, const FString& OutputMode)

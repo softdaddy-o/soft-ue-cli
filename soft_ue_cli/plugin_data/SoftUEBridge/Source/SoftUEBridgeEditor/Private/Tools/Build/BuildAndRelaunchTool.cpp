@@ -1,9 +1,9 @@
-// Copyright soft-ue-expert. All Rights Reserved.
+// Copyright softdaddy-o 2024. All Rights Reserved.
+
 #include "Tools/Build/BuildAndRelaunchTool.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
-#include "Misc/FileHelper.h"
 #include "Editor.h"
 
 FString UBuildAndRelaunchTool::GetToolDescription() const
@@ -44,7 +44,8 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Invalid build configuration: %s. Must be Development, Debug, or Shipping."), *BuildConfig));
 	}
 
-	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Starting build and relaunch workflow (Config: %s, SkipRelaunch: %s)"), *BuildConfig, bSkipRelaunch ? TEXT("true") : TEXT("false"));
+	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Starting build and relaunch workflow (Config: %s, SkipRelaunch: %s)"),
+		*BuildConfig, bSkipRelaunch ? TEXT("true") : TEXT("false"));
 
 	// Get project paths
 	FString ProjectPath = FPaths::GetProjectFilePath();
@@ -52,6 +53,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	{
 		return FBridgeToolResult::Error(TEXT("Could not determine project path"));
 	}
+
 	FString ProjectName = FPaths::GetBaseFilename(ProjectPath);
 	FString ProjectDir = FPaths::GetPath(ProjectPath);
 
@@ -64,6 +66,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	{
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Build script not found: %s"), *BuildBatchFile));
 	}
+
 	if (!bSkipRelaunch && !FPaths::FileExists(EditorExecutable))
 	{
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Editor executable not found: %s"), *EditorExecutable));
@@ -103,9 +106,12 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 
 	// Build command
 	BatchScript += FString::Printf(TEXT("echo Building %s (%s)...\n"), *ProjectName, *BuildConfig);
-	BatchScript += FString::Printf(TEXT("call \"%s\" %sEditor Win64 %s \"%s\" -waitmutex\n"), *BuildBatchFile, *ProjectName, *BuildConfig, *ProjectPath);
+	BatchScript += FString::Printf(TEXT("call \"%s\" %sEditor Win64 %s \"%s\" -waitmutex\n"),
+		*BuildBatchFile,
+		*ProjectName,
+		*BuildConfig,
+		*ProjectPath);
 	BatchScript += TEXT("\n");
-
 	BatchScript += TEXT("if %ERRORLEVEL% NEQ 0 (\n");
 	BatchScript += TEXT("    echo Build failed with error code %ERRORLEVEL%\n");
 	BatchScript += TEXT("    pause\n");
@@ -133,9 +139,10 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	{
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to create batch script: %s"), *TempScriptPath));
 	}
+
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Created batch script at: %s"), *TempScriptPath);
 
-	// Launch the batch script via cmd.exe
+	// Launch the batch script via cmd.exe (batch files can't be executed directly by CreateProc)
 	FString CmdArgs = FString::Printf(TEXT("/c \"%s\""), *TempScriptPath);
 	FProcHandle ProcHandle = FPlatformProcess::CreateProc(
 		TEXT("cmd.exe"),
@@ -166,14 +173,15 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	Result->SetNumberField(TEXT("editor_pid"), CurrentPID);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Build and relaunch workflow initiated for this editor instance (PID: %d). Editor will close momentarily."), CurrentPID));
 
-	// Request editor shutdown with a small delay to allow the response to be sent
-	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([](float DeltaTime) -> bool {
+	// Request editor shutdown
+	// Use a small delay to allow the response to be sent
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([](float DeltaTime) -> bool
+	{
 		FPlatformMisc::RequestExit(false);
 		return false; // Don't repeat
 	}), 1.0f);
 
 	return FBridgeToolResult::Json(Result);
-
 #else
 	return FBridgeToolResult::Error(TEXT("build-and-relaunch is only supported on Windows"));
 #endif

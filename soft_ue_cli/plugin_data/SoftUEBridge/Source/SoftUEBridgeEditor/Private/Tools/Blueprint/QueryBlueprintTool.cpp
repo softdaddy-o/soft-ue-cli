@@ -19,7 +19,7 @@
 FString UQueryBlueprintTool::GetToolDescription() const
 {
 	return TEXT("Query Blueprint structure: functions, variables, components, defaults, event graph, and component overrides. "
-		"Use 'include' parameter to select sections: 'functions', 'variables', 'components', 'defaults', 'graph', 'component_overrides', 'all'.");
+		"Use 'include' parameter to select sections: 'functions', 'variables', 'components', 'defaults', 'graph', 'interfaces', 'component_overrides', 'all'.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UQueryBlueprintTool::GetInputSchema() const
@@ -182,6 +182,11 @@ FBridgeToolResult UQueryBlueprintTool::Execute(
 	if (bAll || Include == TEXT("defaults"))
 	{
 		Result->SetObjectField(TEXT("defaults"), ExtractDefaults(Blueprint, bIncludeInherited, CategoryFilter, PropertyFilter));
+	}
+
+	if (bAll || Include == TEXT("interfaces"))
+	{
+		Result->SetObjectField(TEXT("interfaces"), ExtractInterfaces(Blueprint));
 	}
 
 	if (Include == TEXT("component_overrides"))
@@ -828,4 +833,43 @@ TSharedPtr<FJsonObject> UQueryBlueprintTool::ExtractComponentOverrides(UBlueprin
 	ResultObj->SetNumberField(TEXT("count"), ComponentsArray.Num());
 
 	return ResultObj;
+}
+
+TSharedPtr<FJsonObject> UQueryBlueprintTool::ExtractInterfaces(UBlueprint* Blueprint) const
+{
+	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+	TArray<TSharedPtr<FJsonValue>> InterfaceArray;
+
+	for (const FBPInterfaceDescription& InterfaceDesc : Blueprint->ImplementedInterfaces)
+	{
+		if (!InterfaceDesc.Interface)
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> InterfaceInfo = MakeShareable(new FJsonObject);
+		InterfaceInfo->SetStringField(TEXT("name"), InterfaceDesc.Interface->GetName());
+		InterfaceInfo->SetStringField(TEXT("path"), InterfaceDesc.Interface->GetPathName());
+
+		// List the functions provided by this interface
+		TArray<TSharedPtr<FJsonValue>> FunctionNames;
+		for (TFieldIterator<UFunction> FuncIt(InterfaceDesc.Interface); FuncIt; ++FuncIt)
+		{
+			if (FuncIt->HasAnyFunctionFlags(FUNC_BlueprintCallable | FUNC_BlueprintEvent))
+			{
+				FunctionNames.Add(MakeShareable(new FJsonValueString(FuncIt->GetName())));
+			}
+		}
+		InterfaceInfo->SetArrayField(TEXT("functions"), FunctionNames);
+
+		// Count graphs implementing this interface
+		InterfaceInfo->SetNumberField(TEXT("graph_count"), InterfaceDesc.Graphs.Num());
+
+		InterfaceArray.Add(MakeShareable(new FJsonValueObject(InterfaceInfo)));
+	}
+
+	Result->SetArrayField(TEXT("interfaces"), InterfaceArray);
+	Result->SetNumberField(TEXT("count"), InterfaceArray.Num());
+
+	return Result;
 }

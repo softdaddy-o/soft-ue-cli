@@ -47,6 +47,9 @@ private:
 	/** Extract component instance overrides */
 	TSharedPtr<FJsonObject> ExtractComponentOverrides(class UBlueprint* Blueprint, const FString& ComponentFilter, const FString& PropertyFilter, bool bIncludeNonOverridden) const;
 
+	/** Extract implemented interfaces */
+	TSharedPtr<FJsonObject> ExtractInterfaces(class UBlueprint* Blueprint) const;
+
 	// === Helpers ===
 
 	/** Convert property to JSON */

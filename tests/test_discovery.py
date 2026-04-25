@@ -1,4 +1,5 @@
 """Tests for cli/soft_ue_cli/discovery.py — no live server required."""
+
 from __future__ import annotations
 
 import json
@@ -9,6 +10,7 @@ from soft_ue_cli.discovery import _find_project_instance, _load_instance_file, g
 
 
 # -- _load_instance_file -------------------------------------------------------
+
 
 def test_load_instance_file_valid(tmp_path):
     f = tmp_path / "instance.json"
@@ -45,6 +47,7 @@ def test_load_instance_file_empty_file(tmp_path):
 
 
 # -- _find_project_instance ----------------------------------------------------
+
 
 def test_find_project_instance_in_cwd(tmp_path, monkeypatch):
     bridge_dir = tmp_path / ".soft-ue-bridge"
@@ -86,6 +89,7 @@ def test_find_project_instance_prefers_closest(tmp_path, monkeypatch):
 
 
 # -- get_server_url ------------------------------------------------------------
+
 
 def test_get_server_url_env_url_takes_priority(monkeypatch):
     monkeypatch.setenv("SOFT_UE_BRIDGE_URL", "http://remote:1234")

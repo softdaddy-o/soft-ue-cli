@@ -7,12 +7,13 @@
 #include "CaptureScreenshotTool.generated.h"
 
 /**
- * Tool to capture screenshots of editor windows, tabs, or regions.
+ * Tool to capture screenshots of editor windows, tabs, regions, or the game viewport.
  *
- * Supports three capture modes:
+ * Supports four capture modes:
  * 1. Window Mode: Captures the entire editor window
  * 2. Tab Mode: Captures a specific editor tab/panel (Blueprint Editor, Material Editor, etc.)
  * 3. Region Mode: Captures a specific rectangular region by coordinates
+ * 4. Viewport Mode: Captures the PIE game screen (delegates to runtime capture-viewport tool)
  *
  * Output can be saved to a file or returned as base64-encoded image data.
  */
@@ -26,9 +27,10 @@ public:
 
 	virtual FString GetToolDescription() const override
 	{
-		return TEXT("Capture screenshots of editor windows, tabs, or regions. "
+		return TEXT("Capture screenshots of editor windows, tabs, regions, or the game viewport. "
 				   "Use 'mode' to specify capture type: 'window' (entire editor), "
-				   "'tab' (specific editor panel), or 'region' (rectangular area). "
+				   "'tab' (specific editor panel), 'region' (rectangular area), "
+				   "or 'viewport' (PIE game screen). "
 				   "Output as file or base64-encoded image data.");
 	}
 
@@ -40,6 +42,14 @@ public:
 		const FBridgeToolContext& Context) override;
 
 private:
+	/**
+	 * Capture the PIE game viewport.
+	 * @param Format - Image format ("png" or "jpeg")
+	 * @param OutputMode - Output mode ("file" or "base64")
+	 * @return Tool result with image data or file path
+	 */
+	FBridgeToolResult CaptureViewport(const FString& Format, const FString& OutputMode);
+
 	/**
 	 * Capture the entire editor window.
 	 * @param Format - Image format ("png" or "jpeg")

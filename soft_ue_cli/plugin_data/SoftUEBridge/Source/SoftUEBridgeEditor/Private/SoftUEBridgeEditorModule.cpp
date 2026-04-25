@@ -30,7 +30,6 @@
 
 // PIE
 #include "Tools/PIE/PieSessionTool.h"
-#include "Tools/PIE/PieInputTool.h"
 
 // Performance
 #include "Tools/Performance/InsightsCaptureTool.h"
@@ -68,6 +67,7 @@
 #include "Tools/Write/DisconnectGraphPinTool.h"
 #include "Tools/Write/SetNodePositionTool.h"
 #include "Tools/Write/CreateAssetTool.h"
+#include "Tools/Write/ModifyInterfaceTool.h"
 
 DEFINE_LOG_CATEGORY(LogSoftUEBridgeEditor);
 
@@ -103,7 +103,6 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 	// PIE
 	Registry.RegisterToolClass<UPieSessionTool>();
-	Registry.RegisterToolClass<UPieInputTool>();
 
 	// Performance
 	Registry.RegisterToolClass<UInsightsCaptureTool>();
@@ -141,6 +140,7 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<UDisconnectGraphPinTool>();
 	Registry.RegisterToolClass<USetNodePositionTool>();
 	Registry.RegisterToolClass<UCreateAssetTool>();
+	Registry.RegisterToolClass<UModifyInterfaceTool>();
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("Registered %d editor bridge tools"), Registry.GetToolCount());
 

@@ -7,7 +7,7 @@
 #include "DeleteAssetTool.generated.h"
 
 /**
- * Tool for deleting assets with proper Blueprint generated class cleanup
+ * Tool for deleting assets with post-deletion GC for Blueprints
  */
 UCLASS()
 class SOFTUEBRIDGEEDITOR_API UDeleteAssetTool : public UBridgeToolBase

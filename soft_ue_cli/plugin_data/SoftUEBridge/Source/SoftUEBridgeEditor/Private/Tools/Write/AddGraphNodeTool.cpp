@@ -19,6 +19,11 @@
 #include "K2Node_VariableSet.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ScopedTransaction.h"
+// Animation Graph support
+#include "AnimationGraph.h"
+#include "AnimGraphNode_Root.h"
+#include "AnimGraphNode_LinkedInputPose.h"
+#include "Animation/AnimBlueprint.h"
 
 FString UAddGraphNodeTool::GetToolDescription() const
 {
@@ -27,7 +32,9 @@ FString UAddGraphNodeTool::GetToolDescription() const
 		"For Blueprints: use node class names like 'K2Node_CallFunction', 'K2Node_VariableGet', 'K2Node_Event'. "
 		"Auto-positioning (enabled by default) places nodes intelligently to avoid overlaps. "
 		"Use 'connect_to_node' and 'connect_to_pin' for connection-based layout (execution flows right, data flows left/down). "
-		"Properties can be set via the 'properties' parameter.");
+		"Properties can be set via the 'properties' parameter. "
+		"For AnimLayerInterfaces: use 'AnimLayerFunction' to create an anim layer function graph "
+		"with Root and Input Pose nodes (requires graph_name parameter).");
 }
 
 TMap<FString, FBridgeSchemaProperty> UAddGraphNodeTool::GetInputSchema() const
@@ -150,6 +157,96 @@ FBridgeToolResult UAddGraphNodeTool::Execute(
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetStringField(TEXT("asset"), AssetPath);
 	Result->SetStringField(TEXT("node_class"), NodeClass);
+
+	// Handle AnimLayerFunction — creates a complete anim layer function graph
+	if (NodeClass == TEXT("AnimLayerFunction"))
+	{
+		UBlueprint* Blueprint = Cast<UBlueprint>(Object);
+		if (!Blueprint)
+		{
+			return FBridgeToolResult::Error(TEXT("AnimLayerFunction requires a Blueprint asset"));
+		}
+
+		if (Blueprint->BlueprintType != BPTYPE_Interface)
+		{
+			return FBridgeToolResult::Error(TEXT("AnimLayerFunction can only be added to Interface Blueprints (AnimLayerInterfaces)"));
+		}
+
+		if (GraphName == TEXT("EventGraph"))
+		{
+			return FBridgeToolResult::Error(TEXT("graph_name is required for AnimLayerFunction (cannot use default 'EventGraph')"));
+		}
+
+		// Check if a graph with this name already exists
+		if (FBridgeAssetModifier::FindGraphByName(Blueprint, GraphName))
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("A graph named '%s' already exists"), *GraphName));
+		}
+
+		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("add-graph-node: Creating AnimLayerFunction '%s' on %s"), *GraphName, *AssetPath);
+
+		// Create animation graph as a function graph
+		UEdGraph* NewGraph = FBlueprintEditorUtils::CreateNewGraph(
+			Blueprint,
+			FName(*GraphName),
+			UAnimationGraph::StaticClass(),
+			UEdGraphSchema_K2::StaticClass());
+
+		if (!NewGraph)
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to create animation graph: %s"), *GraphName));
+		}
+
+		// Add to function graphs
+		FBlueprintEditorUtils::AddFunctionGraph(Blueprint, NewGraph, /*bIsUserCreated=*/true, nullptr);
+
+		// Create the Root node (output pose)
+		FGraphNodeCreator<UAnimGraphNode_Root> RootCreator(*NewGraph);
+		UAnimGraphNode_Root* RootNode = RootCreator.CreateNode();
+		RootNode->NodePosX = 400;
+		RootNode->NodePosY = 0;
+		RootCreator.Finalize();
+
+		// Create the LinkedInputPose node (input pose)
+		FGraphNodeCreator<UAnimGraphNode_LinkedInputPose> InputPoseCreator(*NewGraph);
+		UAnimGraphNode_LinkedInputPose* InputPoseNode = InputPoseCreator.CreateNode();
+		InputPoseNode->NodePosX = 0;
+		InputPoseNode->NodePosY = 0;
+		InputPoseCreator.Finalize();
+
+		// Compile
+		FString CompileError;
+		FBridgeAssetModifier::CompileBlueprint(Blueprint, CompileError);
+
+		Result->SetBoolField(TEXT("success"), true);
+		Result->SetStringField(TEXT("graph_name"), GraphName);
+		Result->SetStringField(TEXT("graph_class"), TEXT("AnimationGraph"));
+
+		TArray<TSharedPtr<FJsonValue>> CreatedNodes;
+
+		TSharedPtr<FJsonObject> RootInfo = MakeShareable(new FJsonObject);
+		RootInfo->SetStringField(TEXT("class"), TEXT("AnimGraphNode_Root"));
+		RootInfo->SetStringField(TEXT("guid"), RootNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+		CreatedNodes.Add(MakeShareable(new FJsonValueObject(RootInfo)));
+
+		TSharedPtr<FJsonObject> InputInfo = MakeShareable(new FJsonObject);
+		InputInfo->SetStringField(TEXT("class"), TEXT("AnimGraphNode_LinkedInputPose"));
+		InputInfo->SetStringField(TEXT("guid"), InputPoseNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+		CreatedNodes.Add(MakeShareable(new FJsonValueObject(InputInfo)));
+
+		Result->SetArrayField(TEXT("created_nodes"), CreatedNodes);
+		Result->SetBoolField(TEXT("needs_compile"), true);
+		Result->SetBoolField(TEXT("needs_save"), true);
+
+		if (!CompileError.IsEmpty())
+		{
+			Result->SetStringField(TEXT("compile_warning"), CompileError);
+		}
+
+		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("add-graph-node: Created AnimLayerFunction '%s' with Root + InputPose nodes"), *GraphName);
+
+		return FBridgeToolResult::Json(Result);
+	}
 
 	// Handle Material
 	if (UMaterial* Material = Cast<UMaterial>(Object))

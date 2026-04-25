@@ -1,4 +1,5 @@
 """Tests for cli/soft_ue_cli/__main__.py — argument parsing and cmd_setup output."""
+
 from __future__ import annotations
 
 import json
@@ -13,6 +14,8 @@ from soft_ue_cli.__main__ import (
     _parse_vector,
     _validate_script_name,
     build_parser,
+    cmd_capture_screenshot,
+    cmd_capture_viewport,
     cmd_delete_script,
     cmd_list_scripts,
     cmd_run_python_script,
@@ -22,6 +25,7 @@ from soft_ue_cli.__main__ import (
 
 
 # -- _parse_vector -------------------------------------------------------------
+
 
 def test_parse_vector_three_components():
     assert _parse_vector("1.0,2.0,3.0") == [1.0, 2.0, 3.0]
@@ -47,6 +51,7 @@ def test_parse_vector_single_value():
 
 # -- _claude_md_section --------------------------------------------------------
 
+
 def test_claude_md_section_contains_cli_cmd():
     section = _claude_md_section("python -m soft_ue_cli")
     assert "python -m soft_ue_cli" in section
@@ -59,6 +64,7 @@ def test_claude_md_section_has_heading():
 
 
 # -- build_parser --------------------------------------------------------------
+
 
 def test_parser_requires_command():
     parser = build_parser()
@@ -142,6 +148,7 @@ def test_parser_server_override():
 
 
 # -- cmd_setup output ----------------------------------------------------------
+
 
 def test_cmd_setup_uses_cwd_by_default(tmp_path, capsys, monkeypatch):
     (tmp_path / "MyGame.uproject").write_text("{}")
@@ -349,6 +356,7 @@ def test_run_python_script_no_args_exits(scripts_home):
 
 # -- _validate_script_name -----------------------------------------------------
 
+
 def test_validate_script_name_valid():
     _validate_script_name("my-script_01")  # should not raise
 
@@ -372,6 +380,7 @@ def test_validate_script_name_slash_exits():
 
 
 # -- parser tests for new subcommands ------------------------------------------
+
 
 def test_parser_save_script():
     parser = build_parser()
@@ -403,3 +412,136 @@ def test_parser_run_python_script_name():
     parser = build_parser()
     args = parser.parse_args(["run-python-script", "--name", "myscript"])
     assert args.name == "myscript"
+
+
+# -- capture-screenshot parser -------------------------------------------------
+
+
+def test_parser_capture_screenshot_window():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "window"])
+    assert args.mode == "window"
+    assert args.func == cmd_capture_screenshot
+
+
+def test_parser_capture_screenshot_tab():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "tab", "--window-name", "Blueprint"])
+    assert args.mode == "tab"
+    assert args.window_name == "Blueprint"
+
+
+def test_parser_capture_screenshot_region():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "region", "--region", "0,0,800,600"])
+    assert args.mode == "region"
+    assert args.region == "0,0,800,600"
+
+
+def test_parser_capture_screenshot_viewport():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "viewport"])
+    assert args.mode == "viewport"
+
+
+def test_parser_capture_screenshot_format_and_output():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "window", "--format", "png", "--output", "file"])
+    assert args.format == "png"
+    assert args.output == "file"
+
+
+def test_parser_capture_screenshot_invalid_mode():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["capture-screenshot", "invalid"])
+
+
+def test_cmd_capture_screenshot_window_calls_tool():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "window"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"file_path": "/tmp/shot.png"}) as mock_call:
+        cmd_capture_screenshot(args)
+    mock_call.assert_called_once_with("capture-screenshot", {"mode": "window"})
+
+
+def test_cmd_capture_screenshot_tab_calls_tool():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "tab", "--window-name", "OutputLog"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"file_path": "/tmp/shot.png"}) as mock_call:
+        cmd_capture_screenshot(args)
+    mock_call.assert_called_once_with(
+        "capture-screenshot", {"mode": "tab", "window_name": "OutputLog"}
+    )
+
+
+def test_cmd_capture_screenshot_region_calls_tool():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "region", "--region", "10,20,800,600"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"file_path": "/tmp/shot.png"}) as mock_call:
+        cmd_capture_screenshot(args)
+    mock_call.assert_called_once_with(
+        "capture-screenshot", {"mode": "region", "region": [10, 20, 800, 600]}
+    )
+
+
+def test_cmd_capture_screenshot_viewport_calls_tool():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "viewport", "--format", "png"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"file_path": "/tmp/shot.png"}) as mock_call:
+        cmd_capture_screenshot(args)
+    mock_call.assert_called_once_with(
+        "capture-screenshot", {"mode": "viewport", "format": "png"}
+    )
+
+
+def test_cmd_capture_screenshot_all_options():
+    parser = build_parser()
+    args = parser.parse_args(["capture-screenshot", "window", "--format", "jpeg", "--output", "base64"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"image_base64": "..."}) as mock_call:
+        cmd_capture_screenshot(args)
+    mock_call.assert_called_once_with(
+        "capture-screenshot", {"mode": "window", "format": "jpeg", "output": "base64"}
+    )
+
+
+# -- capture-viewport parser & cmd ---------------------------------------------
+
+
+def test_parser_capture_viewport_defaults():
+    parser = build_parser()
+    args = parser.parse_args(["capture-viewport"])
+    assert args.func == cmd_capture_viewport
+    assert args.format is None
+    assert args.output is None
+
+
+def test_parser_capture_viewport_with_options():
+    parser = build_parser()
+    args = parser.parse_args(["capture-viewport", "--format", "jpeg", "--output", "base64"])
+    assert args.format == "jpeg"
+    assert args.output == "base64"
+
+
+def test_cmd_capture_viewport_default():
+    parser = build_parser()
+    args = parser.parse_args(["capture-viewport"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"file_path": "/tmp/vp.png"}) as mock_call:
+        cmd_capture_viewport(args)
+    mock_call.assert_called_once_with("capture-viewport", {})
+
+
+def test_cmd_capture_viewport_with_format():
+    parser = build_parser()
+    args = parser.parse_args(["capture-viewport", "--format", "png"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"file_path": "/tmp/vp.png"}) as mock_call:
+        cmd_capture_viewport(args)
+    mock_call.assert_called_once_with("capture-viewport", {"format": "png"})
+
+
+def test_cmd_capture_viewport_all_options():
+    parser = build_parser()
+    args = parser.parse_args(["capture-viewport", "--format", "jpeg", "--output", "base64"])
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"image_base64": "..."}) as mock_call:
+        cmd_capture_viewport(args)
+    mock_call.assert_called_once_with("capture-viewport", {"format": "jpeg", "output": "base64"})

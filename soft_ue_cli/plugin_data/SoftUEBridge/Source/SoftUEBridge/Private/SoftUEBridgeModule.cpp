@@ -9,6 +9,7 @@
 #include "Tools/ConsoleVarTool.h"
 #include "Tools/SpawnActorTool.h"
 #include "Tools/SetPropertyTool.h"
+#include "Tools/TriggerInputTool.h"
 
 DEFINE_LOG_CATEGORY(LogSoftUEBridge);
 
@@ -24,6 +25,7 @@ void FSoftUEBridgeModule::StartupModule()
 	Registry.RegisterToolClass<USetConsoleVarTool>();
 	Registry.RegisterToolClass<USpawnActorTool>();
 	Registry.RegisterToolClass<USetPropertyTool>();
+	Registry.RegisterToolClass<UTriggerInputTool>();
 
 	UE_LOG(LogSoftUEBridge, Log, TEXT("Registered %d runtime bridge tools"), Registry.GetToolCount());
 }

@@ -20,4 +20,6 @@ private:
 	TArray<TSharedPtr<FJsonValue>> CollectProperties(UObject* Object, const FString& PropertyFilter) const;
 	TSharedPtr<FJsonObject> PropertyToJson(FProperty* Property, void* Container, UObject* Owner) const;
 	FString GetPropertyTypeString(FProperty* Property) const;
+	TSharedPtr<FJsonObject> CollectFoliageInfo(UWorld* World) const;
+	TSharedPtr<FJsonObject> CollectLandscapeGrassInfo(UWorld* World) const;
 };

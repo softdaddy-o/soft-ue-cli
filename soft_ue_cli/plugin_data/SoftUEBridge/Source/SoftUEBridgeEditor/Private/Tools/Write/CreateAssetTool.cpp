@@ -17,6 +17,7 @@
 #include "Materials/Material.h"
 #include "UObject/SavePackage.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "GameFramework/Actor.h"
 #include "ScopedTransaction.h"
@@ -88,7 +89,8 @@ FBridgeToolResult UCreateAssetTool::Execute(
 
 	// Dedicated --skeleton flag takes priority over --parent-class for AnimBlueprints
 	FString LowerClass = AssetClass.ToLower();
-	if (!Skeleton.IsEmpty() && (LowerClass == TEXT("animblueprint") || LowerClass == TEXT("animbp")))
+	if (!Skeleton.IsEmpty() && (LowerClass == TEXT("animblueprint") || LowerClass == TEXT("animbp")
+		|| LowerClass == TEXT("animlayerinterface") || LowerClass == TEXT("ali")))
 	{
 		ParentClass = Skeleton;
 	}
@@ -105,25 +107,36 @@ FBridgeToolResult UCreateAssetTool::Execute(
 		return FBridgeToolResult::Error(ValidateError);
 	}
 
+	// Extract package path and asset name
+	FString PackagePath = FPackageName::GetLongPackagePath(AssetPath);
+	FString AssetName = FPackageName::GetShortName(AssetPath);
+
 	// Check if asset already exists
 	if (FBridgeAssetModifier::AssetExists(AssetPath))
 	{
-		// Verify it's a real asset, not a phantom (registry entry with no loadable object)
 		UObject* ExistingAsset = UEditorAssetLibrary::LoadAsset(AssetPath);
 		if (ExistingAsset)
 		{
 			return FBridgeToolResult::Error(FString::Printf(TEXT("Asset already exists: %s"), *AssetPath));
 		}
-		// Phantom asset: registry says it exists but LoadAsset fails.
-		// Proceed with creation — FAssetRegistryModule::AssetCreated() below will overwrite the stale registry entry.
-		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("create-asset: Phantom asset detected at %s (registry entry but not loadable). Overwriting."), *AssetPath);
+		// Phantom: registry says it exists but LoadAsset fails.
+		// Force-rescan to clear the stale registry entry.
+		IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+		AssetRegistry.ScanPathsSynchronous({PackagePath}, true);
+
+		// Re-check after rescan
+		if (FBridgeAssetModifier::AssetExists(AssetPath))
+		{
+			ExistingAsset = UEditorAssetLibrary::LoadAsset(AssetPath);
+			if (ExistingAsset)
+			{
+				return FBridgeToolResult::Error(FString::Printf(TEXT("Asset already exists: %s"), *AssetPath));
+			}
+		}
+		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("create-asset: Phantom asset at %s cleared via registry rescan"), *AssetPath);
 	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("create-asset: %s of class %s"), *AssetPath, *AssetClass);
-
-	// Extract package path and asset name
-	FString PackagePath = FPackageName::GetLongPackagePath(AssetPath);
-	FString AssetName = FPackageName::GetShortName(AssetPath);
 
 	// Begin transaction
 	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
@@ -269,6 +282,11 @@ UObject* UCreateAssetTool::CreateAssetByName(
 	if (LowerName == TEXT("animblueprint") || LowerName == TEXT("animbp"))
 	{
 		return CreateAnimBlueprint(AssetPath, AssetName, ParentClass, Result, OutError);
+	}
+
+	if (LowerName == TEXT("animlayerinterface") || LowerName == TEXT("ali"))
+	{
+		return CreateAnimLayerInterface(AssetPath, AssetName, ParentClass, Result, OutError);
 	}
 
 	if (LowerName == TEXT("dataasset"))
@@ -456,6 +474,59 @@ UObject* UCreateAssetTool::CreateAnimBlueprint(
 	else
 	{
 		OutError = TEXT("Failed to create AnimBlueprint");
+	}
+
+	return CreatedAsset;
+}
+
+UObject* UCreateAssetTool::CreateAnimLayerInterface(
+	const FString& AssetPath,
+	const FString& AssetName,
+	const FString& SkeletonPath,
+	TSharedPtr<FJsonObject>& Result,
+	FString& OutError)
+{
+	USkeleton* TargetSkeleton = nullptr;
+
+	if (!SkeletonPath.IsEmpty())
+	{
+		TargetSkeleton = LoadObject<USkeleton>(nullptr, *SkeletonPath);
+	}
+
+	if (!TargetSkeleton)
+	{
+		FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+		TArray<FAssetData> SkeletonAssets;
+		AssetRegistryModule.Get().GetAssetsByClass(USkeleton::StaticClass()->GetClassPathName(), SkeletonAssets);
+		if (SkeletonAssets.Num() > 0)
+		{
+			TargetSkeleton = Cast<USkeleton>(SkeletonAssets[0].GetAsset());
+		}
+	}
+
+	if (!TargetSkeleton)
+	{
+		OutError = TEXT("AnimLayerInterface requires a skeleton. No skeleton found. Specify skeleton path via the 'skeleton' parameter.");
+		return nullptr;
+	}
+
+	UObject* CreatedAsset = FKismetEditorUtilities::CreateBlueprint(
+		UAnimInstance::StaticClass(),
+		CreatePackage(*AssetPath),
+		*AssetName,
+		BPTYPE_Interface,
+		UAnimBlueprint::StaticClass(),
+		UBlueprintGeneratedClass::StaticClass());
+
+	if (UAnimBlueprint* AnimBP = Cast<UAnimBlueprint>(CreatedAsset))
+	{
+		AnimBP->TargetSkeleton = TargetSkeleton;
+		Result->SetStringField(TEXT("skeleton"), TargetSkeleton->GetPathName());
+		Result->SetStringField(TEXT("blueprint_type"), TEXT("Interface"));
+	}
+	else
+	{
+		OutError = TEXT("Failed to create AnimLayerInterface");
 	}
 
 	return CreatedAsset;

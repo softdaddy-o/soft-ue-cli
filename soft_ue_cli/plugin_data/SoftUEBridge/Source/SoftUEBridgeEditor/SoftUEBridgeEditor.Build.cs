@@ -82,7 +82,10 @@ public class SoftUEBridgeEditor : ModuleRules
 			"SourceControl",
 
 			// Image Processing (for asset preview tool)
-			"ImageWrapper"
+			"ImageWrapper",
+
+			// Landscape (for LandscapeGrassType inspection)
+			"Landscape"
 		});
 	}
 }

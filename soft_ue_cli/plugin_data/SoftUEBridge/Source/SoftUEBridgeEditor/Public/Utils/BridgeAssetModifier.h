@@ -87,6 +87,14 @@ public:
 	 */
 	static bool SaveAsset(UObject* Object, bool bPromptUser, FString& OutError);
 
+	/**
+	 * Attempt to check out a file from source control.
+	 * @param PackageFileName - Absolute file path to check out
+	 * @param OutError - Error message if checkout fails
+	 * @return true if checked out (or already checked out)
+	 */
+	static bool CheckoutFile(const FString& PackageFileName, FString& OutError);
+
 	// ========== Blueprint Utilities ==========
 
 	/**

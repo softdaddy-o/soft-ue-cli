@@ -2,6 +2,23 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.6.0] - 2026-03-25
+
+### Added
+- `set-node-property` command — set properties on graph nodes by GUID after creation, supporting UPROPERTY members, inner anim node structs, and pin defaults
+- `query-mpc` command — read and write Material Parameter Collection scalar/vector values (both default and runtime)
+- `save-asset --checkout` — auto-checkout from source control (Perforce, etc.) before saving
+- `query-material --parent-chain` — walk full MaterialInstance inheritance chain from leaf to root Material
+- `query-level --include-foliage` — list FoliageType instances with counts from InstancedFoliageActors
+- `query-level --include-grass` — list LandscapeProxy actors with component counts and materials
+- `create-asset AnimLayerInterface` (or `ALI`) — creates a Blueprint-compatible AnimLayerInterface using BPTYPE_Interface factory
+- `query-asset` structured output for `ULandscapeGrassType` — parses GrassVarieties into per-variety JSON with mesh, density, culling, scaling fields
+
+### Fixed
+- `add-graph-node --properties '{"Layer":"X"}'` now correctly configures LinkedAnimLayer nodes by setting Interface and Layer on the inner FAnimNode struct and reconstructing pins
+- `add-graph-node --properties '{"Alpha":0.08}'` now sets pin default values (Alpha, BlendWeight, etc.) when properties aren't found via reflection
+- `create-asset` phantom registry deadlock resolved — force-rescans the package path to clear stale entries before creation
+
 ## [1.5.0] - 2026-03-25
 
 ### Added

@@ -128,7 +128,8 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `insert-graph-node` | Atomically insert a node between two connected nodes |
 | `set-node-position` | Batch-set node positions for graph layout |
 | `compile-blueprint` | Compile a Blueprint or AnimBlueprint and return the result |
-| `save-asset` | Save a modified asset to disk |
+| `save-asset` | Save a modified asset to disk (with optional `--checkout` for source control) |
+| `set-node-property` | Set properties on a graph node by GUID (UPROPERTY, inner structs, pin defaults) |
 
 ### Asset Management
 
@@ -147,7 +148,8 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
-| `query-material` | Inspect Material or Material Instance -- parameters, nodes, connections |
+| `query-material` | Inspect Material or Material Instance -- parameters, nodes, connections, `--parent-chain` |
+| `query-mpc` | Read or write Material Parameter Collection scalar/vector values |
 
 ### Class and Type Inspection
 

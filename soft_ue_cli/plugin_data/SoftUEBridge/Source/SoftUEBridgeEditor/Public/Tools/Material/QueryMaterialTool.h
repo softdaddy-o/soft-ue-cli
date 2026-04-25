@@ -56,4 +56,7 @@ private:
 
 	/** Extract static switch parameters */
 	void ExtractStaticSwitchParameters(class UMaterialInterface* Material, TArray<TSharedPtr<FJsonValue>>& OutArray) const;
+
+	/** Walk parent chain from leaf to root Material */
+	TArray<TSharedPtr<FJsonValue>> ExtractParentChain(class UMaterialInterface* Material) const;
 };

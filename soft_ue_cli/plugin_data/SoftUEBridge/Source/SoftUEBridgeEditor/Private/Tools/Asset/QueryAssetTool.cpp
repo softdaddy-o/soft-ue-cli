@@ -5,6 +5,7 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Engine/DataTable.h"
 #include "Engine/DataAsset.h"
+#include "LandscapeGrassType.h"
 #include "UObject/UnrealType.h"
 #include "UObject/EnumProperty.h"
 #include "Tools/BridgeToolResult.h"
@@ -235,6 +236,13 @@ FBridgeToolResult UQueryAssetTool::InspectAsset(const FString& AssetPath, int32 
 		return FBridgeToolResult::Json(Result);
 	}
 
+	// Try LandscapeGrassType
+	ULandscapeGrassType* GrassType = LoadObject<ULandscapeGrassType>(nullptr, *AssetPath);
+	if (GrassType)
+	{
+		return FBridgeToolResult::Json(InspectGrassType(GrassType));
+	}
+
 	// Try general UObject
 	UObject* Object = LoadObject<UObject>(nullptr, *AssetPath);
 	if (Object)
@@ -384,6 +392,59 @@ TSharedPtr<FJsonObject> UQueryAssetTool::InspectObject(UObject* Object, int32 Ma
 
 	Result->SetArrayField(TEXT("properties"), PropertiesArray);
 	Result->SetNumberField(TEXT("property_count"), PropertiesArray.Num());
+
+	return Result;
+}
+
+TSharedPtr<FJsonObject> UQueryAssetTool::InspectGrassType(ULandscapeGrassType* GrassType) const
+{
+	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+	Result->SetStringField(TEXT("type"), TEXT("LandscapeGrassType"));
+	Result->SetStringField(TEXT("name"), GrassType->GetName());
+	Result->SetStringField(TEXT("path"), GrassType->GetPathName());
+
+	TArray<TSharedPtr<FJsonValue>> VarietiesArray;
+	for (const FGrassVariety& Variety : GrassType->GrassVarieties)
+	{
+		TSharedPtr<FJsonObject> VarJson = MakeShareable(new FJsonObject);
+
+		// Mesh
+		VarJson->SetStringField(TEXT("grass_mesh"), Variety.GrassMesh ? Variety.GrassMesh->GetPathName() : TEXT("None"));
+
+		// Density and placement
+		VarJson->SetNumberField(TEXT("grass_density"), Variety.GrassDensity.Default);
+		VarJson->SetBoolField(TEXT("use_grid"), Variety.bUseGrid);
+		VarJson->SetNumberField(TEXT("placement_jitter"), Variety.PlacementJitter);
+
+		// Cull distances
+		VarJson->SetNumberField(TEXT("start_cull_distance"), Variety.StartCullDistance.Default);
+		VarJson->SetNumberField(TEXT("end_cull_distance"), Variety.EndCullDistance.Default);
+
+		// Instance settings
+		VarJson->SetNumberField(TEXT("min_lod"), Variety.MinLOD);
+
+		// Scaling mode
+		FString ScalingStr;
+		switch (Variety.Scaling)
+		{
+		case EGrassScaling::Uniform: ScalingStr = TEXT("Uniform"); break;
+		case EGrassScaling::Free:    ScalingStr = TEXT("Free");    break;
+		case EGrassScaling::LockXY:  ScalingStr = TEXT("LockXY"); break;
+		default:                     ScalingStr = TEXT("Unknown"); break;
+		}
+		VarJson->SetStringField(TEXT("scaling"), ScalingStr);
+		VarJson->SetNumberField(TEXT("scale_x_min"), Variety.ScaleX.Min);
+		VarJson->SetNumberField(TEXT("scale_x_max"), Variety.ScaleX.Max);
+		VarJson->SetNumberField(TEXT("scale_y_min"), Variety.ScaleY.Min);
+		VarJson->SetNumberField(TEXT("scale_y_max"), Variety.ScaleY.Max);
+		VarJson->SetNumberField(TEXT("scale_z_min"), Variety.ScaleZ.Min);
+		VarJson->SetNumberField(TEXT("scale_z_max"), Variety.ScaleZ.Max);
+
+		VarietiesArray.Add(MakeShareable(new FJsonValueObject(VarJson)));
+	}
+
+	Result->SetArrayField(TEXT("grass_varieties"), VarietiesArray);
+	Result->SetNumberField(TEXT("variety_count"), VarietiesArray.Num());
 
 	return Result;
 }

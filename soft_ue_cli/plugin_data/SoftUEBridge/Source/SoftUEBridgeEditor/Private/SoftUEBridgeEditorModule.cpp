@@ -27,6 +27,7 @@
 
 // Material
 #include "Tools/Material/QueryMaterialTool.h"
+#include "Tools/Material/QueryMPCTool.h"
 
 // PIE
 #include "Tools/PIE/PieSessionTool.h"
@@ -72,6 +73,7 @@
 #include "Tools/Write/SaveAssetTool.h"
 #include "Tools/Write/CompileBlueprintTool.h"
 #include "Tools/Write/InsertGraphNodeTool.h"
+#include "Tools/Write/SetNodePropertyTool.h"
 
 DEFINE_LOG_CATEGORY(LogSoftUEBridgeEditor);
 
@@ -104,6 +106,7 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 	// Material
 	Registry.RegisterToolClass<UQueryMaterialTool>();
+	Registry.RegisterToolClass<UQueryMPCTool>();
 
 	// PIE
 	Registry.RegisterToolClass<UPieSessionTool>();
@@ -149,6 +152,7 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<USaveAssetTool>();
 	Registry.RegisterToolClass<UCompileBlueprintTool>();
 	Registry.RegisterToolClass<UInsertGraphNodeTool>();
+	Registry.RegisterToolClass<USetNodePropertyTool>();
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("Registered %d editor bridge tools"), Registry.GetToolCount());
 

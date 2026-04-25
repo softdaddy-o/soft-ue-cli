@@ -669,7 +669,7 @@ def cmd_setup(args: argparse.Namespace) -> None:
         f"     {plugin_dest}\n\n"
         f'2. Edit {uproject_hint} - add to the "Plugins" array:\n'
         f'     {{"Name": "SoftUEBridge", "Enabled": true}}\n\n'
-        f"3. Create or append to {claude_md}:\n\n"
+        f"3. Append to {claude_md} (create if it doesn't exist):\n\n"
         f"{_claude_md_section(cli_cmd)}\n"
         f"After the user rebuilds and launches UE, verify with:\n"
         f"  {cli_cmd} check-setup"

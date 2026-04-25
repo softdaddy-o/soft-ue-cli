@@ -32,18 +32,18 @@ Claude Code  -->  soft-ue-cli (Python)  -->  HTTP/JSON-RPC  -->  SoftUEBridge pl
 pip install soft-ue-cli
 ```
 
-### 2. Set up the plugin using your AI coding agent
+### 2. Set up the plugin
 
-Open Claude Code (or any LLM-powered coding tool) in your UE project directory and tell it:
+Open your AI coding agent (Claude Code, Cursor, etc.) in your UE project directory and run:
 
-> Run `soft-ue-cli setup` and follow the instructions.
+```bash
+soft-ue-cli setup
+```
 
-The `setup` command outputs LLM-readable instructions that guide your AI agent through:
-- Copying the bundled SoftUEBridge C++ plugin into your project
-- Enabling it in your `.uproject` file
-- Creating a `CLAUDE.md` so the agent knows how to use the CLI going forward
-
-Your AI agent will handle all of this automatically.
+The agent will read the output and automatically:
+- Copy the bundled SoftUEBridge C++ plugin into your project
+- Enable it in your `.uproject` file
+- Append CLI usage instructions to your `CLAUDE.md`
 
 ### 3. Rebuild and launch Unreal Engine
 

@@ -4,12 +4,14 @@
 #include "Modules/ModuleManager.h"
 #include "Tools/BridgeToolRegistry.h"
 #include "Tools/QueryLevelTool.h"
+#include "Tools/BatchCallTool.h"
 #include "Tools/CallFunctionTool.h"
 #include "Tools/GetLogsTool.h"
 #include "Tools/ConsoleVarTool.h"
 #include "Tools/SpawnActorTool.h"
 #include "Tools/SetPropertyTool.h"
 #include "Tools/GetPropertyTool.h"
+#include "Tools/InspectAnimInstanceTool.h"
 #include "Tools/TriggerInputTool.h"
 
 DEFINE_LOG_CATEGORY(LogSoftUEBridge);
@@ -20,6 +22,7 @@ void FSoftUEBridgeModule::StartupModule()
 
 	FBridgeToolRegistry& Registry = FBridgeToolRegistry::Get();
 	Registry.RegisterToolClass<UQueryLevelTool>();
+	Registry.RegisterToolClass<UBatchCallTool>();
 	Registry.RegisterToolClass<UCallFunctionTool>();
 	Registry.RegisterToolClass<UGetLogsTool>();
 	Registry.RegisterToolClass<UGetConsoleVarTool>();
@@ -27,6 +30,7 @@ void FSoftUEBridgeModule::StartupModule()
 	Registry.RegisterToolClass<USpawnActorTool>();
 	Registry.RegisterToolClass<USetPropertyTool>();
 	Registry.RegisterToolClass<UGetPropertyTool>();
+	Registry.RegisterToolClass<UInspectAnimInstanceTool>();
 	Registry.RegisterToolClass<UTriggerInputTool>();
 
 	UE_LOG(LogSoftUEBridge, Log, TEXT("Registered %d runtime bridge tools"), Registry.GetToolCount());

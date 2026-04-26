@@ -1,4 +1,4 @@
-﻿# soft-ue-cli (+mcp)
+# soft-ue-cli (+mcp)
 
 [![PyPI version](https://img.shields.io/pypi/v/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
@@ -169,7 +169,8 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 |---------|-------------|
 | `spawn-actor` | Spawn an actor by class at a given location and rotation |
 | `query-level` | List actors in the current level with transforms, filtering by class or name |
-| `call-function` | Call any `BlueprintCallable` `UFUNCTION` on an actor |
+| `call-function` | Call any `BlueprintCallable` `UFUNCTION` on an actor, class default object, or transient instance |
+| `batch-call` | Dispatch multiple bridge tool calls in-process with one HTTP roundtrip |
 | `set-property` | Set a `UPROPERTY` value on an actor by name |
 | `get-property` | Read a `UPROPERTY` value from an actor or component using reflection |
 | `add-component` | Add a component to an existing actor |
@@ -227,6 +228,8 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | Command | Description |
 |---------|-------------|
 | `pie-session` | Start, stop, pause, resume PIE -- also query actor state during play |
+| `pie-tick` | Start PIE if needed and advance the world deterministically by frame count |
+| `inspect-anim-instance` | Snapshot a target actor's live `UAnimInstance` state, montages, and blend weights |
 | `trigger-input` | Send input events to a running game (PIE or packaged build) |
 
 ### Screenshot and Visual Capture
@@ -308,6 +311,7 @@ Skills are markdown prompts that teach an LLM client how to perform complex mult
 |-------|-------------|
 | `blueprint-to-cpp` | Generate C++ `.h`/`.cpp` from a Blueprint asset -- Layer 1 (class scaffolding) + Layer 2 (graph logic translation) |
 | `level-from-image` | Populate a UE level from a reference image -- analyzes the image, maps scene elements to project assets, batch-places actors, then iterates with visual feedback (viewport screenshots) |
+| `replay-changes` | Walk the binary-asset conflict recovery flow for Git or Perforce: extract base/local/remote revisions, inspect offline diffs, sync the incoming binary, and replay the wanted local edits manually |
 | `test-tools` | Run the exhaustive live integration test script across CLI and MCP modes, including offline `.uasset` smoke checks against a generated Blueprint |
 
 ### MCP Server Mode
@@ -342,6 +346,29 @@ soft-ue-cli query-level --class-filter StaticMeshActor --limit 50
 
 ```bash
 soft-ue-cli call-function BP_GameMode SetDifficulty --args '{"Level": 3}'
+```
+
+### Compose deterministic runtime steps with one batch
+
+```bash
+soft-ue-cli batch-call --calls '[
+  {"tool":"pie-tick","args":{"frames":1}},
+  {"tool":"query-level","args":{"limit":5}},
+  {"tool":"get-logs","args":{"lines":5}}
+]'
+```
+
+### Sweep a pure callable on a transient instance
+
+```bash
+soft-ue-cli call-function --class-path /Script/Engine.Actor --function-name K2_GetActorLocation --spawn-transient
+```
+
+### Tick PIE and inspect animation state
+
+```bash
+soft-ue-cli pie-tick --frames 30
+soft-ue-cli inspect-anim-instance --actor-tag TestCharacter --include state_machines,montages
 ```
 
 ### Inspect a Blueprint's components and variables

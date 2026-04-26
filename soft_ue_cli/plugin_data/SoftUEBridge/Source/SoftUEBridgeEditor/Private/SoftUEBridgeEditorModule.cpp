@@ -34,6 +34,7 @@
 
 // PIE
 #include "Tools/PIE/PieSessionTool.h"
+#include "Tools/PIE/PieTickTool.h"
 
 // Performance
 #include "Tools/Performance/InsightsCaptureTool.h"
@@ -120,6 +121,7 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 	// PIE
 	Registry.RegisterToolClass<UPieSessionTool>();
+	Registry.RegisterToolClass<UPieTickTool>();
 
 	// Performance
 	Registry.RegisterToolClass<UInsightsCaptureTool>();

@@ -1,6 +1,25 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to soft-ue-cli will be documented in this file.
+
+## [1.22.0] - 2026-04-12
+
+### Added
+- `batch-call` command for composing multiple bridge tool invocations into one in-process batch request
+- `pie-tick` command for deterministic PIE stepping by frame count
+- `inspect-anim-instance` command for one-shot snapshots of live anim state machines, montages, and blend weights
+- `run-python-script` bridge helper import support via `from soft_ue_bridge import call`
+- `replay-changes` skill for Git and Perforce binary-asset conflict recovery using manual `base/local/remote` extraction plus offline `.uasset` inspection
+
+### Changed
+- `call-function` now supports class-targeted invocation flows including class default object and transient-instance execution, plus batch JSON input
+- `test-tools` now exercises the new automation surface for `batch-call`, `pie-tick`, `inspect-anim-instance`, and transient `call-function`
+- `replay-changes` is now documented as a CLI skill workflow instead of a dedicated command
+
+### Fixed
+- `call-function` latent-function rejection now uses a portable `LatentActionInfo` struct-name check across engine versions
+- `inspect-anim-instance` resolves state machine descriptors more reliably and avoids engine-version-specific transition query breakage during bridge builds
+- public CLI export sync now hard-fails if embargoed private names appear in examples, docs, tests, prompts, or code
 
 ## [1.21.0] - 2026-04-10
 

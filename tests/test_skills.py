@@ -30,6 +30,7 @@ def test_list_skills_contains_blueprint_to_cpp():
     names = [s["name"] for s in list_skills()]
     assert "blueprint-to-cpp" in names
     assert "test-tools" in names
+    assert "replay-changes" in names
 
 
 # -- get_skill -----------------------------------------------------------------
@@ -77,6 +78,16 @@ def test_test_tools_contains_config_suite():
     assert "OfflineSearchKey_" in content
 
 
+def test_test_tools_contains_new_automation_features():
+    content = get_skill("test-tools")
+    assert content is not None
+    assert "advanced-automation" in content
+    assert "run-python-script helper import" in content
+    assert "from soft_ue_bridge import call" in content
+    assert "batch-call pie/query/logs smoke" in content
+    assert "call-function transient native" in content
+
+
 def test_get_skill_nonexistent_returns_none():
     assert get_skill("nonexistent-skill-xyz") is None
 
@@ -90,6 +101,15 @@ def test_get_skill_path_traversal_returns_none():
 def test_get_skill_content_has_frontmatter():
     content = get_skill("blueprint-to-cpp")
     assert content.startswith("---")
+
+
+def test_replay_changes_skill_mentions_bundle_workflow():
+    content = get_skill("replay-changes")
+    assert content is not None
+    assert "Git workflow" in content
+    assert "Perforce workflow" in content
+    assert "git show :1:" in content
+    assert "p4 sync" in content
 
 
 # -- skill file validation -----------------------------------------------------

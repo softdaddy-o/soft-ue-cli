@@ -272,4 +272,13 @@ def _diff_events(left_section: dict | None, right_section: dict | None) -> dict:
     return result
 
 
-__all__ = ["UAssetError", "VALID_SECTIONS", "diff_uasset", "inspect_uasset"]
+__all__ = [
+    "UAssetError",
+    "VALID_SECTIONS",
+    "build_replay_bundle",
+    "diff_uasset",
+    "extract_git_conflict_stages",
+    "inspect_uasset",
+    "sync_remote_version",
+    "write_replay_bundle",
+]

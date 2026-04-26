@@ -3233,18 +3233,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_k = sub.add_parser(
         "query-ue-knowledge",
         help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
-        description=(
-            "Queries the soft-ue-expert knowledge server for expert UE answers\n"
-            "and workflow skills. Uses hybrid RAG + PageIndex + SkillIndex.\n\n"
-            "Requires environment variables:\n"
-            "  SOFT_UE_EXPERT_SERVER_URL  (default: http://localhost:8000)\n"
-            "  SOFT_UE_EXPERT_API_KEY     (default: dev)\n\n"
-            "EXAMPLES:\n"
-            '  soft-ue-cli query-ue-knowledge "How do custom movement modes work in CMC?"\n'
-            '  soft-ue-cli query-ue-knowledge "UCharacterMovementComponent MaxWalkSpeed"\n'
-            '  soft-ue-cli query-ue-knowledge "graph cleanup" --type skill\n'
-            "  soft-ue-cli query-ue-knowledge --list-skills"
-        ),
+        description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")

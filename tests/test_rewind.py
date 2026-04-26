@@ -158,6 +158,3 @@ class TestRewindSave:
         cmd_rewind_save(_make_args(file="/custom/path.utrace"))
         args = mock_run.call_args[0][1]
         assert args["file"] == "/custom/path.utrace"
-
-
-

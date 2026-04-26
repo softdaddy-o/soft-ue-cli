@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soft-ue-cli"
-version = "1.25.3"
+version = "1.25.4"
 description = "CLI tool for controlling Unreal Engine via soft-ue-bridge plugin"
 requires-python = ">=3.10"
 classifiers = [
@@ -51,5 +51,3 @@ testpaths = ["tests"]
 
 [tool.hatch.build]
 include = ["soft_ue_cli/**"]
-
-

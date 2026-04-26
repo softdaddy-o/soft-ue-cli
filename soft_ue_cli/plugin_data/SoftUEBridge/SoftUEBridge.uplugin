@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 3,
-	"VersionName": "1.3.2",
+	"Version": 4,
+	"VersionName": "1.3.3",
 	"FriendlyName": "SoftUE Bridge",
 	"Description": "HTTP bridge server for soft-ue-cli. Exposes UE operations (spawn actor, query level, call function, etc.) over HTTP/JSON-RPC. Active in editor, PIE, and development builds by default.",
 	"Category": "Scripting",
@@ -17,16 +17,25 @@
 	"Plugins": [
 		{
 			"Name": "EditorScriptingUtilities",
-			"Enabled": true
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		},
 		{
 			"Name": "StateTree",
-			"Enabled": true
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		},
 		{
 			"Name": "PythonScriptPlugin",
 			"Enabled": true,
-			"Optional": true
+			"Optional": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		}
 	],
 	"Modules": [

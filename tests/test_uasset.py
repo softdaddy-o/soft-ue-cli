@@ -74,6 +74,3 @@ def test_read_tagged_properties_stops_on_none_with_combined_fname():
 
     assert [prop.name for prop in props] == ["ActorLabel"]
     assert props[0].type == "NameProperty"
-
-
-

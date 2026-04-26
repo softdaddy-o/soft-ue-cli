@@ -205,6 +205,3 @@ def test_prompt_fn_returns_content():
     result = prompt.fn()
     assert isinstance(result, str)
     assert "Blueprint to C++" in result
-
-
-

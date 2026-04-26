@@ -24,7 +24,7 @@ def _fix_msys_asset_path(path: str) -> str:
     # Known UE asset mount points that MSYS will mangle
     mount_points = ("/Game/", "/Engine/", "/Script/", "/Temp/", "/Niagara/", "/Paper2D/")
     for mp in mount_points:
-        # MSYS converts /Game/ → C:/Program Files/Git/Game/ (or similar Git install path)
+        # MSYS converts /Game/ ??C:/Program Files/Git/Game/ (or similar Git install path)
         idx = path.find(mp[1:])  # Find "Game/" anywhere in the mangled path
         if idx > 0 and path[0] != "/":
             return mp + path[idx + len(mp) - 1:]
@@ -1848,7 +1848,7 @@ def _resolve_config_file_arg(disc, file_arg: str, cfg_type: str, platform_name: 
     sys.exit(1)
 
 
-# ── Rewind Debugger ──────────────────────────────────────────────
+# ?? Rewind Debugger ??????????????????????????????????????????????
 
 def cmd_rewind_start(args: argparse.Namespace) -> None:
     arguments: dict = {}
@@ -2282,7 +2282,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_scv.set_defaults(func=cmd_set_console_var)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Analysis
+    # Editor tools ??Analysis
     # -------------------------------------------------------------------------
 
     p_ch = sub.add_parser(
@@ -2305,7 +2305,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ch.set_defaults(func=cmd_class_hierarchy)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Asset
+    # Editor tools ??Asset
     # -------------------------------------------------------------------------
 
     p_qa = sub.add_parser(
@@ -2443,7 +2443,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_oa.set_defaults(func=cmd_open_asset)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Blueprint
+    # Editor tools ??Blueprint
     # -------------------------------------------------------------------------
 
     p_qb = sub.add_parser(
@@ -2497,7 +2497,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_qbg.set_defaults(func=cmd_query_blueprint_graph)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Build
+    # Editor tools ??Build
     # -------------------------------------------------------------------------
 
     p_bar = sub.add_parser(
@@ -2541,7 +2541,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_tlc.set_defaults(func=cmd_trigger_live_coding)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Editor
+    # Editor tools ??Editor
     # -------------------------------------------------------------------------
 
     p_cs2 = sub.add_parser(
@@ -2549,10 +2549,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Capture a screenshot of the editor window or a specific panel.",
         description=(
             "Modes:\n"
-            "  window    ? capture the entire editor\n"
-            "  tab       ? capture a specific editor panel (use --window-name)\n"
-            "  region    ? capture a screen region (use --region X,Y,W,H)\n"
-            "  viewport  ? capture the PIE game screen\n\n"
+            "  window    ??capture the entire editor\n"
+            "  tab       ??capture a specific editor panel (use --window-name)\n"
+            "  region    ??capture a screen region (use --region X,Y,W,H)\n"
+            "  viewport  ??capture the PIE game screen\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli capture-screenshot window\n"
             "  soft-ue-cli capture-screenshot tab --window-name Blueprint\n"
@@ -2568,7 +2568,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cs2.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
     p_cs2.set_defaults(func=cmd_capture_screenshot)
 
-    # ---- capture-viewport (runtime ? works in PIE and standalone) ----
+    # ---- capture-viewport (runtime ??works in PIE and standalone) ----
 
     p_cv = sub.add_parser(
         "capture-viewport",
@@ -2592,7 +2592,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_cv.set_defaults(func=cmd_capture_viewport)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Material
+    # Editor tools ??Material
     # -------------------------------------------------------------------------
 
     p_qm = sub.add_parser(
@@ -2639,7 +2639,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_qmpc.set_defaults(func=cmd_query_mpc)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? PIE
+    # Editor tools ??PIE
     # -------------------------------------------------------------------------
 
     p_ps = sub.add_parser(
@@ -2647,12 +2647,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Control Play-In-Editor sessions (start, stop, pause, resume, wait-for).",
         description=(
             "Actions:\n"
-            "  start      ? launch PIE (use --mode, --map, --timeout)\n"
-            "  stop       ? end PIE session\n"
-            "  pause      ? pause the game\n"
-            "  resume     ? resume a paused game\n"
-            "  get-state  ? get current PIE state (use --include)\n"
-            "  wait-for   ? poll a property until condition is met (use --actor-name, --property, etc.)\n\n"
+            "  start      ??launch PIE (use --mode, --map, --timeout)\n"
+            "  stop       ??end PIE session\n"
+            "  pause      ??pause the game\n"
+            "  resume     ??resume a paused game\n"
+            "  get-state  ??get current PIE state (use --include)\n"
+            "  wait-for   ??poll a property until condition is met (use --actor-name, --property, etc.)\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli pie-session start\n"
             "  soft-ue-cli pie-session start --map /Game/Maps/TestLevel --timeout 60\n"
@@ -2719,10 +2719,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send input events to a running game (PIE or packaged build).",
         description=(
             "Actions:\n"
-            "  key      ? press/release a key (use --key)\n"
-            "  action   ? trigger an input action (use --action-name)\n"
-            "  move-to  ? move character to location (use --target X,Y,Z)\n"
-            "  look-at  ? rotate character toward target (use --target or --target-actor)\n\n"
+            "  key      ??press/release a key (use --key)\n"
+            "  action   ??trigger an input action (use --action-name)\n"
+            "  move-to  ??move character to location (use --target X,Y,Z)\n"
+            "  look-at  ??rotate character toward target (use --target or --target-actor)\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli trigger-input key --key Space\n"
             "  soft-ue-cli trigger-input action --action-name Jump\n"
@@ -2740,7 +2740,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ti.set_defaults(func=cmd_trigger_input)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Performance
+    # Editor tools ??Performance
     # -------------------------------------------------------------------------
 
     p_ic = sub.add_parser(
@@ -2796,7 +2796,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ia.set_defaults(func=cmd_insights_analyze)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Project
+    # Editor tools ??Project
     # -------------------------------------------------------------------------
 
     p_pinfo = sub.add_parser(
@@ -2816,7 +2816,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pinfo.set_defaults(func=cmd_project_info)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? References
+    # Editor tools ??References
     # -------------------------------------------------------------------------
 
     p_fr = sub.add_parser(
@@ -2824,9 +2824,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Find asset references, variable usages, or Blueprint node usages.",
         description=(
             "Types:\n"
-            "  asset    ? find assets that reference the given asset\n"
-            "  property ? find where a Blueprint variable is used (requires --variable-name)\n"
-            "  node     ? find Blueprint nodes by class (requires --node-class)\n\n"
+            "  asset    ??find assets that reference the given asset\n"
+            "  property ??find where a Blueprint variable is used (requires --variable-name)\n"
+            "  node     ??find Blueprint nodes by class (requires --node-class)\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli find-references asset /Game/Textures/T_Player\n"
             "  soft-ue-cli find-references property /Game/Blueprints/BP_Hero --variable-name Health\n"
@@ -2844,7 +2844,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_fr.set_defaults(func=cmd_find_references)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Scripting
+    # Editor tools ??Scripting
     # -------------------------------------------------------------------------
 
     p_rps = sub.add_parser(
@@ -2911,7 +2911,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ds.set_defaults(func=cmd_delete_script)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? StateTree
+    # Editor tools ??StateTree
     # -------------------------------------------------------------------------
 
     p_qst = sub.add_parser(
@@ -3015,7 +3015,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_rsss.set_defaults(func=cmd_remove_statetree_state)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Widget
+    # Editor tools ??Widget
     # -------------------------------------------------------------------------
 
     p_iwb = sub.add_parser(
@@ -3063,7 +3063,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_irw.set_defaults(func=cmd_inspect_runtime_widgets)
 
     # -------------------------------------------------------------------------
-    # Editor tools ? Write
+    # Editor tools ??Write
     # -------------------------------------------------------------------------
 
     p_sap = sub.add_parser(
@@ -3350,8 +3350,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Insert a node between two connected nodes in a Blueprint graph.",
         description=(
             "Atomically inserts a new node between two already-connected nodes.\n"
-            "Disconnects source→target, creates the new node, and wires\n"
-            "source→new→target in a single undo transaction.\n\n"
+            "Disconnects source?뭪arget, creates the new node, and wires\n"
+            "source?뭤ew?뭪arget in a single undo transaction.\n\n"
             "Pin auto-detection: if --new-input-pin and --new-output-pin are\n"
             "not specified, the tool finds the first compatible pins.\n\n"
             "EXAMPLES:\n"
@@ -3670,7 +3670,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_mcp.set_defaults(func=cmd_mcp_serve)
 
-    # ── rewind-start ──
+    # ?? rewind-start ??
     p_rw_start = sub.add_parser(
         "rewind-start",
         help="Start a Rewind Debugger recording session or load a trace file.",
@@ -3694,7 +3694,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_start.add_argument(
         "--file", metavar="PATH",
-        help="Save path ? auto-saves to this .utrace on stop",
+        help="Save path ??auto-saves to this .utrace on stop",
     )
     p_rw_start.add_argument(
         "--load", metavar="PATH",
@@ -3702,7 +3702,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_start.set_defaults(func=cmd_rewind_start)
 
-    # ── rewind-stop ──
+    # ?? rewind-stop ??
     p_rw_stop = sub.add_parser(
         "rewind-stop",
         help="Stop the current Rewind Debugger recording.",
@@ -3710,7 +3710,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_stop.set_defaults(func=cmd_rewind_stop)
 
-    # ── rewind-status ──
+    # ?? rewind-status ??
     p_rw_status = sub.add_parser(
         "rewind-status",
         help="Query Rewind Debugger recording state.",
@@ -3718,7 +3718,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_status.set_defaults(func=cmd_rewind_status)
 
-    # ── rewind-list-tracks ──
+    # ?? rewind-list-tracks ??
     p_rw_tracks = sub.add_parser(
         "rewind-list-tracks",
         help="List recorded actors and their track types.",
@@ -3736,7 +3736,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_tracks.set_defaults(func=cmd_rewind_list_tracks)
 
-    # ── rewind-overview ──
+    # ?? rewind-overview ??
     p_rw_overview = sub.add_parser(
         "rewind-overview",
         help="Track-level animation summary for an actor.",
@@ -3758,7 +3758,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_overview.set_defaults(func=cmd_rewind_overview)
 
-    # ── rewind-snapshot ──
+    # ?? rewind-snapshot ??
     p_rw_snap = sub.add_parser(
         "rewind-snapshot",
         help="Animation state snapshot at a specific time.",
@@ -3789,7 +3789,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_snap.set_defaults(func=cmd_rewind_snapshot)
 
-    # ── rewind-save ──
+    # ?? rewind-save ??
     p_rw_save = sub.add_parser(
         "rewind-save",
         help="Save in-memory recording to .utrace file.",
@@ -3834,6 +3834,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-

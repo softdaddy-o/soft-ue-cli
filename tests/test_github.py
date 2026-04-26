@@ -263,6 +263,3 @@ def test_request_feature_labels_nice_to_have(monkeypatch):
 
     call_labels = mock_post.call_args.kwargs["json"]["labels"]
     assert call_labels == ["nice-to-have"]
-
-
-

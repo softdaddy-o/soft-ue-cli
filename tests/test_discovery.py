@@ -139,6 +139,3 @@ def test_get_server_url_url_beats_port(monkeypatch):
     monkeypatch.setenv("SOFT_UE_BRIDGE_URL", "http://custom:5000")
     monkeypatch.setenv("SOFT_UE_BRIDGE_PORT", "9999")
     assert get_server_url() == "http://custom:5000"
-
-
-

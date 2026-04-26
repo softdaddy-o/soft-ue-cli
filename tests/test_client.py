@@ -147,6 +147,3 @@ def test_health_check_timeout(monkeypatch):
     with _patch_url():
         result = health_check()
     assert "error" in result
-
-
-

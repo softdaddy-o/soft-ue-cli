@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -210,7 +211,3 @@ def test_cmd_skills_get_nonexistent_exits():
     with pytest.raises(SystemExit) as exc:
         cmd_skills(args)
     assert exc.value.code == 1
-
-
-
-

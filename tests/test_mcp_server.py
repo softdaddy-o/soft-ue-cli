@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # Skip all tests if mcp is not installed
 mcp = pytest.importorskip("mcp")
 

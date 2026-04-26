@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 from soft_ue_cli.__main__ import (
     _SCRIPTS_DIR,
     _claude_md_section,
@@ -145,6 +144,22 @@ def test_parser_get_console_var():
     parser = build_parser()
     args = parser.parse_args(["get-console-var", "t.MaxFPS"])
     assert args.name == "t.MaxFPS"
+
+
+def test_parser_inspect_uasset():
+    parser = build_parser()
+    args = parser.parse_args(["inspect-uasset", "BP_Player.uasset", "--sections", "summary", "--format", "json"])
+    assert args.file_path == "BP_Player.uasset"
+    assert args.sections == "summary"
+    assert args.format == "json"
+
+
+def test_parser_diff_uasset():
+    parser = build_parser()
+    args = parser.parse_args(["diff-uasset", "BP_Old.uasset", "BP_New.uasset", "--sections", "variables"])
+    assert args.left_file == "BP_Old.uasset"
+    assert args.right_file == "BP_New.uasset"
+    assert args.sections == "variables"
 
 
 def test_parser_call_function_no_args():

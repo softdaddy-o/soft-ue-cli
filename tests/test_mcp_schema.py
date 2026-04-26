@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-
 import pytest
-
 
 from soft_ue_cli.mcp_schema import extract_tools, EXCLUDED_COMMANDS
 
@@ -26,6 +24,8 @@ def test_extract_tools_contains_known_command():
     tool_names = {t["name"] for t in tools}
     assert "spawn-actor" in tool_names
     assert "query-blueprint" in tool_names
+    assert "inspect-uasset" in tool_names
+    assert "diff-uasset" in tool_names
     assert "status" in tool_names
 
 

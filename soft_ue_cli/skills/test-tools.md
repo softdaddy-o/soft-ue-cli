@@ -1,7 +1,7 @@
 ---
 name: test-tools
 description: Exhaustive integration test of all soft-ue-cli tools against a live UE instance. Writes a JSON report.
-version: 2.0.0
+version: 2.2.0
 ---
 
 # test-tools — Integration Test Suite
@@ -55,6 +55,7 @@ import itertools
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -493,6 +494,48 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_test("query-blueprint", "query-blueprint", {"asset_path": bp_path}, has("path"))
     run_test("query-blueprint-graph EventGraph", "query-blueprint-graph",
              {"asset_path": bp_path, "graph": "EventGraph"}, nonempty("graphs"))
+    _inspect_uasset_path = None
+    _inspect_uexp_path = None
+    _inspect_snapshot_uasset = None
+    _inspect_snapshot_uexp = None
+    try:
+        _inspect_path_resp = caller("run-python-script", {
+            "script": (
+                "import unreal\n"
+                f"print(unreal.PackageName.long_package_name_to_filename('{bp_path}', '.uasset'))\n"
+            )
+        }, None)
+        _inspect_lines = (_inspect_path_resp.get("output") or "").strip().splitlines()
+        _inspect_uasset_path = next((line.strip() for line in _inspect_lines if line.strip().endswith(".uasset")), None)
+    except Exception:
+        _inspect_uasset_path = None
+
+    if _inspect_uasset_path:
+        _inspect_uexp_path = os.path.splitext(_inspect_uasset_path)[0] + ".uexp"
+        _snapshot_dir = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_PATH)), f"soft_ue_snapshots_{RUN_TS}")
+        os.makedirs(_snapshot_dir, exist_ok=True)
+        _inspect_snapshot_uasset = os.path.join(_snapshot_dir, f"{mode_name}_BP_SoftUETest_before.uasset")
+        try:
+            shutil.copy2(_inspect_uasset_path, _inspect_snapshot_uasset)
+            if os.path.exists(_inspect_uexp_path):
+                _inspect_snapshot_uexp = os.path.join(_snapshot_dir, f"{mode_name}_BP_SoftUETest_before.uexp")
+                shutil.copy2(_inspect_uexp_path, _inspect_snapshot_uexp)
+        except Exception:
+            _inspect_snapshot_uasset = None
+            _inspect_snapshot_uexp = None
+        run_cli(
+            "inspect-uasset summary",
+            "inspect-uasset", _inspect_uasset_path,
+            check_stdout=lambda s: '"name": "BP_SoftUETest"' in s and '"asset_class"' in s,
+        )
+        run_cli(
+            "inspect-uasset all",
+            "inspect-uasset", _inspect_uasset_path, "--sections", "all",
+            check_stdout=lambda s: '"variables"' in s and '"functions"' in s and '"fidelity"' in s,
+        )
+    else:
+        _record("inspect-uasset", "inspect-uasset", {},
+                False, 0, "skipped: could not resolve on-disk .uasset path")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 8: Blueprint Graph Manipulation
@@ -550,6 +593,21 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
                 False, 0, "skipped: no branch_guid")
 
     run_test("compile-blueprint", "compile-blueprint", {"asset_path": bp_path}, has("success"))
+    run_test("save-asset blueprint", "save-asset", {"asset_path": bp_path}, has("success"))
+    if _inspect_uasset_path and _inspect_snapshot_uasset:
+        run_cli(
+            "diff-uasset summary",
+            "diff-uasset", _inspect_snapshot_uasset, _inspect_uasset_path,
+            check_stdout=lambda s: '"has_changes"' in s and '"summary"' in s,
+        )
+        run_cli(
+            "diff-uasset all",
+            "diff-uasset", _inspect_snapshot_uasset, _inspect_uasset_path, "--sections", "all",
+            check_stdout=lambda s: '"changes"' in s and '"summary"' in s,
+        )
+    else:
+        _record("diff-uasset", "diff-uasset", {},
+                False, 0, "skipped: could not snapshot on-disk .uasset before mutation")
     if _bpi_created:
         _bpi_class_path = bpi_path + "." + bpi_path.split("/")[-1] + "_C"
         run_test("modify-interface add", "modify-interface", {

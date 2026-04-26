@@ -342,6 +342,112 @@ def cmd_query_blueprint_graph(args: argparse.Namespace) -> None:
     _print_json(_run_tool("query-blueprint-graph", arguments))
 
 
+def cmd_inspect_uasset(args: argparse.Namespace) -> None:
+    from .uasset import UAssetError, inspect_uasset
+
+    sections_arg = getattr(args, "sections", "summary")
+    sections = [part.strip() for part in sections_arg.split(",") if part.strip()]
+
+    try:
+        result = inspect_uasset(args.file_path, sections=sections)
+    except (FileNotFoundError, UAssetError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.format == "table":
+        _print_inspect_table(result)
+        return
+
+    _print_json(result)
+
+
+def cmd_diff_uasset(args: argparse.Namespace) -> None:
+    from .uasset import UAssetError, diff_uasset
+
+    sections_arg = getattr(args, "sections", "summary")
+    sections = [part.strip() for part in sections_arg.split(",") if part.strip()]
+
+    try:
+        result = diff_uasset(args.left_file, args.right_file, sections=sections)
+    except (FileNotFoundError, UAssetError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.format == "table":
+        _print_uasset_diff_table(result)
+        return
+
+    _print_json(result)
+
+
+def _print_inspect_table(data: dict) -> None:
+    print(f"Asset: {data.get('name', 'Unknown')}")
+    print(f"  File:      {data.get('file', '')}")
+    print(f"  UE:        {data.get('ue_version', '?')}")
+    print(f"  Class:     {data.get('asset_class', '?')}")
+    print(f"  Parent:    {data.get('parent_class', '?')}")
+    print(f"  Type:      {data.get('blueprint_type', '?')}")
+
+    for section in ("variables", "functions", "components"):
+        if section not in data:
+            continue
+        payload = data[section]
+        print(f"\n  {section.title()} ({payload.get('count', 0)}) [fidelity: {payload.get('fidelity', '?')}]")
+        for item in payload.get("items", []):
+            extra = item.get("type", item.get("class", ""))
+            line = f"    - {item.get('name', '?')}"
+            if extra:
+                line += f" ({extra})"
+            print(line)
+
+    if "events" in data:
+        payload = data["events"]
+        total = payload.get("event_count", 0) + payload.get("custom_event_count", 0)
+        print(f"\n  Events ({total}) [fidelity: {payload.get('fidelity', '?')}]")
+        for item in payload.get("events", []):
+            print(f"    - {item.get('name', '?')}")
+        for item in payload.get("custom_events", []):
+            print(f"    - {item.get('name', '?')} (custom)")
+
+
+def _print_uasset_diff_table(data: dict) -> None:
+    print(f"Left:  {data.get('left_file', '')}")
+    print(f"Right: {data.get('right_file', '')}")
+    print(f"Has changes: {data.get('has_changes', False)}")
+    print(f"Total changes: {data.get('total_changes', 0)}")
+
+    changes = data.get("changes", {})
+    if "summary" in changes:
+        summary = changes["summary"]
+        print(f"\n  Summary ({summary.get('change_count', 0)})")
+        for field, payload in summary.get("modified", {}).items():
+            print(f"    - {field}: {payload.get('old')} -> {payload.get('new')}")
+
+    for section in ("variables", "functions", "components"):
+        if section not in changes:
+            continue
+        payload = changes[section]
+        print(f"\n  {section.title()} ({payload.get('change_count', 0)})")
+        for item in payload.get("added", []):
+            print(f"    + {item.get('name', '?')}")
+        for item in payload.get("removed", []):
+            print(f"    - {item.get('name', '?')}")
+        for item in payload.get("modified", []):
+            print(f"    ~ {item.get('name', '?')}")
+
+    if "events" in changes:
+        payload = changes["events"]
+        print(f"\n  Events ({payload.get('change_count', 0)})")
+        for item in payload.get("added", []):
+            print(f"    + {item.get('name', '?')}")
+        for item in payload.get("removed", []):
+            print(f"    - {item.get('name', '?')}")
+        for item in payload.get("added_custom", []):
+            print(f"    + {item.get('name', '?')} (custom)")
+        for item in payload.get("removed_custom", []):
+            print(f"    - {item.get('name', '?')} (custom)")
+
+
 def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
     arguments: dict = {}
     if args.config:
@@ -1152,52 +1258,8 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
 
 
 def cmd_knowledge(args: argparse.Namespace) -> None:
-    """Query the optional knowledge server (RAG/PageIndex/Skills)."""
-    if args.list_skills and args.query:
-        print("error: --list-skills cannot be used with a query", file=sys.stderr)
-        sys.exit(1)
-    if args.list_skills and args.type:
-        print("error: --list-skills cannot be used with --type", file=sys.stderr)
-        sys.exit(1)
-    if not args.list_skills and not args.query:
-        print("error: either provide a query or use --list-skills", file=sys.stderr)
-        sys.exit(1)
-
-    import httpx
-
-    server_url = os.environ.get("SOFT_UE_EXPERT_SERVER_URL", "http://localhost:8000")
-    api_key = os.environ.get("SOFT_UE_EXPERT_API_KEY", "dev")
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    try:
-        if args.list_skills:
-            resp = httpx.get(
-                f"{server_url}/query/skills",
-                headers=headers,
-                timeout=30.0,
-            )
-        else:
-            body: dict = {"query": args.query, "max_results": args.max_results}
-            if args.type:
-                body["type"] = args.type
-            resp = httpx.post(
-                f"{server_url}/query",
-                json=body,
-                headers=headers,
-                timeout=30.0,
-            )
-        resp.raise_for_status()
-        _print_json(resp.json())
-    except httpx.ConnectError:
-        print(
-            f"error: cannot connect to knowledge server at {server_url}\n"
-            "Start the knowledge server with: docker compose up",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    except httpx.HTTPStatusError as exc:
-        print(f"error: HTTP {exc.response.status_code}", file=sys.stderr)
-        sys.exit(1)
+    """Query the optional knowledge server (RAG)."""
+    print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
 
 
 def cmd_skills(args: argparse.Namespace) -> None:
@@ -2615,24 +2677,78 @@ def build_parser() -> argparse.ArgumentParser:
     p_snpr.set_defaults(func=cmd_set_node_property)
 
     # -------------------------------------------------------------------------
+    # Offline inspection
+    # -------------------------------------------------------------------------
+
+    p_iu = sub.add_parser(
+        "inspect-uasset",
+        help="Inspect a local .uasset Blueprint file offline.",
+        description=(
+            "Parse a local Blueprint .uasset file without requiring a running editor.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli inspect-uasset D:/Project/Content/Blueprints/BP_Character.uasset\n"
+            "  soft-ue-cli inspect-uasset BP_Character.uasset --sections all\n"
+            "  soft-ue-cli inspect-uasset BP_Character.uasset --sections variables,functions --format table"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_iu.add_argument("file_path", help="Path to the local .uasset file")
+    p_iu.add_argument(
+        "--sections",
+        metavar="SECTIONS",
+        default="summary",
+        help=(
+            "Comma-separated sections to extract: summary, variables, functions, "
+            "components, events, all (default: summary)"
+        ),
+    )
+    p_iu.add_argument(
+        "--format",
+        choices=["json", "table"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    p_iu.set_defaults(func=cmd_inspect_uasset)
+
+    p_du = sub.add_parser(
+        "diff-uasset",
+        help="Diff two local .uasset Blueprint files offline.",
+        description=(
+            "Inspect two local Blueprint .uasset files and diff their extracted metadata.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli diff-uasset BP_Old.uasset BP_New.uasset\n"
+            "  soft-ue-cli diff-uasset BP_Old.uasset BP_New.uasset --sections all\n"
+            "  soft-ue-cli diff-uasset BP_Old.uasset BP_New.uasset --sections variables,functions --format table"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_du.add_argument("left_file", help="Path to the base .uasset file")
+    p_du.add_argument("right_file", help="Path to the updated .uasset file")
+    p_du.add_argument(
+        "--sections",
+        metavar="SECTIONS",
+        default="summary",
+        help=(
+            "Comma-separated sections to diff: summary, variables, functions, "
+            "components, events, all (default: summary)"
+        ),
+    )
+    p_du.add_argument(
+        "--format",
+        choices=["json", "table"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    p_du.set_defaults(func=cmd_diff_uasset)
+
+    # -------------------------------------------------------------------------
     # Knowledge
     # -------------------------------------------------------------------------
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
         help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
-        description=(
-            "Queries the soft-ue-expert knowledge server for expert UE answers\n"
-            "and workflow skills. Uses hybrid RAG + PageIndex + SkillIndex.\n\n"
-            "Requires environment variables:\n"
-            "  SOFT_UE_EXPERT_SERVER_URL  (default: http://localhost:8000)\n"
-            "  SOFT_UE_EXPERT_API_KEY     (default: dev)\n\n"
-            "EXAMPLES:\n"
-            '  soft-ue-cli query-ue-knowledge "How do custom movement modes work in CMC?"\n'
-            '  soft-ue-cli query-ue-knowledge "UCharacterMovementComponent MaxWalkSpeed"\n'
-            '  soft-ue-cli query-ue-knowledge "graph cleanup" --type skill\n'
-            "  soft-ue-cli query-ue-knowledge --list-skills"
-        ),
+        description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")

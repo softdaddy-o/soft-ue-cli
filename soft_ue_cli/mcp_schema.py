@@ -19,6 +19,8 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "report-bug",
     "submit-testimonial",
     "request-feature",
+    "inspect-uasset",
+    "diff-uasset",
 })
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.

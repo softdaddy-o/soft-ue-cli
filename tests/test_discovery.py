@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-
 from soft_ue_cli.discovery import _find_project_instance, _load_instance_file, get_server_url
 
 

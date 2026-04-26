@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soft-ue-cli"
-version = "1.20.3"
+version = "1.20.4"
 description = "CLI tool for controlling Unreal Engine via soft-ue-bridge plugin"
 requires-python = ">=3.10"
 classifiers = [
@@ -34,9 +34,6 @@ include = ["soft_ue_cli/**"]
 [tool.hatch.build.targets.wheel]
 packages = ["soft_ue_cli"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-
 # Hatchling excludes non-.py files by default; list every skill .md here so it
 # is included in the wheel.  Add a new line for each skill file you create.
 [tool.hatch.build.targets.wheel.force-include]
@@ -44,3 +41,6 @@ testpaths = ["tests"]
 "soft_ue_cli/skills/inspect-uasset.md" = "soft_ue_cli/skills/inspect-uasset.md"
 "soft_ue_cli/skills/level-from-image.md" = "soft_ue_cli/skills/level-from-image.md"
 "soft_ue_cli/skills/test-tools.md" = "soft_ue_cli/skills/test-tools.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

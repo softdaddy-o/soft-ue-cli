@@ -2,6 +2,11 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.20.4] - 2026-04-10
+
+### Fixed
+- `inspect-uasset` and `diff-uasset` now parse UE 5.4+ package headers (`LegacyFileVersion -8/-9`), so offline Blueprint inspection works on modern UE 5.4-5.7 assets instead of failing on the package summary
+
 ## [1.20.3] - 2026-04-10
 
 ### Fixed

@@ -2,6 +2,11 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.20.6] - 2026-04-10
+
+### Changed
+- Clarified `inspect-uasset` and `diff-uasset` help text, skill metadata, and README wording: they operate on local `.uasset` files offline, with best support currently for Blueprint assets rather than Blueprint-only support
+
 ## [1.20.5] - 2026-04-10
 
 ### Fixed

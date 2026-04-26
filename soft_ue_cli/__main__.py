@@ -3127,9 +3127,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_iu = sub.add_parser(
         "inspect-uasset",
-        help="Inspect a local .uasset Blueprint file offline.",
+        help="Inspect a local .uasset file offline (best support for Blueprint assets).",
         description=(
-            "Parse a local Blueprint .uasset file without requiring a running editor.\n\n"
+            "Parse a local .uasset file without requiring a running editor.\n"
+            "Best support is currently for Blueprint assets.\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli inspect-uasset D:/Project/Content/Blueprints/BP_Character.uasset\n"
             "  soft-ue-cli inspect-uasset BP_Character.uasset --sections all\n"
@@ -3157,9 +3158,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_du = sub.add_parser(
         "diff-uasset",
-        help="Diff two local .uasset Blueprint files offline.",
+        help="Diff two local .uasset files offline (best support for Blueprint assets).",
         description=(
-            "Inspect two local Blueprint .uasset files and diff their extracted metadata.\n\n"
+            "Inspect two local .uasset files and diff their extracted metadata.\n"
+            "Best support is currently for Blueprint assets.\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli diff-uasset BP_Old.uasset BP_New.uasset\n"
             "  soft-ue-cli diff-uasset BP_Old.uasset BP_New.uasset --sections all\n"

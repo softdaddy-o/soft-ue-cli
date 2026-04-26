@@ -180,8 +180,8 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 |---------|-------------|
 | `query-blueprint` | Inspect a Blueprint asset -- components, variables, functions, interfaces, event dispatchers |
 | `query-blueprint-graph` | Inspect event graphs, function graphs, and node connections |
-| `inspect-uasset` | Inspect a local Blueprint `.uasset` file offline without a running editor |
-| `diff-uasset` | Diff two local Blueprint `.uasset` files offline by extracted metadata |
+| `inspect-uasset` | Inspect a local `.uasset` file offline by parsed metadata, with best support for Blueprint assets |
+| `diff-uasset` | Diff two local `.uasset` files offline by parsed metadata, with best support for Blueprint assets |
 | `add-graph-node` | Add a node to a Blueprint or Material graph (supports `AnimLayerFunction` for ALIs) |
 | `modify-interface` | Add or remove an implemented interface on a Blueprint or AnimBlueprint |
 | `remove-graph-node` | Remove a node from a graph |
@@ -305,7 +305,7 @@ Skills are markdown prompts that teach an LLM client how to perform complex mult
 | Skill | Description |
 |-------|-------------|
 | `blueprint-to-cpp` | Generate C++ `.h`/`.cpp` from a Blueprint asset -- Layer 1 (class scaffolding) + Layer 2 (graph logic translation) |
-| `inspect-uasset` | Inspect a local Blueprint `.uasset` offline and extract conservative metadata without launching Unreal Editor |
+| `inspect-uasset` | Inspect a local `.uasset` offline and extract conservative metadata without launching Unreal Editor; best support is currently for Blueprint assets |
 | `level-from-image` | Populate a UE level from a reference image -- analyzes the image, maps scene elements to project assets, batch-places actors, then iterates with visual feedback (viewport screenshots) |
 | `test-tools` | Run the exhaustive live integration test script across CLI and MCP modes, including offline `.uasset` smoke checks against a generated Blueprint |
 
@@ -349,7 +349,7 @@ soft-ue-cli call-function BP_GameMode SetDifficulty --args '{"Level": 3}'
 soft-ue-cli query-blueprint /Game/Blueprints/BP_Player --include components,variables
 ```
 
-### Inspect and diff Blueprint `.uasset` files offline
+### Inspect and diff local `.uasset` files offline
 
 ```bash
 soft-ue-cli inspect-uasset D:/Project/Content/Blueprints/BP_Player.uasset --sections all

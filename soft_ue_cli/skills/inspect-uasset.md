@@ -1,12 +1,12 @@
 ---
 name: inspect-uasset
-description: Inspect a local Blueprint .uasset file offline without a running editor
+description: Inspect a local .uasset file offline without a running editor, with best support for Blueprint assets
 version: 1.0.0
 ---
 
 # Inspect UAsset
 
-Inspect a local Blueprint `.uasset` file without launching Unreal Editor or the SoftUEBridge plugin.
+Inspect a local `.uasset` file without launching Unreal Editor or the SoftUEBridge plugin. Best support is currently for Blueprint assets.
 
 This workflow is useful when you need a quick summary in CI, while debugging assets on disk, or when
 the editor is unavailable. It is intentionally more conservative than `query-blueprint`: some sections
@@ -14,8 +14,8 @@ may be `partial` or `unavailable` because the parser reads package data directly
 
 ## Use It For
 
-- Quick Blueprint summaries from disk
-- Offline review of variables, functions, components, and events
+- Quick `.uasset` summaries from disk, especially for Blueprints
+- Offline review of variables, functions, components, and events for Blueprint-focused assets
 - Batch inspection scripts in local tooling or CI
 
 ## Do Not Use It For

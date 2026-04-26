@@ -208,6 +208,8 @@ def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None):
 
     def tool_fn(**kwargs: Any) -> str:
         namespace = _argparse.Namespace(**kwargs)
+        if tool_name == "config" and hasattr(namespace, "subcommand") and not hasattr(namespace, "config_action"):
+            namespace.config_action = namespace.subcommand
         buffer = io.StringIO()
         old_stdout = sys.stdout
         sys.stdout = buffer

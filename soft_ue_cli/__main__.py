@@ -1258,8 +1258,52 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
 
 
 def cmd_knowledge(args: argparse.Namespace) -> None:
-    """Query the optional knowledge server (RAG)."""
-    print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
+    """Query the optional knowledge server (RAG/PageIndex/Skills)."""
+    if args.list_skills and args.query:
+        print("error: --list-skills cannot be used with a query", file=sys.stderr)
+        sys.exit(1)
+    if args.list_skills and args.type:
+        print("error: --list-skills cannot be used with --type", file=sys.stderr)
+        sys.exit(1)
+    if not args.list_skills and not args.query:
+        print("error: either provide a query or use --list-skills", file=sys.stderr)
+        sys.exit(1)
+
+    import httpx
+
+    server_url = os.environ.get("SOFT_UE_EXPERT_SERVER_URL", "http://localhost:8000")
+    api_key = os.environ.get("SOFT_UE_EXPERT_API_KEY", "dev")
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    try:
+        if args.list_skills:
+            resp = httpx.get(
+                f"{server_url}/query/skills",
+                headers=headers,
+                timeout=30.0,
+            )
+        else:
+            body: dict = {"query": args.query, "max_results": args.max_results}
+            if args.type:
+                body["type"] = args.type
+            resp = httpx.post(
+                f"{server_url}/query",
+                json=body,
+                headers=headers,
+                timeout=30.0,
+            )
+        resp.raise_for_status()
+        _print_json(resp.json())
+    except httpx.ConnectError:
+        print(
+            f"error: cannot connect to knowledge server at {server_url}\n"
+            "Start the knowledge server with: docker compose up",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except httpx.HTTPStatusError as exc:
+        print(f"error: HTTP {exc.response.status_code}", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_skills(args: argparse.Namespace) -> None:
@@ -1288,6 +1332,447 @@ def cmd_mcp_serve(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
     run_server()
+
+
+def cmd_config(args: argparse.Namespace) -> None:
+    action = args.config_action
+
+    if action == "tree":
+        _cmd_config_tree(args)
+    elif action == "get":
+        _cmd_config_get(args)
+    elif action == "set":
+        _cmd_config_set(args)
+    elif action == "diff":
+        _cmd_config_diff(args)
+    elif action == "audit":
+        _cmd_config_audit(args)
+
+
+def _cmd_config_tree(args: argparse.Namespace) -> None:
+    disc = _make_config_discovery(args)
+    fmt = getattr(args, "config_format", None)
+    cfg_type = getattr(args, "config_type", "Engine")
+    exists_only = getattr(args, "exists_only", False)
+    platform_name = getattr(args, "platform", None)
+
+    result: dict = {"layers": []}
+
+    if fmt in (None, "ini"):
+        for layer in disc.ini_layers(config_type=cfg_type, platform=platform_name):
+            if exists_only and not layer.exists:
+                continue
+            result["layers"].append(
+                {
+                    "format": "ini",
+                    "name": layer.name,
+                    "path": str(layer.path),
+                    "exists": layer.exists,
+                    "size": layer.size,
+                    "mtime": layer.mtime,
+                },
+            )
+
+    if fmt in (None, "xml"):
+        for layer in disc.xml_layers():
+            if exists_only and not layer.exists:
+                continue
+            result["layers"].append(
+                {
+                    "format": "xml",
+                    "name": layer.name,
+                    "path": str(layer.path),
+                    "exists": layer.exists,
+                    "size": layer.size,
+                    "mtime": layer.mtime,
+                },
+            )
+
+    if fmt in (None, "project"):
+        for project_file in disc.project_json_files():
+            stat = project_file.path.stat()
+            result["layers"].append(
+                {
+                    "format": "project",
+                    "name": project_file.file_type,
+                    "path": str(project_file.path),
+                    "exists": True,
+                    "size": stat.st_size,
+                    "mtime": stat.st_mtime,
+                },
+            )
+
+    _print_json(result)
+
+
+def _cmd_config_get(args: argparse.Namespace) -> None:
+    from .config import BuildConfigXml, ProjectJson, UeIniFile, merge_ini_layers, parse_ini_key, trace_key
+
+    disc = _make_config_discovery(args)
+    source = getattr(args, "source", None)
+    layer_name = getattr(args, "layer", None)
+    do_trace = getattr(args, "trace", False)
+    search = getattr(args, "search", None)
+    key_str = getattr(args, "key", None)
+    cfg_type = getattr(args, "config_type", "Engine")
+    platform_name = getattr(args, "platform", None)
+
+    if search:
+        _print_json({"matches": _search_config(disc, search, cfg_type, platform_name)})
+        return
+
+    if not key_str:
+        print("error: key is required (or use --search)", file=sys.stderr)
+        sys.exit(1)
+
+    if source == "project":
+        for project_file in _ordered_project_json_files(disc):
+            project_json = ProjectJson.from_file(project_file.path)
+            value = project_json.get(key_str)
+            if value is not None:
+                _print_json({"key": key_str, "value": value, "source": str(project_file.path)})
+                return
+        _print_json({"key": key_str, "value": None, "error": "not found"})
+        return
+
+    if source == "xml":
+        section, key = _split_xml_key(key_str)
+        for xml_layer in disc.xml_layers():
+            if not xml_layer.exists:
+                continue
+            xml = BuildConfigXml.from_file(xml_layer.path)
+            value = xml.get(section, key)
+            if value is not None:
+                _print_json({"key": key_str, "value": value, "source": str(xml_layer.path)})
+                return
+        _print_json({"key": key_str, "value": None, "error": "not found"})
+        return
+
+    section, key = parse_ini_key(key_str)
+    ini_layers = disc.ini_layers(config_type=cfg_type, platform=platform_name)
+    loaded: list[UeIniFile] = []
+    for layer in ini_layers:
+        if not layer.exists:
+            continue
+        ini = UeIniFile.from_file(layer.path)
+        ini.path = layer.path
+        loaded.append(ini)
+
+    if do_trace:
+        if not key:
+            print("error: --trace requires [Section]Key with a key name", file=sys.stderr)
+            sys.exit(1)
+        _print_json({"key": key_str, "trace": trace_key(loaded, section, key)})
+        return
+
+    if layer_name:
+        for layer in ini_layers:
+            if layer.name != layer_name:
+                continue
+            if not layer.exists:
+                print(f"error: layer '{layer_name}' exists in hierarchy but has no file on disk", file=sys.stderr)
+                sys.exit(1)
+            ini = UeIniFile.from_file(layer.path)
+            if key:
+                _print_json({"key": key_str, "value": ini.get(section, key), "layer": layer.name, "path": str(layer.path)})
+            else:
+                _print_json({"section": section, "keys": ini.items(section), "layer": layer.name, "path": str(layer.path)})
+            return
+        print(f"error: layer '{layer_name}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    bridge_result = _try_bridge_config_get(section, key, cfg_type)
+    if bridge_result is not None:
+        _print_json(bridge_result)
+        return
+
+    merged = merge_ini_layers(loaded)
+    if key:
+        _print_json({"key": key_str, "value": merged.get(section, key), "source": "offline-merge"})
+    else:
+        _print_json({"section": section, "keys": merged.items(section), "source": "offline-merge"})
+
+
+def _cmd_config_set(args: argparse.Namespace) -> None:
+    from .config import BuildConfigXml, ProjectJson, UeIniFile, parse_ini_key
+
+    disc = _make_config_discovery(args)
+    source = getattr(args, "source", None)
+    layer_name = getattr(args, "layer", None)
+    key_str = args.key
+    value = args.value
+    cfg_type = getattr(args, "config_type", "Engine")
+    platform_name = getattr(args, "platform", None)
+
+    if source == "project":
+        project_files = _ordered_project_json_files(disc)
+        if not project_files:
+            print("error: no .uproject or .uplugin file found", file=sys.stderr)
+            sys.exit(1)
+        project_json = ProjectJson.from_file(project_files[0].path)
+        project_json.set(key_str, value)
+        project_json.write()
+        _print_json({"status": "ok", "key": key_str, "value": value, "path": str(project_files[0].path)})
+        return
+
+    if source == "xml":
+        if not layer_name:
+            print("error: --layer is required for XML writes", file=sys.stderr)
+            sys.exit(1)
+        section, key = _split_xml_key(key_str)
+        for xml_layer in disc.xml_layers():
+            if xml_layer.name != layer_name:
+                continue
+            if xml_layer.exists:
+                xml = BuildConfigXml.from_file(xml_layer.path)
+            else:
+                import xml.etree.ElementTree as ET
+
+                root = ET.Element("{https://www.unrealengine.com/BuildConfiguration}Configuration")
+                xml = BuildConfigXml(root, path=xml_layer.path)
+            xml.set(section, key, value)
+            xml.write()
+            _print_json({"status": "ok", "key": key_str, "value": value, "path": str(xml_layer.path)})
+            return
+        print(f"error: XML layer '{layer_name}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    if not layer_name:
+        print("error: --layer is required for INI writes", file=sys.stderr)
+        sys.exit(1)
+
+    section, key = parse_ini_key(key_str)
+    if not key:
+        print("error: key is required for set (got section only)", file=sys.stderr)
+        sys.exit(1)
+
+    _try_bridge_validate(section, key, cfg_type)
+
+    for layer in disc.ini_layers(config_type=cfg_type, platform=platform_name):
+        if layer.name != layer_name:
+            continue
+        ini = UeIniFile.from_file(layer.path) if layer.exists else UeIniFile(path=layer.path)
+        ini.set(section, key, value)
+        ini.write(layer.path)
+        _print_json({"status": "ok", "key": key_str, "value": value, "layer": layer_name, "path": str(layer.path)})
+        return
+
+    print(f"error: layer '{layer_name}' not found", file=sys.stderr)
+    sys.exit(1)
+
+
+def _cmd_config_diff(args: argparse.Namespace) -> None:
+    from .config import BuildConfigXml, UeIniFile, diff_ini_files, diff_xml_files, merge_ini_layers
+
+    disc = _make_config_discovery(args)
+    cfg_type = getattr(args, "config_type", "Engine")
+    platform_name = getattr(args, "platform", None)
+    layers_arg = getattr(args, "layers", None)
+    platforms_arg = getattr(args, "platforms", None)
+    snapshot_arg = getattr(args, "snapshot", None)
+    files_arg = getattr(args, "files", None)
+
+    if getattr(args, "audit", False):
+        _cmd_config_audit(args)
+        return
+
+    if layers_arg and len(layers_arg) == 2:
+        left_ini = right_ini = None
+        for layer in disc.ini_layers(config_type=cfg_type, platform=platform_name):
+            if not layer.exists:
+                continue
+            if layer.name == layers_arg[0]:
+                left_ini = UeIniFile.from_file(layer.path)
+            elif layer.name == layers_arg[1]:
+                right_ini = UeIniFile.from_file(layer.path)
+        if left_ini is None or right_ini is None:
+            missing = layers_arg[0] if left_ini is None else layers_arg[1]
+            print(f"error: layer '{missing}' not found or empty", file=sys.stderr)
+            sys.exit(1)
+        result = diff_ini_files(left_ini, right_ini)
+        result["left"] = layers_arg[0]
+        result["right"] = layers_arg[1]
+        _print_json(result)
+        return
+
+    if platforms_arg and len(platforms_arg) == 2:
+        left_layers = disc.ini_layers(config_type=cfg_type, platform=platforms_arg[0])
+        right_layers = disc.ini_layers(config_type=cfg_type, platform=platforms_arg[1])
+        left_merged = merge_ini_layers([UeIniFile.from_file(layer.path) for layer in left_layers if layer.exists])
+        right_merged = merge_ini_layers([UeIniFile.from_file(layer.path) for layer in right_layers if layer.exists])
+        result = diff_ini_files(left_merged, right_merged)
+        result["left"] = platforms_arg[0]
+        result["right"] = platforms_arg[1]
+        _print_json(result)
+        return
+
+    if snapshot_arg:
+        import subprocess
+
+        result_data: dict = {"snapshot": snapshot_arg, "changes": []}
+        for layer in disc.ini_layers(config_type=cfg_type, platform=platform_name):
+            if not layer.exists:
+                continue
+            try:
+                old_text = subprocess.check_output(
+                    ["git", "show", f"{snapshot_arg}:{layer.path}"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    cwd=str(Path.cwd()),
+                )
+            except subprocess.CalledProcessError:
+                continue
+            diff = diff_ini_files(UeIniFile.from_string(old_text), UeIniFile.from_file(layer.path))
+            if diff["total_changes"] > 0:
+                diff["file"] = str(layer.path)
+                result_data["changes"].append(diff)
+        _print_json(result_data)
+        return
+
+    if files_arg and len(files_arg) == 2:
+        left_path = _resolve_config_file_arg(disc, files_arg[0], cfg_type, platform_name)
+        right_path = _resolve_config_file_arg(disc, files_arg[1], cfg_type, platform_name)
+        if left_path.suffix.lower() == ".xml" and right_path.suffix.lower() == ".xml":
+            result = diff_xml_files(BuildConfigXml.from_file(left_path), BuildConfigXml.from_file(right_path))
+        else:
+            result = diff_ini_files(UeIniFile.from_file(left_path), UeIniFile.from_file(right_path))
+        result["left"] = str(left_path)
+        result["right"] = str(right_path)
+        _print_json(result)
+        return
+
+    print("error: specify --layers, --platforms, --snapshot, --files, or --audit", file=sys.stderr)
+    sys.exit(1)
+
+
+def _cmd_config_audit(args: argparse.Namespace) -> None:
+    from .config import BuildConfigXml, UeIniFile, diff_ini_files, diff_xml_files, merge_ini_layers
+
+    disc = _make_config_discovery(args)
+    fmt = getattr(args, "config_format", None)
+    cfg_type = getattr(args, "config_type", "Engine")
+    platform_name = getattr(args, "platform", None)
+
+    result: dict = {"overrides": []}
+
+    if fmt in (None, "ini"):
+        ini_layers = disc.ini_layers(config_type=cfg_type, platform=platform_name)
+        engine_layers = [layer for layer in ini_layers if layer.name in ("AbsoluteBase", "Base", "BasePlatform") and layer.exists]
+        project_layers = [
+            layer
+            for layer in ini_layers
+            if layer.exists and (layer.name.startswith("Project") or layer.name in ("CustomConfig", "CustomConfigPlatform", "Saved"))
+        ]
+        if engine_layers and project_layers:
+            engine_merged = merge_ini_layers([UeIniFile.from_file(layer.path) for layer in engine_layers])
+            project_merged = merge_ini_layers(
+                [UeIniFile.from_file(layer.path) for layer in engine_layers + project_layers],
+            )
+            diff = diff_ini_files(engine_merged, project_merged)
+            diff["format"] = "ini"
+            diff["config_type"] = cfg_type
+            result["overrides"].append(diff)
+
+    if fmt in (None, "xml"):
+        existing_layers = [layer for layer in disc.xml_layers() if layer.exists]
+        if len(existing_layers) >= 2:
+            diff = diff_xml_files(
+                BuildConfigXml.from_file(existing_layers[0].path),
+                BuildConfigXml.from_file(existing_layers[-1].path),
+            )
+            diff["format"] = "xml"
+            result["overrides"].append(diff)
+
+    _print_json(result)
+
+
+def _make_config_discovery(args: argparse.Namespace):
+    from .config import ConfigDiscovery
+
+    engine_path = getattr(args, "engine_path", None)
+    project_path = getattr(args, "project_path", None)
+
+    if not project_path:
+        cwd = Path.cwd()
+        for candidate in [cwd, *cwd.parents]:
+            if list(candidate.glob("*.uproject")):
+                project_path = str(candidate)
+                break
+
+    return ConfigDiscovery(engine_path=engine_path, project_path=project_path)
+
+
+def _try_bridge_config_get(section: str, key: str | None, config_type: str) -> dict | None:
+    if not key:
+        return None
+    try:
+        result = call_tool("get-config-value", {"section": section, "key": key, "config_type": config_type})
+    except Exception:
+        return None
+    return {"key": f"[{section}]{key}", "value": result.get("value"), "source": "bridge"}
+
+
+def _try_bridge_validate(section: str, key: str, config_type: str) -> None:
+    try:
+        result = call_tool("validate-config-key", {"section": section, "key": key, "config_type": config_type})
+    except Exception:
+        return
+    if not result.get("valid", True):
+        print(f"warning: bridge says key '{key}' in section '{section}' is not recognized", file=sys.stderr)
+
+
+def _search_config(disc, pattern: str, cfg_type: str, platform_name: str | None) -> list[dict]:
+    import fnmatch
+
+    from .config import UeIniFile
+
+    results: list[dict] = []
+    for layer in disc.ini_layers(config_type=cfg_type, platform=platform_name):
+        if not layer.exists:
+            continue
+        ini = UeIniFile.from_file(layer.path)
+        for section in ini.sections():
+            for key in ini.keys(section):
+                if not fnmatch.fnmatch(key.lower(), f"*{pattern.lower()}*"):
+                    continue
+                results.append(
+                    {
+                        "section": section,
+                        "key": key,
+                        "value": ini.get(section, key),
+                        "layer": layer.name,
+                        "path": str(layer.path),
+                    },
+                )
+    return results
+
+
+def _ordered_project_json_files(disc) -> list:
+    files = disc.project_json_files()
+    return sorted(files, key=lambda item: (item.file_type != "uproject", str(item.path)))
+
+
+def _split_xml_key(key_str: str) -> tuple[str, str]:
+    parts = key_str.split(".", 1)
+    if len(parts) == 1:
+        return "BuildConfiguration", parts[0]
+    return parts[0], parts[1]
+
+
+def _resolve_config_file_arg(disc, file_arg: str, cfg_type: str, platform_name: str | None) -> Path:
+    candidate = Path(file_arg)
+    if candidate.exists():
+        return candidate
+
+    search_pool = [layer.path for layer in disc.ini_layers(config_type=cfg_type, platform=platform_name)]
+    search_pool.extend(layer.path for layer in disc.xml_layers())
+    search_pool.extend(item.path for item in disc.project_json_files())
+    for path in search_pool:
+        if str(path) == file_arg or path.name == file_arg:
+            return path
+
+    print(f"error: config file '{file_arg}' not found", file=sys.stderr)
+    sys.exit(1)
 
 
 # -- Argument parser -----------------------------------------------------------
@@ -2748,7 +3233,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_k = sub.add_parser(
         "query-ue-knowledge",
         help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
-        description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
+        description=(
+            "Queries the soft-ue-expert knowledge server for expert UE answers\n"
+            "and workflow skills. Uses hybrid RAG + PageIndex + SkillIndex.\n\n"
+            "Requires environment variables:\n"
+            "  SOFT_UE_EXPERT_SERVER_URL  (default: http://localhost:8000)\n"
+            "  SOFT_UE_EXPERT_API_KEY     (default: dev)\n\n"
+            "EXAMPLES:\n"
+            '  soft-ue-cli query-ue-knowledge "How do custom movement modes work in CMC?"\n'
+            '  soft-ue-cli query-ue-knowledge "UCharacterMovementComponent MaxWalkSpeed"\n'
+            '  soft-ue-cli query-ue-knowledge "graph cleanup" --type skill\n'
+            "  soft-ue-cli query-ue-knowledge --list-skills"
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_k.add_argument("query", nargs="?", default=None, help="Natural language question about UE API or behavior")
@@ -2839,6 +3335,63 @@ def build_parser() -> argparse.ArgumentParser:
     p_st.add_argument("--rating", type=int, choices=[1, 2, 3, 4, 5], help="Rating from 1-5")
     p_st.add_argument("--yes", "-y", action="store_true", help="Skip consent prompt")
     p_st.set_defaults(func=_cmd_submit_testimonial)
+
+    # config
+    p_config = sub.add_parser(
+        "config",
+        help="Read, write, and audit UE configuration files (INI, XML, JSON).",
+        description=(
+            "Unified access to all Unreal Engine configuration files with full\n"
+            "hierarchy awareness. Supports INI (.ini), XML (BuildConfiguration.xml),\n"
+            "and JSON (.uproject/.uplugin).\n\n"
+            "EXAMPLES:\n"
+            '  soft-ue-cli config tree\n'
+            '  soft-ue-cli config get "[/Script/Engine.RendererSettings]r.Bloom"\n'
+            '  soft-ue-cli config get "[/Script/Engine.RendererSettings]r.Bloom" --trace\n'
+            '  soft-ue-cli config set "[/Script/Engine.RendererSettings]r.Bloom" "False" --layer ProjectDefault\n'
+            '  soft-ue-cli config diff --layers ProjectDefault Base\n'
+            '  soft-ue-cli config audit'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_config.add_argument("--engine-path", metavar="PATH", help="Path to UE engine directory")
+    p_config.add_argument("--project-path", metavar="PATH", help="Path to UE project directory (auto-detected from cwd)")
+    p_config.add_argument("--platform", metavar="PLATFORM", help="Target platform (e.g., Windows, Linux)")
+    config_sub = p_config.add_subparsers(dest="config_action", required=True)
+
+    p_ct = config_sub.add_parser("tree", help="Display config file hierarchy")
+    p_ct.add_argument("--format", dest="config_format", choices=["ini", "xml", "project"], help="Filter by format")
+    p_ct.add_argument("--type", dest="config_type", default="Engine", help="Config category (default: Engine)")
+    p_ct.add_argument("--exists-only", action="store_true", help="Only show files that exist on disk")
+
+    p_cg = config_sub.add_parser("get", help="Query config values")
+    p_cg.add_argument("key", nargs="?", help="Config key in [Section]Key format (INI), dot.path (XML/JSON)")
+    p_cg.add_argument("--layer", metavar="LAYER", help="Read from a specific hierarchy layer")
+    p_cg.add_argument("--trace", action="store_true", help="Show value at every layer in the hierarchy")
+    p_cg.add_argument("--source", choices=["ini", "xml", "project"], help="Force config source type")
+    p_cg.add_argument("--search", metavar="PATTERN", help="Search all keys matching pattern")
+    p_cg.add_argument("--type", dest="config_type", default="Engine", help="Config category (default: Engine)")
+
+    p_cs = config_sub.add_parser("set", help="Write config values")
+    p_cs.add_argument("key", help="Config key in [Section]Key format (INI), dot.path (XML/JSON)")
+    p_cs.add_argument("value", help="Value to set")
+    p_cs.add_argument("--layer", metavar="LAYER", help="Target hierarchy layer (required for INI/XML)")
+    p_cs.add_argument("--source", choices=["ini", "xml", "project"], help="Force config source type")
+    p_cs.add_argument("--type", dest="config_type", default="Engine", help="Config category (default: Engine)")
+
+    p_cd = config_sub.add_parser("diff", help="Compare config across layers, platforms, or snapshots")
+    p_cd.add_argument("--layers", nargs=2, metavar="LAYER", help="Compare two layers")
+    p_cd.add_argument("--platforms", nargs=2, metavar="PLATFORM", help="Compare two platforms")
+    p_cd.add_argument("--snapshot", metavar="GIT_REF", help="Compare current config against a git ref")
+    p_cd.add_argument("--files", nargs=2, metavar="FILE", help="Compare two specific config files")
+    p_cd.add_argument("--audit", action="store_true", help="Show all project overrides vs engine defaults")
+    p_cd.add_argument("--type", dest="config_type", default="Engine", help="Config category (default: Engine)")
+
+    p_ca = config_sub.add_parser("audit", help="Show all project overrides vs engine defaults")
+    p_ca.add_argument("--format", dest="config_format", choices=["ini", "xml"], help="Filter by format")
+    p_ca.add_argument("--type", dest="config_type", default="Engine", help="Config category (default: Engine)")
+
+    p_config.set_defaults(func=cmd_config)
 
     # skills
     p_skills = sub.add_parser(

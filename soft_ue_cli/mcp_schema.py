@@ -21,6 +21,7 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "request-feature",
     "inspect-uasset",
     "diff-uasset",
+    "config",
 })
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.
@@ -125,10 +126,14 @@ def _extract_one(parser: argparse.ArgumentParser) -> dict[str, Any]:
     """Extract a JSON Schema from a single subcommand parser."""
     properties: dict[str, Any] = {}
     required: list[str] = []
+    nested_subparsers: argparse._SubParsersAction | None = None
 
     for action in parser._actions:
         # Skip help action and subparsers
-        if isinstance(action, (argparse._HelpAction, argparse._SubParsersAction)):
+        if isinstance(action, argparse._HelpAction):
+            continue
+        if isinstance(action, argparse._SubParsersAction):
+            nested_subparsers = action
             continue
 
         # Determine the property name (dest)
@@ -155,7 +160,30 @@ def _extract_one(parser: argparse.ArgumentParser) -> dict[str, Any]:
     if required:
         schema["required"] = required
 
+    if nested_subparsers is not None:
+        nested_props, nested_required = _extract_nested_subcommands(nested_subparsers)
+        schema["properties"].update(nested_props)
+        schema["required"] = sorted(set(schema.get("required", [])) | set(nested_required))
+
     return schema
+
+
+def _extract_nested_subcommands(subparsers_action: argparse._SubParsersAction) -> tuple[dict[str, Any], list[str]]:
+    """Flatten one level of nested subcommands into a single tool schema."""
+    properties: dict[str, Any] = {
+        "subcommand": {
+            "type": "string",
+            "enum": list(subparsers_action.choices.keys()),
+            "description": "Nested subcommand to execute",
+        },
+    }
+
+    for name, sub_parser in subparsers_action.choices.items():
+        nested_schema = _extract_one(sub_parser)
+        for prop_name, prop in nested_schema.get("properties", {}).items():
+            properties.setdefault(prop_name, prop)
+
+    return properties, ["subcommand"]
 
 
 def extract_tools() -> list[dict[str, Any]]:

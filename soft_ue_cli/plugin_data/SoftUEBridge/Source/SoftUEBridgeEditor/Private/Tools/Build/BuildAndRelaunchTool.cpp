@@ -2,9 +2,21 @@
 
 #include "Tools/Build/BuildAndRelaunchTool.h"
 #include "SoftUEBridgeEditorModule.h"
+#include "HAL/PlatformFileManager.h"
+#include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
+#include "Containers/Ticker.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Editor.h"
+
+namespace
+{
+	FString EscapePowerShellSingleQuotedString(const FString& Value)
+	{
+		return Value.Replace(TEXT("'"), TEXT("''"));
+	}
+}
 
 FString UBuildAndRelaunchTool::GetToolDescription() const
 {
@@ -32,7 +44,7 @@ TMap<FString, FBridgeSchemaProperty> UBuildAndRelaunchTool::GetInputSchema() con
 
 FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	const TSharedPtr<FJsonObject>& Arguments,
-	const FBridgeToolContext& Context)
+	const FBridgeToolContext& /*Context*/)
 {
 #if PLATFORM_WINDOWS
 	FString BuildConfig = GetStringArgOrDefault(Arguments, TEXT("build_config"), TEXT("Development"));
@@ -55,7 +67,6 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	}
 
 	FString ProjectName = FPaths::GetBaseFilename(ProjectPath);
-	FString ProjectDir = FPaths::GetPath(ProjectPath);
 
 	// Get engine paths
 	FString EngineDir = FPaths::EngineDir();
@@ -72,8 +83,9 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Editor executable not found: %s"), *EditorExecutable));
 	}
 
-	// Create a batch script to handle the workflow
-	FString TempScriptPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.bat"));
+	// Create a PowerShell worker script to handle the workflow.
+	// It is launched via a detached grandchild process so it survives editor shutdown.
+	FString TempScriptPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.ps1"));
 	FString TempScriptDir = FPaths::GetPath(TempScriptPath);
 
 	// Ensure temp directory exists
@@ -93,75 +105,82 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	FString BuildLogPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.log"));
 	FString BuildStatusPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.status.json"));
 
-	// Remove stale status file so CLI doesn't read an old result
+	// Remove stale artifacts so CLI doesn't read an old result.
 	PlatformFile.DeleteFile(*BuildStatusPath);
+	PlatformFile.DeleteFile(*BuildLogPath);
 
-	// Build the batch script
-	FString BatchScript = TEXT("@echo off\n");
-	BatchScript += FString::Printf(TEXT("echo Waiting for Unreal Editor (PID: %d) to close...\n"), CurrentPID);
-	BatchScript += TEXT("\n");
+	const FString EscapedTempScriptPath = EscapePowerShellSingleQuotedString(TempScriptPath);
+	const FString EscapedBuildLogPath = EscapePowerShellSingleQuotedString(BuildLogPath);
+	const FString EscapedBuildStatusPath = EscapePowerShellSingleQuotedString(BuildStatusPath);
+	const FString EscapedBuildBatchFile = EscapePowerShellSingleQuotedString(BuildBatchFile);
+	const FString EscapedEditorExecutable = EscapePowerShellSingleQuotedString(EditorExecutable);
+	const FString EscapedProjectPath = EscapePowerShellSingleQuotedString(ProjectPath);
+	const FString EscapedProjectName = EscapePowerShellSingleQuotedString(ProjectName);
+	const FString EscapedBuildConfig = EscapePowerShellSingleQuotedString(BuildConfig);
 
-	// Wait for this specific process to exit (not just any editor)
-	BatchScript += TEXT(":WAIT_LOOP\n");
-	BatchScript += FString::Printf(TEXT("tasklist /FI \"PID eq %d\" 2>NUL | find \"%d\" >NUL\n"), CurrentPID, CurrentPID);
-	BatchScript += TEXT("if %ERRORLEVEL% EQU 0 (\n");
-	BatchScript += TEXT("    timeout /t 1 /nobreak >nul\n");
-	BatchScript += TEXT("    goto WAIT_LOOP\n");
-	BatchScript += TEXT(")\n");
-	BatchScript += TEXT("echo Editor closed.\n");
-	BatchScript += TEXT("\n");
+	FString WorkerScript = TEXT("$ErrorActionPreference = 'Stop'\n");
+	WorkerScript += FString::Printf(TEXT("$WorkerScriptPath = '%s'\n"), *EscapedTempScriptPath);
+	WorkerScript += FString::Printf(TEXT("$BuildLogPath = '%s'\n"), *EscapedBuildLogPath);
+	WorkerScript += FString::Printf(TEXT("$BuildStatusPath = '%s'\n"), *EscapedBuildStatusPath);
+	WorkerScript += FString::Printf(TEXT("$BuildBatchFile = '%s'\n"), *EscapedBuildBatchFile);
+	WorkerScript += FString::Printf(TEXT("$EditorExecutable = '%s'\n"), *EscapedEditorExecutable);
+	WorkerScript += FString::Printf(TEXT("$ProjectPath = '%s'\n"), *EscapedProjectPath);
+	WorkerScript += FString::Printf(TEXT("$ProjectName = '%s'\n"), *EscapedProjectName);
+	WorkerScript += FString::Printf(TEXT("$BuildConfig = '%s'\n"), *EscapedBuildConfig);
+	WorkerScript += FString::Printf(TEXT("$EditorPid = %u\n"), CurrentPID);
+	WorkerScript += FString::Printf(TEXT("$SkipRelaunch = $%s\n"), bSkipRelaunch ? TEXT("true") : TEXT("false"));
+	WorkerScript += TEXT("\n");
+	WorkerScript += TEXT("try {\n");
+	WorkerScript += TEXT("    \"build-and-relaunch worker started $(Get-Date -Format o)\" | Set-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("    $EditorProcess = Get-Process -Id $EditorPid -ErrorAction SilentlyContinue\n");
+	WorkerScript += TEXT("    if ($EditorProcess) {\n");
+	WorkerScript += TEXT("        Wait-Process -Id $EditorPid\n");
+	WorkerScript += TEXT("    }\n");
+	WorkerScript += TEXT("    \"Editor closed.\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("    \"Building $ProjectName ($BuildConfig)...\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("    & $BuildBatchFile \"$($ProjectName)Editor\" 'Win64' $BuildConfig $ProjectPath '-waitmutex' 2>&1 | Out-File -FilePath $BuildLogPath -Append -Encoding utf8\n");
+	WorkerScript += TEXT("    $BuildExit = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }\n");
+	WorkerScript += TEXT("    @{ success = ($BuildExit -eq 0); exit_code = $BuildExit } | ConvertTo-Json -Compress | Set-Content -Path $BuildStatusPath -Encoding utf8\n");
+	WorkerScript += TEXT("    if ($BuildExit -ne 0) {\n");
+	WorkerScript += TEXT("        exit $BuildExit\n");
+	WorkerScript += TEXT("    }\n");
+	WorkerScript += TEXT("    if (-not $SkipRelaunch) {\n");
+	WorkerScript += TEXT("        \"Build completed successfully. Relaunching editor...\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("        Start-Sleep -Seconds 2\n");
+	WorkerScript += TEXT("        Start-Process -FilePath $EditorExecutable -ArgumentList @($ProjectPath) | Out-Null\n");
+	WorkerScript += TEXT("    }\n");
+	WorkerScript += TEXT("    else {\n");
+	WorkerScript += TEXT("        \"Build completed successfully.\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("    }\n");
+	WorkerScript += TEXT("}\n");
+	WorkerScript += TEXT("catch {\n");
+	WorkerScript += TEXT("    $WorkerError = $_.Exception.Message\n");
+	WorkerScript += TEXT("    @{ success = $false; exit_code = 1; error = $WorkerError } | ConvertTo-Json -Compress | Set-Content -Path $BuildStatusPath -Encoding utf8\n");
+	WorkerScript += TEXT("    \"Worker error: $WorkerError\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("    exit 1\n");
+	WorkerScript += TEXT("}\n");
+	WorkerScript += TEXT("finally {\n");
+	WorkerScript += TEXT("    Remove-Item -LiteralPath $WorkerScriptPath -ErrorAction SilentlyContinue\n");
+	WorkerScript += TEXT("}\n");
 
-	// Build command — redirect output to log file while still showing in console
-	BatchScript += FString::Printf(TEXT("echo Building %s (%s)...\n"), *ProjectName, *BuildConfig);
-	BatchScript += FString::Printf(TEXT("call \"%s\" %sEditor Win64 %s \"%s\" -waitmutex > \"%s\" 2>&1\n"),
-		*BuildBatchFile,
-		*ProjectName,
-		*BuildConfig,
-		*ProjectPath,
-		*BuildLogPath);
-	BatchScript += TEXT("set BUILD_EXIT=%ERRORLEVEL%\n");
-	BatchScript += TEXT("\n");
-	BatchScript += TEXT("if %BUILD_EXIT% NEQ 0 (\n");
-	BatchScript += TEXT("    echo Build failed with error code %BUILD_EXIT%\n");
-	BatchScript += FString::Printf(TEXT("    echo {\"success\":false,\"exit_code\":%%BUILD_EXIT%%} > \"%s\"\n"), *BuildStatusPath);
-	BatchScript += TEXT("    pause\n");
-	BatchScript += TEXT("    exit /b %BUILD_EXIT%\n");
-	BatchScript += TEXT(")\n");
-	BatchScript += TEXT("\n");
-
-	// Write success status
-	BatchScript += FString::Printf(TEXT("echo {\"success\":true,\"exit_code\":0} > \"%s\"\n"), *BuildStatusPath);
-
-	// Relaunch command (if not skipped)
-	if (!bSkipRelaunch)
+	if (!FFileHelper::SaveStringToFile(WorkerScript, *TempScriptPath))
 	{
-		BatchScript += TEXT("echo Build completed successfully. Relaunching editor...\n");
-		BatchScript += TEXT("timeout /t 2 /nobreak >nul\n");
-		BatchScript += FString::Printf(TEXT("start \"\" \"%s\" \"%s\"\n"), *EditorExecutable, *ProjectPath);
-	}
-	else
-	{
-		BatchScript += TEXT("echo Build completed successfully.\n");
+		return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to create worker script: %s"), *TempScriptPath));
 	}
 
-	BatchScript += TEXT("\n");
-	BatchScript += FString::Printf(TEXT("del \"%s\"\n"), *TempScriptPath);
+	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Created worker script at: %s"), *TempScriptPath);
 
-	// Write the batch script
-	if (!FFileHelper::SaveStringToFile(BatchScript, *TempScriptPath))
-	{
-		return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to create batch script: %s"), *TempScriptPath));
-	}
-
-	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Created batch script at: %s"), *TempScriptPath);
-
-	// Launch the batch script via cmd.exe (batch files can't be executed directly by CreateProc)
-	FString CmdArgs = FString::Printf(TEXT("/c \"%s\""), *TempScriptPath);
+	const FString LauncherCommand = FString::Printf(
+		TEXT("Start-Process -WindowStyle Hidden -FilePath powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File','%s')"),
+		*EscapedTempScriptPath);
+	const FString CmdArgs = FString::Printf(
+		TEXT("-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"%s\""),
+		*LauncherCommand);
 	FProcHandle ProcHandle = FPlatformProcess::CreateProc(
-		TEXT("cmd.exe"),
+		TEXT("powershell.exe"),
 		*CmdArgs,
 		true,  // bLaunchDetached
-		false, // bLaunchHidden
+		true,  // bLaunchHidden
 		false, // bLaunchReallyHidden
 		nullptr,
 		0,     // PriorityModifier
@@ -171,21 +190,22 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 
 	if (!ProcHandle.IsValid())
 	{
-		return FBridgeToolResult::Error(TEXT("Failed to launch build script"));
+		return FBridgeToolResult::Error(TEXT("Failed to launch build worker"));
 	}
+	FPlatformProcess::CloseProc(ProcHandle);
 
-	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Batch script launched successfully (PID: %d). Requesting editor shutdown..."), CurrentPID);
+	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Detached build worker launched successfully (PID: %d). Requesting editor shutdown..."), CurrentPID);
 
 	// Build result
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("status"), TEXT("initiated"));
-	Result->SetStringField(TEXT("project"), *ProjectName);
-	Result->SetStringField(TEXT("build_config"), *BuildConfig);
+	Result->SetStringField(TEXT("project"), ProjectName);
+	Result->SetStringField(TEXT("build_config"), BuildConfig);
 	Result->SetBoolField(TEXT("will_relaunch"), !bSkipRelaunch);
 	Result->SetNumberField(TEXT("editor_pid"), CurrentPID);
-	Result->SetStringField(TEXT("build_log_path"), *BuildLogPath);
-	Result->SetStringField(TEXT("build_status_path"), *BuildStatusPath);
+	Result->SetStringField(TEXT("build_log_path"), BuildLogPath);
+	Result->SetStringField(TEXT("build_status_path"), BuildStatusPath);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Build and relaunch workflow initiated for this editor instance (PID: %d). Editor will close momentarily."), CurrentPID));
 
 	// Request editor shutdown

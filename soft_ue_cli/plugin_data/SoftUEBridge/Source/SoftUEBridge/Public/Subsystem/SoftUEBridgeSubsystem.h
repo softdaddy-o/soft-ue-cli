@@ -3,9 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Delegates/Delegate.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Server/BridgeServer.h"
-#include "Containers/Ticker.h"
 #include "SoftUEBridgeSubsystem.generated.h"
 
 /** Engine subsystem that hosts the bridge HTTP server.
@@ -40,11 +40,18 @@ public:
 private:
 	TUniquePtr<FBridgeServer> Server;
 
-	/** Ticker handle: fires every 10 s to revive HTTP listeners disrupted by PIE */
-	FTSTicker::FDelegateHandle TickerHandle;
+#if WITH_EDITOR
+	/** Editor lifecycle hooks used to revive HTTP listeners after PIE disrupts them. */
+	FDelegateHandle PostPIEStartedHandle;
+	FDelegateHandle ShutdownPIEHandle;
 
-	/** Called every 10 s; re-starts HttpServerModule listeners if PIE disrupted them */
-	bool OnTick(float DeltaTime);
+	void RegisterPIERecoveryHooks();
+	void UnregisterPIERecoveryHooks();
+	void HandlePostPIEStarted(bool bIsSimulating);
+	void HandleShutdownPIE(bool bIsSimulating);
+#endif
+
+	void ReviveHttpListeners(const TCHAR* Reason);
 
 	/** Port read from env var SOFT_UE_BRIDGE_PORT, default 8080 */
 	int32 ResolvePort() const;

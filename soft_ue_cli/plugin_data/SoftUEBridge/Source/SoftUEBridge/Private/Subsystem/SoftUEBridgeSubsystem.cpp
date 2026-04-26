@@ -12,6 +12,10 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 
+#if WITH_EDITOR
+#include "Editor.h"
+#endif
+
 void USoftUEBridgeSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -31,22 +35,16 @@ void USoftUEBridgeSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	FBridgeLogCapture::Get().Start();
 	Server = MakeUnique<FBridgeServer>();
 	StartServer(ResolvePort());
-
-	// PIE world init can call HttpServerModule::StopAllListeners(), silently killing
-	// our listener without going through FBridgeServer::Stop().  Poll every 10 s and
-	// call StartAllListeners() to revive the listener if that happened.
-	TickerHandle = FTSTicker::GetCoreTicker().AddTicker(
-		FTickerDelegate::CreateUObject(this, &USoftUEBridgeSubsystem::OnTick),
-		10.0f
-	);
+#if WITH_EDITOR
+	RegisterPIERecoveryHooks();
+#endif
 }
 
 void USoftUEBridgeSubsystem::Deinitialize()
 {
-	if (TickerHandle.IsValid())
-	{
-		FTSTicker::GetCoreTicker().RemoveTicker(TickerHandle);
-	}
+#if WITH_EDITOR
+	UnregisterPIERecoveryHooks();
+#endif
 	StopServer();
 	Server.Reset();
 	FBridgeLogCapture::Get().Stop();
@@ -55,16 +53,58 @@ void USoftUEBridgeSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
-bool USoftUEBridgeSubsystem::OnTick(float DeltaTime)
+void USoftUEBridgeSubsystem::ReviveHttpListeners(const TCHAR* Reason)
 {
 	if (Server.IsValid() && Server->IsRunning())
 	{
-		// Revive listeners silently stopped by PIE world init.
-		// StartAllListeners() is idempotent when listeners are already running.
+		UE_LOG(LogSoftUEBridge, Verbose, TEXT("SoftUEBridgeSubsystem: reviving HTTP listeners after %s"), Reason);
 		FHttpServerModule::Get().StartAllListeners();
 	}
-	return true; // keep ticking
 }
+
+#if WITH_EDITOR
+void USoftUEBridgeSubsystem::RegisterPIERecoveryHooks()
+{
+	if (!PostPIEStartedHandle.IsValid())
+	{
+		PostPIEStartedHandle = FEditorDelegates::PostPIEStarted.AddUObject(
+			this,
+			&USoftUEBridgeSubsystem::HandlePostPIEStarted);
+	}
+
+	if (!ShutdownPIEHandle.IsValid())
+	{
+		ShutdownPIEHandle = FEditorDelegates::ShutdownPIE.AddUObject(
+			this,
+			&USoftUEBridgeSubsystem::HandleShutdownPIE);
+	}
+}
+
+void USoftUEBridgeSubsystem::UnregisterPIERecoveryHooks()
+{
+	if (PostPIEStartedHandle.IsValid())
+	{
+		FEditorDelegates::PostPIEStarted.Remove(PostPIEStartedHandle);
+		PostPIEStartedHandle.Reset();
+	}
+
+	if (ShutdownPIEHandle.IsValid())
+	{
+		FEditorDelegates::ShutdownPIE.Remove(ShutdownPIEHandle);
+		ShutdownPIEHandle.Reset();
+	}
+}
+
+void USoftUEBridgeSubsystem::HandlePostPIEStarted(bool /*bIsSimulating*/)
+{
+	ReviveHttpListeners(TEXT("PostPIEStarted"));
+}
+
+void USoftUEBridgeSubsystem::HandleShutdownPIE(bool /*bIsSimulating*/)
+{
+	ReviveHttpListeners(TEXT("ShutdownPIE"));
+}
+#endif
 
 bool USoftUEBridgeSubsystem::StartServer(int32 Port)
 {

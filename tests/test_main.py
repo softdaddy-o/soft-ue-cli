@@ -18,6 +18,7 @@ from soft_ue_cli.__main__ import (
     build_parser,
     cmd_add_graph_node,
     cmd_batch_call,
+    cmd_build_and_relaunch,
     cmd_call_function,
     cmd_capture_screenshot,
     cmd_capture_viewport,
@@ -151,6 +152,14 @@ def test_parser_get_console_var():
     parser = build_parser()
     args = parser.parse_args(["get-console-var", "t.MaxFPS"])
     assert args.name == "t.MaxFPS"
+
+
+def test_parser_build_and_relaunch_flags():
+    parser = build_parser()
+    args = parser.parse_args(["build-and-relaunch", "--config", "Debug", "--skip-relaunch", "--wait"])
+    assert args.config == "Debug"
+    assert args.skip_relaunch is True
+    assert args.wait is True
 
 
 def test_parser_inspect_uasset():
@@ -483,6 +492,19 @@ def test_parser_run_python_script_world():
     parser = build_parser()
     args = parser.parse_args(["run-python-script", "--script", "print('x')", "--world", "pie"])
     assert args.world == "pie"
+
+
+def test_cmd_build_and_relaunch_forwards_args(capsys):
+    parser = build_parser()
+    args = parser.parse_args(["build-and-relaunch", "--config", "Debug", "--skip-relaunch"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_build_and_relaunch(args)
+
+    mock_run.assert_called_once_with(
+        "build-and-relaunch",
+        {"build_config": "Debug", "skip_relaunch": True},
+    )
 
 
 # -- capture-screenshot parser -------------------------------------------------

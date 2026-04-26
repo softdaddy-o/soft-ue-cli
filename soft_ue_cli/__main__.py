@@ -1545,7 +1545,11 @@ def _cmd_config_set(args: argparse.Namespace) -> None:
             continue
         ini = UeIniFile.from_file(layer.path) if layer.exists else UeIniFile(path=layer.path)
         ini.set(section, key, value)
-        ini.write(layer.path)
+        try:
+            ini.write(layer.path)
+        except PermissionError:
+            print(f"error: permission denied writing '{layer.path}' (file may be read-only or locked by source control)", file=sys.stderr)
+            sys.exit(1)
         _print_json({"status": "ok", "key": key_str, "value": value, "layer": layer_name, "path": str(layer.path)})
         return
 

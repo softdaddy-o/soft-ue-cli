@@ -706,15 +706,11 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     begin_suite("config")
 
     # Bridge tools: get / set / validate
-    run_test("get-config-value r.Bloom", "get-config-value", {
+    # Use set-config-value's own test key for get — r.Bloom is a CVar,
+    # not an INI key, so get-config-value (which reads GConfig INI) won't find it.
+    run_test("validate-config-key r.DefaultFeature.AutoExposure", "validate-config-key", {
         "section": "/Script/Engine.RendererSettings",
-        "key": "r.Bloom",
-        "config_type": "Engine",
-    }, has("value"))
-
-    run_test("validate-config-key r.Bloom", "validate-config-key", {
-        "section": "/Script/Engine.RendererSettings",
-        "key": "r.Bloom",
+        "key": "r.DefaultFeature.AutoExposure",
         "config_type": "Engine",
     }, has("valid"))
 
@@ -740,8 +736,10 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             check_stdout=lambda s: '"format": "ini"' in s or '"layers": []' in s)
     offline_cfg_key = f"OfflineSearchKey_{RUN_TS}_{mode_name}"
     offline_cfg_path = f"[{cfg_section}]{offline_cfg_key}"
-    run_cli("config set project default", "config", *(["--project-path", project_dir] if project_dir else []),
-            "set", offline_cfg_path, "SearchValue42", "--layer", "ProjectDefault", "--type", "Engine",
+    # Write to GameDirUser layer (Config/UserEngine.ini) — less likely to be
+    # read-only under source control than ProjectDefault (Config/DefaultEngine.ini).
+    run_cli("config set user layer", "config", *(["--project-path", project_dir] if project_dir else []),
+            "set", offline_cfg_path, "SearchValue42", "--layer", "GameDirUser", "--type", "Engine",
             check_stdout=lambda s: '"status": "ok"' in s and offline_cfg_key in s)
     run_cli("config get search", "config", *(["--project-path", project_dir] if project_dir else []),
             "get", "--search", offline_cfg_key, "--type", "Engine",

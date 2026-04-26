@@ -111,7 +111,16 @@ class UAssetPackage:
                 offset=0,
             )
 
-        r.read_int32()  # LegacyFileVersion
+        legacy_file_version = r.read_int32()  # LegacyFileVersion
+
+        if legacy_file_version <= -8:
+            raise UAssetError(
+                f"Unsupported package format version {legacy_file_version} "
+                f"(UE 5.4+ format). The offline parser only supports "
+                f"LegacyFileVersion -7 through -2 (UE 4.x / UE 5.0-5.3).",
+                offset=4,
+            )
+
         r.read_int32()  # LegacyUE3Version
         s.file_version_ue4 = r.read_int32()
         s.file_version_ue5 = r.read_int32()

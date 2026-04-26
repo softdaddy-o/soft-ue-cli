@@ -2,6 +2,14 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.25.8] - 2026-04-23
+
+### Fixed
+- plugin build: `GetLogsTool.cpp` no longer depends on `Misc/LexicalConversion.h`, avoiding a UE-version-specific include failure during plugin compilation
+
+### Changed
+- README now includes a project-origin note and a public-development status note explaining that future work may continue privately while the published code remains available as a prototype/reference
+
 ## [1.25.7] - 2026-04-23
 
 ### Added

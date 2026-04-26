@@ -5,7 +5,6 @@
 #include "SoftUEBridgeModule.h"
 #include "Misc/OutputDeviceRedirector.h"
 #include "Misc/DateTime.h"
-#include "Misc/LexicalConversion.h"
 #include "Algo/AllOf.h"
 #include "Algo/Reverse.h"
 
@@ -171,7 +170,9 @@ FBridgeToolResult UGetLogsTool::Execute(const TSharedPtr<FJsonObject>& Args, con
 	Result->SetArrayField(TEXT("entries"), EntriesArr);
 	Result->SetNumberField(TEXT("count"), LinesArr.Num());
 	Result->SetStringField(TEXT("last_timestamp"), FBridgeLogCapture::Get().GetLatestTimestamp());
-	Result->SetStringField(TEXT("next_cursor"), LexToString(FBridgeLogCapture::Get().GetLatestCursor()));
+	Result->SetStringField(
+		TEXT("next_cursor"),
+		FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(FBridgeLogCapture::Get().GetLatestCursor())));
 
 	return FBridgeToolResult::Json(Result);
 }

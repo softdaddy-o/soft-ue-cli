@@ -13,9 +13,19 @@
 
 Built and maintained by a solo developer. [Support this project](#support-this-project) if it saves you time.
 
+This project was originally created to help friends work with Unreal Engine more effectively.
+
 **Control Unreal Engine 5 from your AI agent or terminal.** soft-ue-cli gives any LLM — via **MCP server** or **CLI** — 60+ tools to spawn actors, edit Blueprints, inspect materials, read and patch UE config files, run Play-In-Editor sessions, capture screenshots, profile performance, and more inside a running UE5 editor or packaged build.
 
 Two connection paths. Same package. Bridge tools when Unreal is running, offline tools when it is not.
+
+## Project Status
+
+Public development of this repository is winding down.
+
+Future work may continue in a private environment because ongoing development can involve proprietary employer-owned code that cannot be published here.
+
+The code already published in this repository remains available as a prototype and reference implementation. You are welcome to use it, fork it, and extend it in accordance with the repository license.
 
 ```text
 LLM client / shell / CI

@@ -289,6 +289,20 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `insights-list-traces` | List available trace files |
 | `insights-analyze` | Analyze a trace file for CPU, GPU, or memory hotspots |
 
+### Rewind Debugger (Animation Debugging)
+
+Requires the **Animation Insights (GameplayInsights)** plugin enabled in Edit > Plugins.
+
+| Command | Description |
+|---------|-------------|
+| `rewind-start` | Start a Rewind Debugger recording with channel and actor filtering, or load an existing `.utrace` file with `--load` |
+| `rewind-stop` | Stop the current recording |
+| `rewind-status` | Query current recording state (detects recordings from CLI or editor UI) |
+| `rewind-list-tracks` | List all recorded actors and their available track types |
+| `rewind-overview` | Track-level summary for an actor (state machine transitions, montage play ranges, notify fire times) |
+| `rewind-snapshot` | Detailed animation state at a specific time or frame — the time-travel equivalent of `inspect-anim-instance` |
+| `rewind-save` | Save the in-memory recording to a `.utrace` file |
+
 ### Build and Live Coding
 
 | Command | Description |

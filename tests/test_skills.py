@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from soft_ue_cli.skills import get_skill, list_skills
@@ -31,6 +29,12 @@ def test_list_skills_contains_blueprint_to_cpp():
     assert "blueprint-to-cpp" in names
     assert "test-tools" in names
     assert "replay-changes" in names
+    assert "author-test" in names
+    assert "author-regression-test" in names
+    assert "author-anim-state-test" in names
+    assert "author-bp-parity-test" in names
+    assert "author-invariant-test" in names
+    assert "run-test" in names
 
 
 # -- get_skill -----------------------------------------------------------------
@@ -112,12 +116,30 @@ def test_replay_changes_skill_mentions_bundle_workflow():
     assert "p4 sync" in content
 
 
+def test_author_test_skill_mentions_supported_subskills():
+    content = get_skill("author-test")
+    assert content is not None
+    assert "author-regression-test" in content
+    assert "author-anim-state-test" in content
+    assert "author-bp-parity-test" in content
+    assert "author-invariant-test" in content
+    assert "run-test" in content
+
+
+def test_run_test_skill_mentions_supported_targets():
+    content = get_skill("run-test")
+    assert content is not None
+    assert "tests/gameplay/<file>.py" in content
+    assert "run-python-script --script-path" in content
+    assert "does not run C++ Automation Spec tests" in content
+
+
 # -- skill file validation -----------------------------------------------------
 
 
 def test_all_skills_have_required_frontmatter():
     """Every .md skill file must have name, description, and version in frontmatter."""
-    skills_dir = Path(__file__).parents[1] / "soft_ue_cli" / "skills"
+    skills_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
     for md_file in skills_dir.glob("*.md"):
         text = md_file.read_text(encoding="utf-8")
         assert text.startswith("---"), f"{md_file.name} missing frontmatter"

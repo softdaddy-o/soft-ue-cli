@@ -163,7 +163,8 @@ public:
 
 	/**
 	 * Find a property by path on an object.
-	 * Supports nested paths like "Stats.MaxHealth" and array indices like "Items[0]".
+	 * Supports nested paths like "Stats.MaxHealth", array indices like "Items[0]",
+	 * and InstancedStruct members such as "ColumnsStructs[0].RowValuesWithAny[1]".
 	 * @param Object - Object to search
 	 * @param PropertyPath - Dot-separated property path
 	 * @param OutProperty - Found property

@@ -8,30 +8,12 @@
 #include "Tools/Scripting/BridgePythonCallHelper.h"
 #include "Engine/Engine.h"
 
-/** Captures LogPython output during script execution */
-class FPythonOutputCapture : public FOutputDevice
-{
-public:
-	TArray<FString> Lines;
-	FCriticalSection Lock;
-
-	virtual bool CanBeUsedOnMultipleThreads() const override { return true; }
-
-	virtual void Serialize(const TCHAR* V, ELogVerbosity::Type Verbosity, const FName& Category) override
-	{
-		if (Category == TEXT("LogPython") || Category == TEXT("Python"))
-		{
-			FScopeLock SL(&Lock);
-			Lines.Add(FString(V));
-		}
-	}
-};
-
 FString URunPythonScriptTool::GetToolDescription() const
 {
 	return TEXT("Execute a Python script in Unreal Editor's Python environment. "
 		"Requires PythonScriptPlugin to be enabled. Supports inline code, script files, "
-		"arguments, extra sys.path entries, and optional PIE/editor world helpers.");
+		"arguments, extra sys.path entries, optional PIE/editor world helpers, and "
+		"file execution that preserves __file__ and __future__ imports.");
 }
 
 TMap<FString, FBridgeSchemaProperty> URunPythonScriptTool::GetInputSchema() const
@@ -102,15 +84,25 @@ FBridgeToolResult URunPythonScriptTool::Execute(
 		return FBridgeToolResult::Error(TEXT("Cannot specify both 'script' and 'script_path'. Use only one."));
 	}
 
-	// If script_path is provided, read the file
+	FString ResolvedScriptPath;
+
+	// If script_path is provided, read the file for validation and preserve the path for file execution.
 	if (!ScriptPath.IsEmpty())
 	{
 		FString ReadError;
-		if (!ReadScriptFile(ScriptPath, Script, ReadError))
+		if (!ReadScriptFile(ScriptPath, ResolvedScriptPath, Script, ReadError))
 		{
 			return FBridgeToolResult::Error(ReadError);
 		}
-		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("run-python-script: Loaded script from %s"), *ScriptPath);
+		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("run-python-script: Loaded script from %s"), *ResolvedScriptPath);
+	}
+
+	if (ContainsUnsafeLevelLoad(Script))
+	{
+		return FBridgeToolResult::Error(
+			TEXT("run-python-script: map-loading APIs such as unreal.EditorLoadingAndSavingUtils.load_map() and "
+				 "unreal.EditorLevelLibrary.load_level() are not supported here because they can tear down the active "
+				 "Python execution context. Use open-asset on the map outside run-python-script instead."));
 	}
 
 	const FString WorldType = GetStringArgOrDefault(Arguments, TEXT("world"), TEXT("editor")).ToLower();
@@ -138,36 +130,88 @@ FBridgeToolResult URunPythonScriptTool::Execute(
 		}
 	}
 
-	// Build Python command with arguments and paths if provided
-	FString PythonCommand = BuildPythonCommand(Script, Arguments, PythonPaths, WorldType);
+	// Build and execute the shared preamble first so file-based execution still gets helpers and arguments
+	const FString PythonPreamble = BuildPythonPreamble(Arguments, PythonPaths, WorldType);
+	bool bSuccess = false;
+	FString Error;
+	FString Output;
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("run-python-script: Executing Python code..."));
 
-	// Execute Python command
-	bool bSuccess = false;
-	FString Error;
-	FString Output = ExecutePython(PythonCommand, bSuccess, Error);
+	if (!ScriptPath.IsEmpty() && !PythonPreamble.IsEmpty())
+	{
+		FString PreambleOutput;
+		if (!ExecutePythonCommand(
+			PythonPreamble,
+			EPythonCommandExecutionMode::ExecuteFile,
+			EPythonFileExecutionScope::Public,
+			bSuccess,
+			PreambleOutput,
+			Error))
+		{
+			return FBridgeToolResult::Error(TEXT("Failed to execute Python preamble"));
+		}
+
+		Output = MoveTemp(PreambleOutput);
+		if (!bSuccess)
+		{
+			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+			Result->SetBoolField(TEXT("success"), false);
+			Result->SetStringField(TEXT("error"), Error);
+			if (!Output.IsEmpty())
+			{
+				Result->SetStringField(TEXT("output"), Output);
+			}
+			return FBridgeToolResult::Json(Result);
+		}
+	}
+
+	FString ScriptOutput;
+	if (!ScriptPath.IsEmpty())
+	{
+		if (!ExecutePythonCommand(
+			ResolvedScriptPath,
+			EPythonCommandExecutionMode::ExecuteFile,
+			EPythonFileExecutionScope::Public,
+			bSuccess,
+			ScriptOutput,
+			Error))
+		{
+			return FBridgeToolResult::Error(TEXT("Failed to execute Python script file"));
+		}
+	}
+	else
+	{
+		const FString InlineCommand = PythonPreamble + Script;
+		if (!ExecutePythonCommand(
+			InlineCommand,
+			EPythonCommandExecutionMode::ExecuteFile,
+			EPythonFileExecutionScope::Public,
+			bSuccess,
+			ScriptOutput,
+			Error))
+		{
+			return FBridgeToolResult::Error(TEXT("Failed to execute inline Python script"));
+		}
+		Output.Reset();
+	}
+
+	if (!Output.IsEmpty() && !ScriptOutput.IsEmpty())
+	{
+		Output += TEXT("\n");
+	}
+	Output += ScriptOutput;
 
 	// Build result
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("success"), bSuccess);
-
-	// Detect if script performed level loading operations
-	bool bLevelLoadDetected = Output.Contains(TEXT("LoadMap")) ||
-	                          Output.Contains(TEXT("load_level")) ||
-	                          Output.Contains(TEXT("Loading map"));
 
 	if (bSuccess)
 	{
 		Result->SetStringField(TEXT("output"), Output);
 		if (!ScriptPath.IsEmpty())
 		{
-			Result->SetStringField(TEXT("script_path"), ScriptPath);
-		}
-		if (bLevelLoadDetected)
-		{
-			Result->SetStringField(TEXT("advisory"),
-				TEXT("Level loading detected. World state may have changed. Verify editor state before continuing."));
+			Result->SetStringField(TEXT("script_path"), ResolvedScriptPath);
 		}
 		UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("run-python-script: Execution completed successfully"));
 	}
@@ -184,101 +228,86 @@ FBridgeToolResult URunPythonScriptTool::Execute(
 	return FBridgeToolResult::Json(Result);
 }
 
-FString URunPythonScriptTool::ExecutePython(const FString& Command, bool& bOutSuccess, FString& OutError)
+bool URunPythonScriptTool::ExecutePythonCommand(
+	const FString& Command,
+	EPythonCommandExecutionMode ExecutionMode,
+	EPythonFileExecutionScope FileExecutionScope,
+	bool& bOutSuccess,
+	FString& OutOutput,
+	FString& OutError)
 {
 	IPythonScriptPlugin* PythonPlugin = IPythonScriptPlugin::Get();
 	if (!PythonPlugin)
 	{
 		bOutSuccess = false;
 		OutError = TEXT("PythonScriptPlugin interface not available");
-		return FString();
+		OutOutput.Reset();
+		return false;
 	}
 
-	// Register output capture before execution
-	FPythonOutputCapture Capture;
-	GLog->AddOutputDevice(&Capture);
-
-	// Wrap script with error handling
-	FString WrappedScript = FString::Printf(TEXT(
-		"_mcp_success = True\n"
-		"_mcp_error = ''\n"
-		"try:\n"
-		"    %s\n"
-		"except Exception as e:\n"
-		"    _mcp_success = False\n"
-		"    _mcp_error = str(e)\n"
-		"    import traceback\n"
-		"    print(traceback.format_exc())\n"
-	), *Command.Replace(TEXT("\n"), TEXT("\n    ")));
-
-	// Execute the script
-	PythonPlugin->ExecPythonCommand(*WrappedScript);
+	FPythonCommandEx PythonCommand;
+	PythonCommand.Flags = EPythonCommandFlags::Unattended;
+	PythonCommand.ExecutionMode = ExecutionMode;
+	PythonCommand.FileExecutionScope = FileExecutionScope;
+	PythonCommand.Command = Command;
+	bOutSuccess = PythonPlugin->ExecPythonCommandEx(PythonCommand);
 
 	// Force garbage collection to clean up any orphaned objects created by the script
 	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 
-	// Check success status via a status variable printed to log
-	PythonPlugin->ExecPythonCommand(TEXT("print('MCP_STATUS:' + ('SUCCESS' if _mcp_success else 'FAILURE:' + _mcp_error))"));
-
-	GLog->RemoveOutputDevice(&Capture);
-
-	// Build output from captured lines
-	FString Output;
-	FString StatusLine;
-	for (const FString& Line : Capture.Lines)
+	OutOutput.Reset();
+	for (const FPythonLogOutputEntry& Entry : PythonCommand.LogOutput)
 	{
-		if (Line.Contains(TEXT("MCP_STATUS:")))
+		if (!Entry.Output.IsEmpty())
 		{
-			StatusLine = Line;
-		}
-		else
-		{
-			if (!Output.IsEmpty()) Output += TEXT("\n");
-			Output += Line;
+			if (!OutOutput.IsEmpty())
+			{
+				OutOutput += TEXT("\n");
+			}
+			OutOutput += Entry.Output;
 		}
 	}
 
-	bOutSuccess = true;
-	OutError = TEXT("");
-
-	int32 FailureIdx = StatusLine.Find(TEXT("FAILURE:"));
-	if (FailureIdx != INDEX_NONE)
+	OutError = PythonCommand.CommandResult;
+	if (!bOutSuccess && OutError.IsEmpty())
 	{
-		bOutSuccess = false;
-		OutError = StatusLine.Mid(FailureIdx + 8);
+		OutError = OutOutput;
 	}
 
-	return Output;
+	return true;
 }
 
-bool URunPythonScriptTool::ReadScriptFile(const FString& ScriptPath, FString& OutScript, FString& OutError)
+bool URunPythonScriptTool::ReadScriptFile(
+	const FString& ScriptPath,
+	FString& OutResolvedPath,
+	FString& OutScript,
+	FString& OutError)
 {
 	// Convert to absolute path if relative
-	FString AbsolutePath = ScriptPath;
-	if (FPaths::IsRelative(AbsolutePath))
+	OutResolvedPath = ScriptPath;
+	if (FPaths::IsRelative(OutResolvedPath))
 	{
-		AbsolutePath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), ScriptPath);
+		OutResolvedPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), ScriptPath);
 	}
 
 	// Check if file exists
-	if (!FPaths::FileExists(AbsolutePath))
+	if (!FPaths::FileExists(OutResolvedPath))
 	{
-		OutError = FString::Printf(TEXT("Script file not found: %s"), *AbsolutePath);
+		OutError = FString::Printf(TEXT("Script file not found: %s"), *OutResolvedPath);
 		return false;
 	}
 
 	// Read file contents
-	if (!FFileHelper::LoadFileToString(OutScript, *AbsolutePath))
+	if (!FFileHelper::LoadFileToString(OutScript, *OutResolvedPath))
 	{
-		OutError = FString::Printf(TEXT("Failed to read script file: %s"), *AbsolutePath);
+		OutError = FString::Printf(TEXT("Failed to read script file: %s"), *OutResolvedPath);
 		return false;
 	}
 
 	return true;
 }
 
-FString URunPythonScriptTool::BuildPythonCommand(
-	const FString& Script,
+FString URunPythonScriptTool::BuildPythonPreamble(
 	const TSharedPtr<FJsonObject>& Arguments,
 	const TArray<FString>& PythonPaths,
 	const FString& WorldType)
@@ -376,5 +405,12 @@ FString URunPythonScriptTool::BuildPythonCommand(
 		}
 	}
 
-	return Preamble + Script;
+	return Preamble;
+}
+
+bool URunPythonScriptTool::ContainsUnsafeLevelLoad(const FString& Script) const
+{
+	const FString LowerScript = Script.ToLower();
+	return LowerScript.Contains(TEXT("editorloadingandsavingutils.load_map("))
+		|| LowerScript.Contains(TEXT("editorlevellibrary.load_level("));
 }

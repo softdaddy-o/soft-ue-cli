@@ -22,6 +22,7 @@ Use this skill when the regression can be pinned by reading one property after s
 3. Property path.
 4. Expected value.
 5. How the current session verified that this property is the right signal.
+6. Whether `docs/testing/test-infrastructure.md` already defines the source path, map, and naming conventions for this invariant test category.
 
 If the setup or observation grows beyond a simple single-property check, redirect to `author-regression-test`.
 
@@ -41,7 +42,7 @@ Generate a C++ Automation Spec scaffold that:
 
 BEGIN_DEFINE_SPEC(F<SpecName>,
     "<Project>.Invariants.<SpecName>",
-    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask)
+    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::EditorContext)
 END_DEFINE_SPEC(F<SpecName>)
 
 void F<SpecName>::Define()
@@ -64,6 +65,10 @@ void F<SpecName>::Define()
 - Prefer exact expected values unless the property is inherently approximate.
 - Use the property signal already validated during exploration instead of re-discovering it in the generated scaffold.
 - Do not emit a Python test as the main result.
+- For UE 5.7-compatible scaffolds, prefer `EAutomationTestFlags::EditorContext` over `ApplicationContextMask`.
+- If setup code needs a PIE world, resolve it with a null-guarded `GEditor->GetPIEWorldContext()` lookup rather than emitting `GetWorld()` directly from the spec.
+- If `docs/testing/test-infrastructure.md` exists, use its conventions to choose the map, source path, and spec prefix.
+- If those conventions are missing, say so and suggest `plan-test-infrastructure` rather than inventing shared invariant-test layout rules.
 
 ## After writing
 

@@ -4,10 +4,6 @@ from __future__ import annotations
 
 import io
 import struct
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli.uasset.properties import read_property_tag, read_tagged_properties
 from soft_ue_cli.uasset.reader import UAssetReader

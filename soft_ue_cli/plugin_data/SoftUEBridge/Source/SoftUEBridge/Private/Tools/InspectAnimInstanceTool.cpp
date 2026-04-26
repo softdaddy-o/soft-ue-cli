@@ -14,7 +14,7 @@
 
 FString UInspectAnimInstanceTool::GetToolDescription() const
 {
-	return TEXT("One-shot snapshot of a target actor's UAnimInstance (state machines, montages, notifies, blend weights).");
+	return TEXT("One-shot snapshot of a target actor's UAnimInstance (state machines, montages, slots, notifies, blend weights).");
 }
 
 TMap<FString, FBridgeSchemaProperty> UInspectAnimInstanceTool::GetInputSchema() const
@@ -117,7 +117,7 @@ FBridgeToolResult UInspectAnimInstanceTool::Execute(
 		Response->SetObjectField(TEXT("blend_weights"), ReadBlendWeights(AnimInstance, BlendWeightProps));
 	}
 
-	Response->SetArrayField(TEXT("slots"), TArray<TSharedPtr<FJsonValue>>{});
+	Response->SetArrayField(TEXT("slots"), ReadSlots(AnimInstance));
 	return FBridgeToolResult::Json(Response);
 }
 
@@ -271,6 +271,46 @@ TArray<TSharedPtr<FJsonValue>> UInspectAnimInstanceTool::ReadActiveMontages(UAni
 		Entry->SetBoolField(TEXT("is_playing"), MontageInstance->IsPlaying());
 		Entry->SetBoolField(TEXT("past_end"), Position >= Length - KINDA_SMALL_NUMBER);
 		Out.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	return Out;
+}
+
+TArray<TSharedPtr<FJsonValue>> UInspectAnimInstanceTool::ReadSlots(UAnimInstance* AnimInstance)
+{
+	TArray<TSharedPtr<FJsonValue>> Out;
+	if (!AnimInstance)
+	{
+		return Out;
+	}
+
+	for (const FAnimMontageInstance* MontageInstance : AnimInstance->MontageInstances)
+	{
+		if (!MontageInstance || !MontageInstance->Montage)
+		{
+			continue;
+		}
+
+		const UAnimMontage* Montage = MontageInstance->Montage;
+		for (const FSlotAnimationTrack& SlotTrack : Montage->SlotAnimTracks)
+		{
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("slot_name"), SlotTrack.SlotName.ToString());
+			Entry->SetStringField(TEXT("montage"), Montage->GetPathName());
+			Entry->SetNumberField(TEXT("position"), MontageInstance->GetPosition());
+			Entry->SetNumberField(TEXT("length"), Montage->GetPlayLength());
+			Entry->SetNumberField(TEXT("play_rate"), MontageInstance->GetPlayRate());
+			Entry->SetBoolField(TEXT("is_playing"), MontageInstance->IsPlaying());
+			Entry->SetNumberField(TEXT("global_weight"), AnimInstance->GetSlotNodeGlobalWeight(SlotTrack.SlotName));
+			Entry->SetNumberField(TEXT("local_weight"), AnimInstance->GetSlotMontageLocalWeight(SlotTrack.SlotName));
+
+			if (SlotTrack.AnimTrack.AnimSegments.Num() > 0 && SlotTrack.AnimTrack.AnimSegments[0].GetAnimReference())
+			{
+				Entry->SetStringField(TEXT("asset"), SlotTrack.AnimTrack.AnimSegments[0].GetAnimReference()->GetPathName());
+			}
+
+			Out.Add(MakeShared<FJsonValueObject>(Entry));
+		}
 	}
 
 	return Out;

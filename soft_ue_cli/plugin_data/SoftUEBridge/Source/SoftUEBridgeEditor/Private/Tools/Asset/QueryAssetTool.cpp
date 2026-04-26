@@ -7,18 +7,24 @@
 #include "Engine/Blueprint.h"
 #include "Engine/DataTable.h"
 #include "Engine/DataAsset.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Engine/UserDefinedEnum.h"
+#include "GameFramework/GameModeBase.h"
+#include "GameFramework/WorldSettings.h"
 #include "LandscapeGrassType.h"
 #include "StructUtils/UserDefinedStruct.h"
 #include "UObject/UnrealType.h"
 #include "UObject/EnumProperty.h"
+#include "UObject/SoftObjectPath.h"
 #include "Tools/BridgeToolResult.h"
 #include "SoftUEBridgeEditorModule.h"
 
 FString UQueryAssetTool::GetToolDescription() const
 {
 	return TEXT("Query assets: search by pattern/class/path, or inspect a specific asset. "
-		"Use 'query' for search mode, 'asset_path' for inspect mode.");
+		"Use 'query' for search mode, 'asset_path' for inspect mode. World assets include "
+		"WorldSettings helpers such as DefaultGameMode.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UQueryAssetTool::GetInputSchema() const
@@ -225,7 +231,7 @@ FBridgeToolResult UQueryAssetTool::InspectAsset(const FString& AssetPath, int32 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("query-asset inspect: path='%s'"), *AssetPath);
 
 	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
-	const FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FName(*AssetPath));
+	const FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(AssetPath));
 	UObject* AssetObject = AssetData.IsValid() ? AssetData.GetAsset() : nullptr;
 	if (!AssetObject)
 	{
@@ -237,6 +243,11 @@ FBridgeToolResult UQueryAssetTool::InspectAsset(const FString& AssetPath, int32 
 	{
 		TSharedPtr<FJsonObject> Result = InspectDataTable(DataTable, RowFilter);
 		return FBridgeToolResult::Json(Result);
+	}
+
+	if (UWorld* World = Cast<UWorld>(AssetObject))
+	{
+		return FBridgeToolResult::Json(InspectWorldAsset(World, MaxDepth, bIncludeDefaults, PropertyFilter, CategoryFilter));
 	}
 
 	if (UUserDefinedEnum* UserEnum = Cast<UUserDefinedEnum>(AssetObject))
@@ -329,6 +340,45 @@ TSharedPtr<FJsonObject> UQueryAssetTool::InspectDataTable(UDataTable* DataTable,
 
 	Result->SetArrayField(TEXT("rows"), RowsArray);
 	Result->SetNumberField(TEXT("row_count"), RowsArray.Num());
+
+	return Result;
+}
+
+TSharedPtr<FJsonObject> UQueryAssetTool::InspectWorldAsset(UWorld* World, int32 MaxDepth,
+	bool bIncludeDefaults, const FString& PropertyFilter, const FString& CategoryFilter) const
+{
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	TSharedPtr<FJsonObject> Result = InspectObject(World, MaxDepth, bIncludeDefaults, PropertyFilter, CategoryFilter);
+	Result->SetStringField(TEXT("type"), TEXT("World"));
+
+	if (const ULevel* PersistentLevel = World->PersistentLevel)
+	{
+		Result->SetStringField(TEXT("persistent_level"), PersistentLevel->GetPathName());
+	}
+
+	AWorldSettings* WorldSettings = World->GetWorldSettings();
+	if (!WorldSettings && World->PersistentLevel)
+	{
+		WorldSettings = World->PersistentLevel->GetWorldSettings();
+	}
+
+	if (WorldSettings)
+	{
+		const FString DefaultGameModePath = GetPathNameSafe(WorldSettings->DefaultGameMode);
+
+		TSharedPtr<FJsonObject> Settings = MakeShareable(new FJsonObject);
+		Settings->SetStringField(TEXT("path"), WorldSettings->GetPathName());
+		Settings->SetStringField(TEXT("class"), WorldSettings->GetClass()->GetPathName());
+		Settings->SetStringField(TEXT("default_game_mode"), DefaultGameModePath);
+		Settings->SetBoolField(TEXT("has_default_game_mode_override"), WorldSettings->DefaultGameMode != nullptr);
+
+		Result->SetObjectField(TEXT("world_settings"), Settings);
+		Result->SetStringField(TEXT("default_game_mode"), DefaultGameModePath);
+	}
 
 	return Result;
 }

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -372,7 +371,7 @@ def test_run_python_script_by_name(scripts_home, capsys):
     args = parser.parse_args(["run-python-script", "--name", "runner"])
     with patch("soft_ue_cli.__main__.call_tool", return_value={"output": "run"}) as mock_call:
         cmd_run_python_script(args)
-    mock_call.assert_called_once_with("run-python-script", {"script": "print('run')"})
+    mock_call.assert_called_once_with("run-python-script", {"script_path": str((scripts_home / "runner.py").resolve())})
 
 
 def test_run_python_script_by_name_not_found_exits(scripts_home):
@@ -404,7 +403,7 @@ def test_run_python_script_path_reads_file(tmp_path):
     mock_call.assert_called_once_with(
         "run-python-script",
         {
-            "script": "print('ok')",
+            "script_path": str(script_path.resolve()),
             "world": "pie",
         },
     )

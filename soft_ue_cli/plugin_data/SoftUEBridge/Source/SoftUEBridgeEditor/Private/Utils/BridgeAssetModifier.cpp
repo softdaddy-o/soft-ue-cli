@@ -17,6 +17,7 @@
 #include "ISourceControlModule.h"
 #include "ISourceControlProvider.h"
 #include "SourceControlOperations.h"
+#include "StructUtils/InstancedStruct.h"
 
 TSharedPtr<FScopedTransaction> FBridgeAssetModifier::BeginTransaction(const FText& Description)
 {
@@ -366,6 +367,23 @@ bool FBridgeAssetModifier::FindPropertyByPath(
 			if (InnerStructProp)
 			{
 				CurrentStruct = InnerStructProp->Struct;
+				if (InnerStructProp->Struct == FInstancedStruct::StaticStruct())
+				{
+					FInstancedStruct* InstancedStruct = static_cast<FInstancedStruct*>(CurrentContainer);
+					if (!InstancedStruct || !InstancedStruct->IsValid())
+					{
+						OutError = FString::Printf(TEXT("InstancedStruct array element '%s' is empty"), *Segment);
+						return false;
+					}
+
+					CurrentContainer = InstancedStruct->GetMutableMemory();
+					CurrentStruct = const_cast<UScriptStruct*>(InstancedStruct->GetScriptStruct());
+					if (!CurrentContainer || !CurrentStruct)
+					{
+						OutError = FString::Printf(TEXT("InstancedStruct array element '%s' has no resolved inner struct"), *Segment);
+						return false;
+					}
+				}
 			}
 			else
 			{
@@ -390,6 +408,24 @@ bool FBridgeAssetModifier::FindPropertyByPath(
 			{
 				CurrentContainer = CurrentProperty->ContainerPtrToValuePtr<void>(CurrentContainer);
 				CurrentStruct = StructProp->Struct;
+
+				if (StructProp->Struct == FInstancedStruct::StaticStruct())
+				{
+					FInstancedStruct* InstancedStruct = static_cast<FInstancedStruct*>(CurrentContainer);
+					if (!InstancedStruct || !InstancedStruct->IsValid())
+					{
+						OutError = FString::Printf(TEXT("InstancedStruct property '%s' is empty"), *PropertyName);
+						return false;
+					}
+
+					CurrentContainer = InstancedStruct->GetMutableMemory();
+					CurrentStruct = const_cast<UScriptStruct*>(InstancedStruct->GetScriptStruct());
+					if (!CurrentContainer || !CurrentStruct)
+					{
+						OutError = FString::Printf(TEXT("InstancedStruct property '%s' has no resolved inner struct"), *PropertyName);
+						return false;
+					}
+				}
 			}
 			else if (ObjectProp)
 			{

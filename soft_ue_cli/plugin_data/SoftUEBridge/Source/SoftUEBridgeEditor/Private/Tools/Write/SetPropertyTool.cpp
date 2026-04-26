@@ -15,8 +15,8 @@
 FString UEditorSetPropertyTool::GetToolDescription() const
 {
 	return TEXT("Set any property on any asset using UE reflection. Supports nested paths (e.g., 'Stats.MaxHealth'), "
-		"array indices (e.g., 'Items[0]'), TArray, TMap (as JSON object), TSet (as JSON array), "
-		"object references (as asset paths), structs, and vectors/rotators/colors. "
+		"array indices (e.g., 'Items[0]'), InstancedStruct member access, TArray, TMap (as JSON object), "
+		"TSet (as JSON array), object references (as asset paths), structs, and vectors/rotators/colors. "
 		"For Blueprint components, use 'component_name' to target a specific component's properties. "
 		"Use 'clear_override' to revert a component property to its default value.");
 }

@@ -22,6 +22,7 @@ Use this skill when the user has a stable repro sequence and wants to preserve i
 3. Input or call sequence.
 4. The observation to assert.
 5. Which signals or properties were already validated during CLI/Python exploration.
+6. Whether `docs/testing/test-infrastructure.md` already defines the map, output directory, and spec prefix for this category.
 
 Keep the file narrow. If the assertion collapses to one property value, redirect to `author-invariant-test`.
 
@@ -44,7 +45,7 @@ Generate a C++ Automation Spec scaffold that includes:
 
 BEGIN_DEFINE_SPEC(F<SpecName>,
     "<Project>.<Category>.<SpecName>",
-    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask)
+    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::EditorContext)
 END_DEFINE_SPEC(F<SpecName>)
 
 void F<SpecName>::Define()
@@ -85,6 +86,10 @@ void F<SpecName>::Define()
 - Prefer explicit latent commands over vague comments about waiting.
 - Carry over the exact runtime signal learned during exploration into the C++ assertion.
 - If the exploration relied on bridge-only helper behavior, translate the behavior into project-native C++ calls rather than keeping the bridge dependency.
+- For UE 5.7-compatible scaffolds, prefer `EAutomationTestFlags::EditorContext` over `ApplicationContextMask`.
+- If the generated spec needs a PIE world pointer, do not emit a bare `GetWorld()` call from the spec body. Use a null-guarded `GEditor->GetPIEWorldContext()` lookup instead.
+- If `docs/testing/test-infrastructure.md` exists, use its map, directory, and naming conventions instead of inventing new ones.
+- If project-wide conventions are missing, say so explicitly and suggest `plan-test-infrastructure` rather than silently making them up.
 
 ## After writing
 

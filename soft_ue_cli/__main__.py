@@ -852,11 +852,11 @@ def cmd_run_python_script(args: argparse.Namespace) -> None:
     arguments: dict = {}
     if args.name:
         _validate_script_name(args.name)
-        dest = _SCRIPTS_DIR / f"{args.name}.py"
+        dest = _ensure_scripts_dir() / f"{args.name}.py"
         if not dest.exists():
             print(f"error: script '{args.name}' not found", file=sys.stderr)
             sys.exit(1)
-        arguments["script"] = dest.read_text(encoding="utf-8")
+        arguments["script_path"] = str(dest.resolve())
     else:
         if args.script:
             arguments["script"] = args.script
@@ -865,7 +865,7 @@ def cmd_run_python_script(args: argparse.Namespace) -> None:
             if not script_path.exists():
                 print(f"error: file not found: {args.script_path}", file=sys.stderr)
                 sys.exit(1)
-            arguments["script"] = script_path.read_text(encoding="utf-8")
+            arguments["script_path"] = str(script_path)
         if not arguments:
             print("error: provide --name, --script, or --script-path", file=sys.stderr)
             sys.exit(1)
@@ -2315,10 +2315,12 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Two modes:\n"
             "  Search mode (--query, --class, --path): find assets matching the filter.\n"
-            "  Inspect mode (--asset-path): read properties of a specific asset.\n\n"
+            "  Inspect mode (--asset-path): read properties of a specific asset, including\n"
+            "  map/world assets with WorldSettings fields such as DefaultGameMode.\n\n"
             "EXAMPLES:\n"
             '  soft-ue-cli query-asset --query "BP_*" --class Blueprint\n'
             "  soft-ue-cli query-asset --asset-path /Game/Data/DT_Items\n"
+            "  soft-ue-cli query-asset --asset-path /Game/Maps/TestMap\n"
             "  soft-ue-cli query-asset --path /Game/Characters --class SkeletalMesh"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -2851,7 +2853,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Execute a Python script in Unreal Editor's Python environment.",
         description=(
             "Requires PythonScriptPlugin to be enabled in the project.\n"
-            "Provide either --script (inline code) or --script-path (file path), not both.\n\n"
+            "Provide either --script (inline code) or --script-path (file path), not both.\n"
+            "File execution preserves normal Python file semantics such as __file__ and\n"
+            "__future__ imports. Editor map-loading APIs are rejected because they can tear\n"
+            "down the active Python execution context.\n\n"
             "EXAMPLES:\n"
             '  soft-ue-cli run-python-script --script "import unreal; print(unreal.SystemLibrary.get_engine_version())"\n'
             "  soft-ue-cli run-python-script --script-path /path/to/my_script.py\n"
@@ -3068,7 +3073,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Sets a UPROPERTY on a Blueprint CDO or asset using reflection.\n"
             "Supports nested paths (e.g. Stats.MaxHealth), array indices (e.g. Items[0]),\n"
-            "TArray, TMap, TSet, object references, structs, and vectors.\n\n"
+            "InstancedStruct member access, TArray, TMap, TSet, object references,\n"
+            "structs, and vectors.\n\n"
             "Use --component-name to target a specific Blueprint component.\n"
             "Use --clear-override to revert a component property to its default.\n\n"
             "For setting properties on runtime actors, use 'set-property'.\n\n"

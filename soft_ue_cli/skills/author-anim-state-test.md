@@ -22,6 +22,7 @@ Use this skill when the user needs a committed C++ regression test for animation
 3. What frame or time window matters.
 4. What exact anim-state condition should hold or should stop holding.
 5. Which property, state name, montage, or database the current session already proved is the best signal.
+6. Whether `docs/testing/test-infrastructure.md` already defines the map, source path, and spec prefix for anim/locomotion tests.
 
 ## Output pattern
 
@@ -40,7 +41,7 @@ Generate a C++ Automation Spec scaffold with:
 
 BEGIN_DEFINE_SPEC(F<SpecName>,
     "<Project>.Anim.<SpecName>",
-    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask)
+    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::EditorContext)
     UObject* TargetAnimObject = nullptr;
 END_DEFINE_SPEC(F<SpecName>)
 
@@ -80,6 +81,10 @@ void F<SpecName>::Define()
 - Prefer the exact property or signal already validated during exploration, for example `CurrentSelectedDatabase`, current state name, or a blend weight.
 - Make the latent waits explicit and tied to the repro steps.
 - If the exploration needed repeated runtime inspection with CLI tools, use that result to choose the final C++ assertion rather than trying to reproduce the exploration tooling itself.
+- For UE 5.7-compatible scaffolds, prefer `EAutomationTestFlags::EditorContext` over `ApplicationContextMask`.
+- If the generated test needs a runtime world, use a null-guarded `GEditor->GetPIEWorldContext()` lookup rather than emitting `GetWorld()` directly from the spec.
+- If `docs/testing/test-infrastructure.md` exists, use its conventions to select the map, output directory, and spec prefix.
+- If those conventions do not exist yet, say so and suggest `plan-test-infrastructure` instead of inventing a shared anim test map on the fly.
 
 ## After writing
 

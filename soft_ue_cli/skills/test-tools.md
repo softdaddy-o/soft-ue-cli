@@ -502,6 +502,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_test("query-asset by class", "query-asset",
              {"class": "Blueprint", "path": TEST_NS}, has("assets"))
     run_test("query-asset inspect", "query-asset", {"asset_path": bp_path}, has("path"))
+    run_test("query-asset inspect world settings", "query-asset",
+             {"asset_path": test_level_path}, lambda r: "world_settings" in r and "default_game_mode" in r)
     run_test("get-asset-preview", "get-asset-preview", {"asset_path": bp_path}, has("file_path"))
     run_test("open-asset", "open-asset", {"asset_path": bp_path}, has("success"))
 
@@ -784,11 +786,13 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     with open(helper_script, "w", encoding="utf-8") as fh:
         fh.write(
             "from soft_ue_bridge import call\n"
+            "import os\n"
             "result = call('query-level', {'limit': 1})\n"
             "print('HELPER_ACTORS', len(result.get('actors', [])))\n"
+            "print('HELPER_FILE', os.path.basename(__file__))\n"
         )
     run_cli("run-python-script helper import", "run-python-script", "--script-path", helper_script,
-            check_stdout=lambda s: "HELPER_ACTORS" in s)
+            check_stdout=lambda s: "HELPER_ACTORS" in s and "HELPER_FILE" in s)
 
     begin_suite("advanced-automation")
 

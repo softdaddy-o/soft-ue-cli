@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PythonScriptTypes.h"
 #include "Tools/BridgeToolBase.h"
 #include "RunPythonScriptTool.generated.h"
 
@@ -26,16 +27,23 @@ public:
 		const FBridgeToolContext& Context) override;
 
 private:
-	// Execute a Python command and capture output
-	FString ExecutePython(const FString& Command, bool& bOutSuccess, FString& OutError);
+	// Execute a Python command or file and capture log output and error text.
+	bool ExecutePythonCommand(
+		const FString& Command,
+		EPythonCommandExecutionMode ExecutionMode,
+		EPythonFileExecutionScope FileExecutionScope,
+		bool& bOutSuccess,
+		FString& OutOutput,
+		FString& OutError);
 
-	// Read script file from disk
-	bool ReadScriptFile(const FString& ScriptPath, FString& OutScript, FString& OutError);
+	// Resolve and read a script file from disk for validation before execution.
+	bool ReadScriptFile(const FString& ScriptPath, FString& OutResolvedPath, FString& OutScript, FString& OutError);
 
-	// Build Python command with arguments, world helpers, and additional Python paths
-	FString BuildPythonCommand(
-		const FString& Script,
+	// Build a Python preamble with arguments, world helpers, and additional Python paths.
+	FString BuildPythonPreamble(
 		const TSharedPtr<FJsonObject>& Arguments,
 		const TArray<FString>& PythonPaths,
 		const FString& WorldType);
+
+	bool ContainsUnsafeLevelLoad(const FString& Script) const;
 };

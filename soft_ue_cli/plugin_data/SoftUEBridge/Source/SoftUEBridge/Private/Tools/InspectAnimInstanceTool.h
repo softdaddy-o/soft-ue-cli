@@ -29,6 +29,7 @@ private:
 	UAnimInstance* ResolveAnimInstance(const FString& ActorTag, const FString& MeshComponentName, FString& OutError);
 	TArray<TSharedPtr<FJsonValue>> ReadStateMachines(UAnimInstance* AnimInstance);
 	TArray<TSharedPtr<FJsonValue>> ReadActiveMontages(UAnimInstance* AnimInstance);
+	TArray<TSharedPtr<FJsonValue>> ReadSlots(UAnimInstance* AnimInstance);
 	TArray<TSharedPtr<FJsonValue>> ReadNotifies(UAnimInstance* AnimInstance);
 	TSharedPtr<FJsonObject> ReadBlendWeights(UAnimInstance* AnimInstance, const TArray<FString>& PropertyNames);
 };

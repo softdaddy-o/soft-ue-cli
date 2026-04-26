@@ -53,6 +53,10 @@ private:
 	TSharedPtr<FJsonObject> InspectDataAssetBlueprint(class UBlueprint* Blueprint, int32 MaxDepth,
 		bool bIncludeDefaults, const FString& PropertyFilter, const FString& CategoryFilter) const;
 
+	/** Inspect a world asset and expose WorldSettings helpers such as DefaultGameMode. */
+	TSharedPtr<FJsonObject> InspectWorldAsset(class UWorld* World, int32 MaxDepth,
+		bool bIncludeDefaults, const FString& PropertyFilter, const FString& CategoryFilter) const;
+
 	/** Inspect LandscapeGrassType */
 	TSharedPtr<FJsonObject> InspectGrassType(class ULandscapeGrassType* GrassType) const;
 

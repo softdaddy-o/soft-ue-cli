@@ -96,6 +96,31 @@ def _parse_json_arg(value: str, flag: str) -> object:
         sys.exit(1)
 
 
+def _parse_json_object_arg(value: object, flag: str) -> dict:
+    """Parse a JSON object argument from CLI text or MCP-native dict input."""
+    if isinstance(value, dict):
+        return value
+
+    parsed = _parse_json_arg(str(value), flag)
+    if not isinstance(parsed, dict):
+        print(f"error: {flag} must be a JSON object", file=sys.stderr)
+        sys.exit(1)
+    return parsed
+
+
+def _parse_optional_int_list(value: object | None) -> list[int] | None:
+    """Parse an optional integer list from CLI CSV text or MCP-native list input."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        try:
+            return [int(item) for item in value]
+        except (TypeError, ValueError):
+            print(f"error: expected integer list, got '{value}'", file=sys.stderr)
+            sys.exit(1)
+    return _parse_int_list(str(value))
+
+
 def _emit_structured_error(code: str, message: str, **extra: object) -> None:
     payload = {"success": False, "code": code, "error": message}
     payload.update(extra)
@@ -426,6 +451,124 @@ def cmd_inspect_mutable_parameters(args: argparse.Namespace) -> None:
 
 def cmd_inspect_mutable_diagnostics(args: argparse.Namespace) -> None:
     _print_json(_run_tool("inspect-mutable-diagnostics", {"asset_path": args.asset_path}))
+
+
+_CO_PARAMETER_NODE_CLASSES: dict[str, str] = {
+    "float": "CustomizableObjectNodeFloatParameter",
+    "color": "CustomizableObjectNodeColorParameter",
+    "enum": "CustomizableObjectNodeEnumParameter",
+    "projector": "CustomizableObjectNodeProjectorParameter",
+    "group-projector": "CustomizableObjectNodeGroupProjectorParameter",
+    "texture": "CustomizableObjectNodeTextureParameter",
+    "transform": "CustomizableObjectNodeTransformParameter",
+    "mesh": "CustomizableObjectNodeMeshParameter",
+}
+
+
+def _co_add_node_arguments(args: argparse.Namespace, node_class: str, properties: dict | None = None) -> dict:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "node_class": node_class,
+    }
+    if getattr(args, "graph_name", None):
+        arguments["graph_name"] = args.graph_name
+    position = _parse_optional_int_list(getattr(args, "position", None))
+    if position is not None:
+        arguments["position"] = position
+    if properties:
+        arguments["properties"] = properties
+    return arguments
+
+
+def cmd_add_co_node(args: argparse.Namespace) -> None:
+    properties = None
+    raw_properties = getattr(args, "properties", None)
+    if raw_properties:
+        properties = _parse_json_object_arg(raw_properties, "--properties")
+    _print_json(_run_tool("add-customizable-object-node", _co_add_node_arguments(args, args.node_class, properties)))
+
+
+def cmd_add_co_parameter(args: argparse.Namespace) -> None:
+    properties: dict = {"ParameterName": args.name}
+    raw_properties = getattr(args, "properties", None)
+    if raw_properties:
+        properties.update(_parse_json_object_arg(raw_properties, "--properties"))
+    parameter_type = getattr(args, "parameter_type", "float")
+    node_class = getattr(args, "node_class", None) or _CO_PARAMETER_NODE_CLASSES[parameter_type]
+    _print_json(_run_tool("add-customizable-object-node", _co_add_node_arguments(args, node_class, properties)))
+
+
+def cmd_add_co_mesh_option(args: argparse.Namespace) -> None:
+    mesh_property = getattr(args, "mesh_property", "SkeletalMesh")
+    properties: dict = {mesh_property: args.mesh}
+    raw_properties = getattr(args, "properties", None)
+    if raw_properties:
+        properties.update(_parse_json_object_arg(raw_properties, "--properties"))
+    node_class = getattr(args, "node_class", "CustomizableObjectNodeSkeletalMesh")
+    _print_json(_run_tool("add-customizable-object-node", _co_add_node_arguments(args, node_class, properties)))
+
+
+def cmd_set_co_base_mesh(args: argparse.Namespace) -> None:
+    mesh_property = getattr(args, "mesh_property", "SkeletalMesh")
+    _print_json(
+        _run_tool(
+            "set-customizable-object-node-property",
+            {
+                "asset_path": args.asset_path,
+                "node": args.node,
+                "properties": {mesh_property: args.mesh},
+            },
+        )
+    )
+
+
+def cmd_add_co_group_child(args: argparse.Namespace) -> None:
+    group_pin = getattr(args, "group_pin", "Objects")
+    child_pin = getattr(args, "child_pin", "Object")
+    _print_json(
+        _run_tool(
+            "connect-customizable-object-pins",
+            {
+                "asset_path": args.asset_path,
+                "source_node": args.child_node,
+                "source_pin": child_pin,
+                "target_node": args.group_node,
+                "target_pin": group_pin,
+            },
+        )
+    )
+
+
+def cmd_set_co_node_property(args: argparse.Namespace) -> None:
+    _print_json(
+        _run_tool(
+            "set-customizable-object-node-property",
+            {
+                "asset_path": args.asset_path,
+                "node": args.node,
+                "properties": _parse_json_object_arg(args.properties, "--properties"),
+            },
+        )
+    )
+
+
+def cmd_connect_co_pins(args: argparse.Namespace) -> None:
+    _print_json(
+        _run_tool(
+            "connect-customizable-object-pins",
+            {
+                "asset_path": args.asset_path,
+                "source_node": args.source_node,
+                "source_pin": args.source_pin,
+                "target_node": args.target_node,
+                "target_pin": args.target_pin,
+            },
+        )
+    )
+
+
+def cmd_compile_co(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("compile-customizable-object", {"asset_path": args.asset_path}))
 
 
 def cmd_get_asset_diff(args: argparse.Namespace) -> None:
@@ -1520,7 +1663,7 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
 
 
 def cmd_knowledge(args: argparse.Namespace) -> None:
-    """Query the optional knowledge server (RAG/PageIndex/Skills)."""
+    """Query the optional knowledge server (RAG)."""
     print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
 
 
@@ -2622,6 +2765,151 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_imd.add_argument("asset_path", help="CustomizableObject asset path")
     p_imd.set_defaults(func=cmd_inspect_mutable_diagnostics)
+
+    p_acn = sub.add_parser(
+        "add-co-node",
+        help="Add a reflected node to a Mutable/CustomizableObject graph.",
+        description=(
+            "Adds a UEdGraphNode subclass to the source graph of a CustomizableObject asset.\n"
+            "This uses reflection, so projects can pass Mutable node class names without this CLI\n"
+            "taking a hard compile-time dependency on Mutable headers.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli add-co-node /Game/Characters/CO_Hero.CO_Hero CustomizableObjectNodeFloatParameter \\\n"
+            "    --properties '{\"ParameterName\":\"Height\"}'\n"
+            "  soft-ue-cli add-co-node /Game/Characters/CO_Hero.CO_Hero CustomizableObjectNodeSkeletalMesh \\\n"
+            "    --position 320,120 --properties '{\"SkeletalMesh\":\"/Game/Meshes/SKM_Boots.SKM_Boots\"}'"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_acn.add_argument("asset_path", help="CustomizableObject asset path")
+    p_acn.add_argument("node_class", help="UE graph node class name or class path")
+    p_acn.add_argument("--graph-name", help="Target graph name or path; defaults to the first source graph")
+    p_acn.add_argument("--position", help="Node position as X,Y")
+    p_acn.add_argument("--properties", help="JSON object of reflected properties to apply after creation")
+    p_acn.set_defaults(func=cmd_add_co_node)
+
+    p_acp = sub.add_parser(
+        "add-co-parameter",
+        help="Add a parameter node to a Mutable/CustomizableObject graph.",
+        description=(
+            "Convenience wrapper around add-co-node for common Mutable parameter node classes.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli add-co-parameter /Game/Characters/CO_Hero.CO_Hero BodyHeight --parameter-type float\n"
+            "  soft-ue-cli add-co-parameter /Game/Characters/CO_Hero.CO_Hero Outfit --parameter-type enum \\\n"
+            "    --properties '{\"ParamUIMetadata\":{\"DisplayName\":\"Outfit\"}}'"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_acp.add_argument("asset_path", help="CustomizableObject asset path")
+    p_acp.add_argument("name", help="Parameter name to write to the node")
+    p_acp.add_argument("--parameter-type", choices=sorted(_CO_PARAMETER_NODE_CLASSES), default="float", help="Parameter node family")
+    p_acp.add_argument("--node-class", help="Override the reflected node class")
+    p_acp.add_argument("--graph-name", help="Target graph name or path; defaults to the first source graph")
+    p_acp.add_argument("--position", help="Node position as X,Y")
+    p_acp.add_argument("--properties", help="Additional JSON object of reflected properties")
+    p_acp.set_defaults(func=cmd_add_co_parameter)
+
+    p_acmo = sub.add_parser(
+        "add-co-mesh-option",
+        help="Add a mesh option node to a Mutable/CustomizableObject graph.",
+        description=(
+            "Convenience wrapper for adding a mesh node and assigning its mesh property.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli add-co-mesh-option /Game/Characters/CO_Hero.CO_Hero /Game/Meshes/SKM_Boots.SKM_Boots\n"
+            "  soft-ue-cli add-co-mesh-option /Game/Characters/CO_Hero.CO_Hero /Game/Meshes/SM_Prop.SM_Prop \\\n"
+            "    --node-class CustomizableObjectNodeStaticMesh --mesh-property StaticMesh"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_acmo.add_argument("asset_path", help="CustomizableObject asset path")
+    p_acmo.add_argument("mesh", help="Mesh asset path to assign")
+    p_acmo.add_argument("--node-class", default="CustomizableObjectNodeSkeletalMesh", help="Mutable mesh node class")
+    p_acmo.add_argument("--mesh-property", default="SkeletalMesh", help="Reflected property that stores the mesh reference")
+    p_acmo.add_argument("--graph-name", help="Target graph name or path; defaults to the first source graph")
+    p_acmo.add_argument("--position", help="Node position as X,Y")
+    p_acmo.add_argument("--properties", help="Additional JSON object of reflected properties")
+    p_acmo.set_defaults(func=cmd_add_co_mesh_option)
+
+    p_scbm = sub.add_parser(
+        "set-co-base-mesh",
+        help="Set the mesh property on an existing CustomizableObject node.",
+        description=(
+            "Sets a reflected mesh property on an existing CustomizableObject graph node.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli set-co-base-mesh /Game/Characters/CO_Hero.CO_Hero <node-guid> /Game/Meshes/SKM_Base.SKM_Base"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_scbm.add_argument("asset_path", help="CustomizableObject asset path")
+    p_scbm.add_argument("node", help="Node GUID, name, path, or title")
+    p_scbm.add_argument("mesh", help="Mesh asset path to assign")
+    p_scbm.add_argument("--mesh-property", default="SkeletalMesh", help="Reflected property that stores the mesh reference")
+    p_scbm.set_defaults(func=cmd_set_co_base_mesh)
+
+    p_acgc = sub.add_parser(
+        "add-co-group-child",
+        help="Connect a child node into a CustomizableObject group node.",
+        description=(
+            "Convenience wrapper around connect-co-pins with default group/child pin names.\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli add-co-group-child /Game/Characters/CO_Hero.CO_Hero <group-node> <child-node> \\\n"
+            "    --group-pin Objects --child-pin Object"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_acgc.add_argument("asset_path", help="CustomizableObject asset path")
+    p_acgc.add_argument("group_node", help="Group node GUID, name, path, or title")
+    p_acgc.add_argument("child_node", help="Child node GUID, name, path, or title")
+    p_acgc.add_argument("--group-pin", default="Objects", help="Input pin on the group node")
+    p_acgc.add_argument("--child-pin", default="Object", help="Output pin on the child node")
+    p_acgc.set_defaults(func=cmd_add_co_group_child)
+
+    p_scnp = sub.add_parser(
+        "set-co-node-property",
+        help="Set reflected properties on a CustomizableObject graph node.",
+        description=(
+            "Sets one or more reflected properties on a node found by GUID, name, path, or title.\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli set-co-node-property /Game/Characters/CO_Hero.CO_Hero <node-guid> \\\n"
+            "    --properties '{\"ParameterName\":\"Hat\"}'"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_scnp.add_argument("asset_path", help="CustomizableObject asset path")
+    p_scnp.add_argument("node", help="Node GUID, name, path, or title")
+    p_scnp.add_argument("--properties", required=True, help="JSON object of reflected properties to set")
+    p_scnp.set_defaults(func=cmd_set_co_node_property)
+
+    p_ccp = sub.add_parser(
+        "connect-co-pins",
+        help="Connect two pins in a Mutable/CustomizableObject graph.",
+        description=(
+            "Connects two CustomizableObject graph pins. Nodes may be referenced by GUID,\n"
+            "object path, object name, or title.\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli connect-co-pins /Game/Characters/CO_Hero.CO_Hero <source-node> Value <target-node> Input"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_ccp.add_argument("asset_path", help="CustomizableObject asset path")
+    p_ccp.add_argument("source_node", help="Source node GUID, name, path, or title")
+    p_ccp.add_argument("source_pin", help="Source pin name")
+    p_ccp.add_argument("target_node", help="Target node GUID, name, path, or title")
+    p_ccp.add_argument("target_pin", help="Target pin name")
+    p_ccp.set_defaults(func=cmd_connect_co_pins)
+
+    p_cco = sub.add_parser(
+        "compile-co",
+        help="Compile a Mutable/CustomizableObject asset when the editor plugin exposes compile support.",
+        description=(
+            "Best-effort CustomizableObject compile through reflected editor APIs.\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli compile-co /Game/Characters/CO_Hero.CO_Hero"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_cco.add_argument("asset_path", help="CustomizableObject asset path")
+    p_cco.set_defaults(func=cmd_compile_co)
 
     p_gad = sub.add_parser(
         "get-asset-diff",

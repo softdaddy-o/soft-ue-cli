@@ -13,6 +13,7 @@
 #include "Tools/Asset/QueryEnumTool.h"
 #include "Tools/Asset/QueryStructTool.h"
 #include "Tools/Asset/DeleteAssetTool.h"
+#include "Tools/Asset/EditCustomizableObjectGraphTool.h"
 #include "Tools/Asset/GetAssetDiffTool.h"
 #include "Tools/Asset/GetAssetPreviewTool.h"
 #include "Tools/Asset/InspectCustomizableObjectGraphTool.h"
@@ -118,6 +119,10 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<UQueryEnumTool>();
 	Registry.RegisterToolClass<UQueryStructTool>();
 	Registry.RegisterToolClass<UDeleteAssetTool>();
+	Registry.RegisterToolClass<UAddCustomizableObjectNodeTool>();
+	Registry.RegisterToolClass<USetCustomizableObjectNodePropertyTool>();
+	Registry.RegisterToolClass<UConnectCustomizableObjectPinsTool>();
+	Registry.RegisterToolClass<UCompileCustomizableObjectTool>();
 	Registry.RegisterToolClass<UGetAssetDiffTool>();
 	Registry.RegisterToolClass<UGetAssetPreviewTool>();
 	Registry.RegisterToolClass<UInspectCustomizableObjectGraphTool>();

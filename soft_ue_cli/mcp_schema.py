@@ -22,6 +22,14 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "inspect-uasset",
     "diff-uasset",
     "config",
+    "add-co-node",
+    "add-co-parameter",
+    "add-co-mesh-option",
+    "set-co-base-mesh",
+    "add-co-group-child",
+    "set-co-node-property",
+    "connect-co-pins",
+    "compile-co",
 })
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.
@@ -75,6 +83,30 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
     "add-graph-node": {
         "properties": {
             "position": {"type": "array", "description": "[X, Y] node position"},
+        },
+    },
+    # CustomizableObject graph editing: position/properties are native JSON in MCP
+    "add-co-node": {
+        "properties": {
+            "position": {"type": "array", "description": "[X, Y] node position"},
+            "properties": {"type": "object", "description": "Reflected node properties"},
+        },
+    },
+    "add-co-parameter": {
+        "properties": {
+            "position": {"type": "array", "description": "[X, Y] node position"},
+            "properties": {"type": "object", "description": "Additional reflected node properties"},
+        },
+    },
+    "add-co-mesh-option": {
+        "properties": {
+            "position": {"type": "array", "description": "[X, Y] node position"},
+            "properties": {"type": "object", "description": "Additional reflected node properties"},
+        },
+    },
+    "set-co-node-property": {
+        "properties": {
+            "properties": {"type": "object", "description": "Reflected node properties to set"},
         },
     },
     # set-node-position: positions is a JSON array of {guid, x, y} objects

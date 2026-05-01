@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/__main__.py — argument parsing and cmd_setup output."""
+"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
 
 from __future__ import annotations
 
@@ -16,11 +16,16 @@ from soft_ue_cli.__main__ import (
     _parse_vector,
     _validate_script_name,
     build_parser,
+    cmd_add_co_group_child,
+    cmd_add_co_mesh_option,
+    cmd_add_co_node,
+    cmd_add_co_parameter,
     cmd_add_graph_node,
     cmd_batch_call,
     cmd_build_and_relaunch,
     cmd_call_function,
     cmd_capture_screenshot,
+    cmd_compile_co,
     cmd_capture_viewport,
     cmd_delete_script,
     cmd_exec_console_command,
@@ -38,6 +43,9 @@ from soft_ue_cli.__main__ import (
     cmd_run_python_script,
     cmd_save_script,
     cmd_setup,
+    cmd_set_co_base_mesh,
+    cmd_set_co_node_property,
+    cmd_connect_co_pins,
     cmd_validate_class_path,
 )
 
@@ -685,6 +693,208 @@ def test_cmd_inspect_mutable_diagnostics_forwards_args():
     )
 
 
+def test_cmd_add_co_node_forwards_generic_node_args():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "add-co-node",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "CustomizableObjectNodeFloatParameter",
+            "--graph-name",
+            "Source",
+            "--position",
+            "100,200",
+            "--properties",
+            '{"ParameterName":"Height"}',
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_co_node(args)
+
+    mock_run.assert_called_once_with(
+        "add-customizable-object-node",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node_class": "CustomizableObjectNodeFloatParameter",
+            "graph_name": "Source",
+            "position": [100, 200],
+            "properties": {"ParameterName": "Height"},
+        },
+    )
+
+
+def test_cmd_add_co_parameter_defaults_node_class_and_parameter_name():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "add-co-parameter",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "BodyHeight",
+            "--parameter-type",
+            "float",
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_co_parameter(args)
+
+    mock_run.assert_called_once_with(
+        "add-customizable-object-node",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node_class": "CustomizableObjectNodeFloatParameter",
+            "properties": {"ParameterName": "BodyHeight"},
+        },
+    )
+
+
+def test_cmd_add_co_mesh_option_forwards_mesh_property():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "add-co-mesh-option",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "/Game/Meshes/SKM_Boots.SKM_Boots",
+            "--position",
+            "320,120",
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_co_mesh_option(args)
+
+    mock_run.assert_called_once_with(
+        "add-customizable-object-node",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node_class": "CustomizableObjectNodeSkeletalMesh",
+            "position": [320, 120],
+            "properties": {"SkeletalMesh": "/Game/Meshes/SKM_Boots.SKM_Boots"},
+        },
+    )
+
+
+def test_cmd_set_co_base_mesh_forwards_node_property():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "set-co-base-mesh",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "node-guid-1",
+            "/Game/Meshes/SKM_Base.SKM_Base",
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_set_co_base_mesh(args)
+
+    mock_run.assert_called_once_with(
+        "set-customizable-object-node-property",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node": "node-guid-1",
+            "properties": {"SkeletalMesh": "/Game/Meshes/SKM_Base.SKM_Base"},
+        },
+    )
+
+
+def test_cmd_add_co_group_child_forwards_pin_connection():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "add-co-group-child",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "group-node",
+            "child-node",
+            "--group-pin",
+            "Objects",
+            "--child-pin",
+            "Object",
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_co_group_child(args)
+
+    mock_run.assert_called_once_with(
+        "connect-customizable-object-pins",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "source_node": "child-node",
+            "source_pin": "Object",
+            "target_node": "group-node",
+            "target_pin": "Objects",
+        },
+    )
+
+
+def test_cmd_set_co_node_property_forwards_json_properties():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "set-co-node-property",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "node-guid-1",
+            "--properties",
+            '{"ParameterName":"Hat"}',
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_set_co_node_property(args)
+
+    mock_run.assert_called_once_with(
+        "set-customizable-object-node-property",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node": "node-guid-1",
+            "properties": {"ParameterName": "Hat"},
+        },
+    )
+
+
+def test_cmd_connect_co_pins_forwards_connection():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "connect-co-pins",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "source-node",
+            "Value",
+            "target-node",
+            "Input",
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_connect_co_pins(args)
+
+    mock_run.assert_called_once_with(
+        "connect-customizable-object-pins",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "source_node": "source-node",
+            "source_pin": "Value",
+            "target_node": "target-node",
+            "target_pin": "Input",
+        },
+    )
+
+
+def test_cmd_compile_co_forwards_asset_path():
+    parser = build_parser()
+    args = parser.parse_args(["compile-co", "/Game/Characters/CO_Hero.CO_Hero"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_compile_co(args)
+
+    mock_run.assert_called_once_with(
+        "compile-customizable-object",
+        {"asset_path": "/Game/Characters/CO_Hero.CO_Hero"},
+    )
+
+
 # -- capture-screenshot parser -------------------------------------------------
 
 
@@ -1080,9 +1290,9 @@ def test_fix_msys_path_mangling():
     # Mangled by Git Bash
     assert _fix_msys_asset_path("C:/Program Files/Git/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
     assert _fix_msys_asset_path("C:/Program Files/Git/Engine/Content/Foo") == "/Engine/Content/Foo"
-    # Already correct — pass through
+    # Already correct ??pass through
     assert _fix_msys_asset_path("/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
-    # No mount point — pass through
+    # No mount point ??pass through
     assert _fix_msys_asset_path("some/local/path") == "some/local/path"
     # Empty/None
     assert _fix_msys_asset_path("") == ""

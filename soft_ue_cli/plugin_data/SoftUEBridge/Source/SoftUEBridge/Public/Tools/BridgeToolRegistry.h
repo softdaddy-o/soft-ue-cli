@@ -32,6 +32,8 @@ public:
 		const FString& ToolName,
 		const TSharedPtr<FJsonObject>& Arguments,
 		const FBridgeToolContext& Context);
+	TArray<FString> GetRegisteredToolNames() const;
+	TArray<FString> GetLoadedModulePaths() const;
 
 private:
 	FBridgeToolRegistry() = default;

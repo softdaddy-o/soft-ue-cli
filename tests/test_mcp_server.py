@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/mcp_server.py — MCP server tool/prompt registration."""
+"""Tests for cli/soft_ue_cli/mcp_server.py ??MCP server tool/prompt registration."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+
 
 # Skip all tests if mcp is not installed
 mcp = pytest.importorskip("mcp")
@@ -119,6 +120,34 @@ def test_tool_call_normalizes_add_graph_node_created_nodes(mock_call_tool):
     result = tool_fn(asset_path="/Game/ALI", node_class="AnimLayerFunction", graph_name="ALIGraph")
     parsed = json.loads(result)
     assert parsed["node_guid"] == "11111111-1111-1111-1111-111111111111"
+
+
+@patch("soft_ue_cli.__main__.call_tool")
+def test_mcp_add_co_parameter_uses_cli_transform(mock_call_tool):
+    mock_call_tool.return_value = {"success": True}
+    server = create_server()
+
+    tool_fn = None
+    for tool in server._tool_manager._tools.values():
+        if tool.name == "add-co-parameter":
+            tool_fn = tool.fn
+            break
+
+    assert tool_fn is not None
+    result = tool_fn(
+        asset_path="/Game/Characters/CO_Hero.CO_Hero",
+        name="BodyHeight",
+        parameter_type="float",
+    )
+
+    mock_call_tool.assert_called_once()
+    assert mock_call_tool.call_args.args[0] == "add-customizable-object-node"
+    assert mock_call_tool.call_args.args[1] == {
+        "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+        "node_class": "CustomizableObjectNodeFloatParameter",
+        "properties": {"ParameterName": "BodyHeight"},
+    }
+    assert json.loads(result) == {"success": True}
 
 
 @patch("soft_ue_cli.client.call_tool")

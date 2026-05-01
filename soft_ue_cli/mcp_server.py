@@ -41,6 +41,7 @@ _JSON_TYPE_TO_PY: dict[str, type] = {
     "integer": int,
     "number": float,
     "array": list,
+    "object": dict,
 }
 
 

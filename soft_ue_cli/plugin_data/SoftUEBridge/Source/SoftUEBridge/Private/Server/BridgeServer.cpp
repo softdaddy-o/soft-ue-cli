@@ -133,6 +133,20 @@ bool FBridgeServer::HandleRequest(const FHttpServerRequest& Request, const FHttp
 		Info->SetBoolField(TEXT("running"), true);
 		Info->SetNumberField(TEXT("tools"), FBridgeToolRegistry::Get().GetToolCount());
 
+		TArray<TSharedPtr<FJsonValue>> ToolNames;
+		for (const FString& Name : FBridgeToolRegistry::Get().GetRegisteredToolNames())
+		{
+			ToolNames.Add(MakeShareable(new FJsonValueString(Name)));
+		}
+		Info->SetArrayField(TEXT("tool_names"), ToolNames);
+
+		TArray<TSharedPtr<FJsonValue>> ModulePaths;
+		for (const FString& Path : FBridgeToolRegistry::Get().GetLoadedModulePaths())
+		{
+			ModulePaths.Add(MakeShareable(new FJsonValueString(Path)));
+		}
+		Info->SetArrayField(TEXT("module_paths"), ModulePaths);
+
 		FString JsonStr;
 		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonStr);
 		FJsonSerializer::Serialize(Info.ToSharedRef(), Writer);

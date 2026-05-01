@@ -2,6 +2,17 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.26.0] - 2026-05-01
+
+### Added
+- New Mutable/CustomizableObject edit commands: `add-co-node`, `add-co-parameter`, `add-co-mesh-option`, `set-co-base-mesh`, `add-co-group-child`, `set-co-node-property`, `connect-co-pins`, and `compile-co`
+- New bridge-backed CustomizableObject graph edit tools for adding nodes, setting node properties, connecting pins, and compiling assets
+- Bridge health diagnostics now include registered tool names and loaded module paths to make missing-tool and stale-plugin issues easier to diagnose
+
+### Changed
+- Unknown bridge tool errors now report the requested tool, registered tool count, registered names, loaded module paths, bridge version, and recovery guidance
+- MCP schemas now preserve native JSON object types for command parameters such as CustomizableObject node properties
+
 ## [1.25.10] - 2026-04-25
 
 ### Fixed

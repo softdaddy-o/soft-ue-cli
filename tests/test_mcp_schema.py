@@ -1,10 +1,11 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
+"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
+
 import pytest
 
-from soft_ue_cli.mcp_schema import extract_tools, EXCLUDED_COMMANDS
+from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
 
 def test_extract_tools_returns_nonempty():
@@ -29,6 +30,12 @@ def test_extract_tools_contains_known_command():
     assert "inspect-customizable-object-graph" in tool_names
     assert "inspect-mutable-parameters" in tool_names
     assert "inspect-mutable-diagnostics" in tool_names
+    assert "add-co-node" in tool_names
+    assert "add-co-parameter" in tool_names
+    assert "add-co-mesh-option" in tool_names
+    assert "set-co-node-property" in tool_names
+    assert "connect-co-pins" in tool_names
+    assert "compile-co" in tool_names
     assert "inspect-uasset" in tool_names
     assert "diff-uasset" in tool_names
     assert "status" in tool_names
@@ -79,6 +86,32 @@ def test_set_property_value_override_maps_to_any():
     assert params["properties"]["value"]["type"] == "any"
 
 
+def test_customizable_object_edit_schema_uses_native_json_types():
+    tools = extract_tools()
+
+    add_node = next(t for t in tools if t["name"] == "add-co-node")
+    add_node_params = add_node["parameters"]["properties"]
+    assert add_node_params["position"]["type"] == "array"
+    assert add_node_params["properties"]["type"] == "object"
+
+    set_node_property = next(t for t in tools if t["name"] == "set-co-node-property")
+    assert set_node_property["parameters"]["properties"]["properties"]["type"] == "object"
+
+
+def test_customizable_object_convenience_commands_run_client_side_for_mcp():
+    for command in {
+        "add-co-node",
+        "add-co-parameter",
+        "add-co-mesh-option",
+        "set-co-base-mesh",
+        "add-co-group-child",
+        "set-co-node-property",
+        "connect-co-pins",
+        "compile-co",
+    }:
+        assert command in CLIENT_SIDE_COMMANDS
+
+
 def test_choices_map_to_enum():
     tools = extract_tools()
     tool = next(t for t in tools if t["name"] == "report-bug")
@@ -115,7 +148,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 95
+    assert len(tools) <= 105
 
 
 def test_skills_excluded():

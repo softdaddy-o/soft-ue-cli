@@ -358,6 +358,17 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         except Exception as exc:
             ok, err = False, str(exc)[:300]
         _record("bridge health check", "health_check", {}, ok, int((time.time() - t0) * 1000), err)
+        expected_co_tools = {
+            "add-customizable-object-node",
+            "set-customizable-object-node-property",
+            "connect-customizable-object-pins",
+            "compile-customizable-object",
+        }
+        tool_names = set(info.get("tool_names", [])) if isinstance(info, dict) else set()
+        missing_co_tools = sorted(expected_co_tools - tool_names)
+        _record("CustomizableObject bridge tools registered", "health_check.tool_names", {},
+                not missing_co_tools, 0,
+                f"missing: {missing_co_tools}" if missing_co_tools else None)
     else:
         # MCP: reaching here means mcp-serve started and initialized successfully
         _record("mcp-serve started", "mcp-serve", {}, True, 0, None)
@@ -783,6 +794,18 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             check_stdout=lambda s: '"diffs"' in s or '"sections"' in s or '"overrides"' in s or "no overrides" in s.lower())
     run_cli("config audit", "config", *(["--project-path", project_dir] if project_dir else []), "audit",
             check_stdout=lambda s: '"overrides"' in s or '"sections"' in s or "no overrides" in s.lower())
+    for _co_cmd in (
+        "add-co-node",
+        "add-co-parameter",
+        "add-co-mesh-option",
+        "set-co-base-mesh",
+        "add-co-group-child",
+        "set-co-node-property",
+        "connect-co-pins",
+        "compile-co",
+    ):
+        run_cli(f"{_co_cmd} help", _co_cmd, "--help",
+                check_stdout=lambda s, _cmd=_co_cmd: _cmd in s and "CustomizableObject" in s)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 15: Python Scripting

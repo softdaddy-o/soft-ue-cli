@@ -29,7 +29,9 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "add-co-group-child",
     "set-co-node-property",
     "connect-co-pins",
+    "regenerate-co-node-pins",
     "compile-co",
+    "remove-co-node",
 })
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.
@@ -107,6 +109,11 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
     "set-co-node-property": {
         "properties": {
             "properties": {"type": "object", "description": "Reflected node properties to set"},
+        },
+    },
+    "add-datatable-row": {
+        "properties": {
+            "row_data": {"type": "object", "description": "Row data keyed by row struct property name"},
         },
     },
     # set-node-position: positions is a JSON array of {guid, x, y} objects

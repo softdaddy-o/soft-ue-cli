@@ -1,9 +1,10 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
+"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
 
 import pytest
+
 
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
@@ -35,7 +36,9 @@ def test_extract_tools_contains_known_command():
     assert "add-co-mesh-option" in tool_names
     assert "set-co-node-property" in tool_names
     assert "connect-co-pins" in tool_names
+    assert "regenerate-co-node-pins" in tool_names
     assert "compile-co" in tool_names
+    assert "remove-co-node" in tool_names
     assert "inspect-uasset" in tool_names
     assert "diff-uasset" in tool_names
     assert "status" in tool_names
@@ -97,6 +100,12 @@ def test_customizable_object_edit_schema_uses_native_json_types():
     set_node_property = next(t for t in tools if t["name"] == "set-co-node-property")
     assert set_node_property["parameters"]["properties"]["properties"]["type"] == "object"
 
+    add_datatable_row = next(t for t in tools if t["name"] == "add-datatable-row")
+    assert add_datatable_row["parameters"]["properties"]["row_data"]["type"] == "object"
+
+    connect_pins = next(t for t in tools if t["name"] == "connect-co-pins")
+    assert connect_pins["parameters"]["properties"]["auto_regenerate"]["type"] == "boolean"
+
 
 def test_customizable_object_convenience_commands_run_client_side_for_mcp():
     for command in {
@@ -107,7 +116,9 @@ def test_customizable_object_convenience_commands_run_client_side_for_mcp():
         "add-co-group-child",
         "set-co-node-property",
         "connect-co-pins",
+        "regenerate-co-node-pins",
         "compile-co",
+        "remove-co-node",
     }:
         assert command in CLIENT_SIDE_COMMANDS
 

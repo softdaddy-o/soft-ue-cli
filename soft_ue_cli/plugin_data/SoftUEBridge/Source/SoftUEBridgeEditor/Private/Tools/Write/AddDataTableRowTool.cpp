@@ -2,12 +2,25 @@
 
 #include "Tools/Write/AddDataTableRowTool.h"
 #include "Utils/BridgeAssetModifier.h"
+#include "Utils/BridgePropertySerializer.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "Engine/DataTable.h"
-#include "JsonObjectConverter.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "ScopedTransaction.h"
+
+namespace
+{
+	static TArray<TSharedPtr<FJsonValue>> ToJsonStringArray(const TArray<FString>& Values)
+	{
+		TArray<TSharedPtr<FJsonValue>> JsonValues;
+		for (const FString& Value : Values)
+		{
+			JsonValues.Add(MakeShared<FJsonValueString>(Value));
+		}
+		return JsonValues;
+	}
+}
 
 FString UAddDataTableRowTool::GetToolDescription() const
 {
@@ -31,8 +44,8 @@ TMap<FString, FBridgeSchemaProperty> UAddDataTableRowTool::GetInputSchema() cons
 	Schema.Add(TEXT("row_name"), RowName);
 
 	FBridgeSchemaProperty RowData;
-	RowData.Type = TEXT("string");
-	RowData.Description = TEXT("Row data as JSON string with property names matching the row struct. Example: {\"Name\":\"Value\",\"Count\":5}");
+	RowData.Type = TEXT("object");
+	RowData.Description = TEXT("Row data object with property names matching the row struct. Stringified JSON is accepted for backward compatibility.");
 	RowData.bRequired = false;
 	Schema.Add(TEXT("row_data"), RowData);
 
@@ -50,16 +63,23 @@ FBridgeToolResult UAddDataTableRowTool::Execute(
 {
 	FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
 	FString RowName = GetStringArgOrDefault(Arguments, TEXT("row_name"));
-	FString RowDataString = GetStringArgOrDefault(Arguments, TEXT("row_data"));
 
-	// Parse row_data JSON string if provided
 	TSharedPtr<FJsonObject> RowData = nullptr;
-	if (!RowDataString.IsEmpty())
+	const TSharedPtr<FJsonObject>* RowDataObject = nullptr;
+	if (Arguments->TryGetObjectField(TEXT("row_data"), RowDataObject) && RowDataObject && RowDataObject->IsValid())
 	{
-		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RowDataString);
-		if (!FJsonSerializer::Deserialize(Reader, RowData) || !RowData.IsValid())
+		RowData = *RowDataObject;
+	}
+	else
+	{
+		const FString RowDataString = GetStringArgOrDefault(Arguments, TEXT("row_data"));
+		if (!RowDataString.IsEmpty())
 		{
-			return FBridgeToolResult::Error(TEXT("row_data must be valid JSON string"));
+			TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RowDataString);
+			if (!FJsonSerializer::Deserialize(Reader, RowData) || !RowData.IsValid())
+			{
+				return FBridgeToolResult::Error(TEXT("row_data must be a valid JSON object"));
+			}
 		}
 	}
 
@@ -91,13 +111,6 @@ FBridgeToolResult UAddDataTableRowTool::Execute(
 		return FBridgeToolResult::Error(TEXT("DataTable has no row struct"));
 	}
 
-	// Begin transaction
-	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
-		FText::Format(NSLOCTEXT("MCP", "AddRow", "Add row {0} to {1}"),
-			FText::FromString(RowName), FText::FromString(AssetPath)));
-
-	FBridgeAssetModifier::MarkModified(DataTable);
-
 	// Create a new row with default values
 	uint8* RowMemory = (uint8*)FMemory::Malloc(RowStruct->GetStructureSize());
 	RowStruct->InitializeStruct(RowMemory);
@@ -105,8 +118,52 @@ FBridgeToolResult UAddDataTableRowTool::Execute(
 	// If row data is provided, try to populate it
 	if (RowData.IsValid())
 	{
-		FJsonObjectConverter::JsonObjectToUStruct(RowData.ToSharedRef(), RowStruct, RowMemory);
+		TArray<FString> AppliedFields;
+		TArray<FString> FailedFields;
+		TArray<FString> UnknownFields;
+
+		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : RowData->Values)
+		{
+			FProperty* Property = RowStruct->FindPropertyByName(FName(*Pair.Key));
+			if (!Property)
+			{
+				UnknownFields.Add(Pair.Key);
+				continue;
+			}
+
+			FString FieldError;
+			if (!FBridgePropertySerializer::DeserializePropertyValue(Property, RowMemory, Pair.Value, FieldError))
+			{
+				FailedFields.Add(FString::Printf(TEXT("%s: %s"), *Pair.Key, *FieldError));
+				continue;
+			}
+
+			AppliedFields.Add(Pair.Key);
+		}
+
+		if (FailedFields.Num() > 0 || UnknownFields.Num() > 0)
+		{
+			RowStruct->DestroyStruct(RowMemory);
+			FMemory::Free(RowMemory);
+
+			TSharedPtr<FJsonObject> ErrorResult = MakeShared<FJsonObject>();
+			ErrorResult->SetBoolField(TEXT("success"), false);
+			ErrorResult->SetStringField(TEXT("asset"), AssetPath);
+			ErrorResult->SetStringField(TEXT("row_name"), RowName);
+			ErrorResult->SetStringField(TEXT("status"), TEXT("row_data_invalid"));
+			ErrorResult->SetArrayField(TEXT("applied_fields"), ToJsonStringArray(AppliedFields));
+			ErrorResult->SetArrayField(TEXT("failed_fields"), ToJsonStringArray(FailedFields));
+			ErrorResult->SetArrayField(TEXT("unknown_fields"), ToJsonStringArray(UnknownFields));
+			return FBridgeToolResult::Json(ErrorResult);
+		}
 	}
+
+	// Begin transaction
+	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
+		FText::Format(NSLOCTEXT("MCP", "AddRow", "Add row {0} to {1}"),
+			FText::FromString(RowName), FText::FromString(AssetPath)));
+
+	FBridgeAssetModifier::MarkModified(DataTable);
 
 	// Add the row
 	DataTable->AddRow(FName(*RowName), *reinterpret_cast<FTableRowBase*>(RowMemory));
@@ -121,6 +178,12 @@ FBridgeToolResult UAddDataTableRowTool::Execute(
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("asset"), AssetPath);
 	Result->SetStringField(TEXT("row_name"), RowName);
+	if (RowData.IsValid())
+	{
+		TArray<FString> AppliedFields;
+		RowData->Values.GetKeys(AppliedFields);
+		Result->SetArrayField(TEXT("applied_fields"), ToJsonStringArray(AppliedFields));
+	}
 	Result->SetBoolField(TEXT("needs_save"), true);
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("add-datatable-row: Added row %s"), *RowName);

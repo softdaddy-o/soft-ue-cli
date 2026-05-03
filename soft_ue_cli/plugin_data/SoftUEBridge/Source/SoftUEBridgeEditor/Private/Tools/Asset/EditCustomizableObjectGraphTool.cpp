@@ -11,6 +11,7 @@
 #include "SoftUEBridgeEditorModule.h"
 #include "UObject/StructOnScope.h"
 #include "UObject/UObjectHash.h"
+#include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
 #include "Utils/BridgeAssetModifier.h"
 #include "Utils/BridgePropertySerializer.h"
@@ -27,6 +28,20 @@ namespace
 			}
 		}
 		return false;
+	}
+
+	static FString NormalizeMemberName(FString Name)
+	{
+		Name.ToLowerInline();
+		Name.ReplaceInline(TEXT("_"), TEXT(""));
+		return Name;
+	}
+
+	static bool MatchesNormalizedName(const FString& Name, const TCHAR* Target)
+	{
+		const FString Normalized = NormalizeMemberName(Name);
+		const FString TargetString(Target);
+		return Normalized == TargetString || Normalized == (FString(TEXT("b")) + TargetString);
 	}
 
 	static bool LooksLikeCustomizableObject(const UObject* Object)
@@ -168,6 +183,124 @@ namespace
 		return nullptr;
 	}
 
+	static bool TryGetAssetPathFromJsonValue(const TSharedPtr<FJsonValue>& Value, FString& OutPath)
+	{
+		if (!Value.IsValid())
+		{
+			return false;
+		}
+		if (Value->TryGetString(OutPath))
+		{
+			return !OutPath.IsEmpty();
+		}
+
+		const TSharedPtr<FJsonObject>* ObjectValue = nullptr;
+		if (Value->TryGetObject(ObjectValue) && ObjectValue && ObjectValue->IsValid())
+		{
+			for (const TCHAR* FieldName : {TEXT("asset_path"), TEXT("object_path"), TEXT("path"), TEXT("value")})
+			{
+				if ((*ObjectValue)->TryGetStringField(FieldName, OutPath) && !OutPath.IsEmpty())
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	static bool TryApplyObjectPinDefault(UEdGraphPin* Pin, const TSharedPtr<FJsonValue>& Value)
+	{
+		FString ObjectPath;
+		if (!Pin || !TryGetAssetPathFromJsonValue(Value, ObjectPath))
+		{
+			return false;
+		}
+
+		UObject* LoadedObject = LoadObject<UObject>(nullptr, *ObjectPath);
+		if (!LoadedObject)
+		{
+			return false;
+		}
+
+		Pin->DefaultObject = LoadedObject;
+		Pin->DefaultValue.Reset();
+		Pin->DefaultTextValue = FText::GetEmpty();
+		return true;
+	}
+
+	static bool IsCustomizableObjectNodeTable(const UEdGraphNode* Node)
+	{
+		return Node && Node->GetClass() &&
+			Node->GetClass()->GetName().Contains(TEXT("CustomizableObjectNodeTable"), ESearchCase::IgnoreCase);
+	}
+
+	static bool RefreshCustomizableObjectNodePins(UEdGraphNode* Node)
+	{
+		if (!Node)
+		{
+			return false;
+		}
+
+		const int32 PinCountBefore = Node->Pins.Num();
+		if (IsCustomizableObjectNodeTable(Node))
+		{
+			Node->PostEditChange();
+		}
+		Node->ReconstructNode();
+		if (Node->Pins.Num() == 0)
+		{
+			Node->AllocateDefaultPins();
+		}
+		if (UEdGraph* Graph = Node->GetGraph())
+		{
+			Graph->NotifyGraphChanged();
+		}
+		return Node->Pins.Num() != PinCountBefore;
+	}
+
+	static bool RefreshCustomizableObjectTableNodePins(UEdGraphNode* Node)
+	{
+		if (!IsCustomizableObjectNodeTable(Node))
+		{
+			return false;
+		}
+		return RefreshCustomizableObjectNodePins(Node);
+	}
+
+	static TArray<TSharedPtr<FJsonValue>> BuildPinList(const UEdGraphNode* Node)
+	{
+		TArray<TSharedPtr<FJsonValue>> PinValues;
+		if (!Node)
+		{
+			return PinValues;
+		}
+
+		for (const UEdGraphPin* Pin : Node->Pins)
+		{
+			if (!Pin)
+			{
+				continue;
+			}
+
+			TSharedPtr<FJsonObject> PinJson = MakeShared<FJsonObject>();
+			PinJson->SetStringField(TEXT("name"), Pin->PinName.ToString());
+			PinJson->SetStringField(TEXT("direction"), Pin->Direction == EGPD_Output ? TEXT("output") : TEXT("input"));
+			PinJson->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+			PinJson->SetStringField(TEXT("subcategory"), Pin->PinType.PinSubCategory.ToString());
+			PinJson->SetBoolField(TEXT("orphaned"), Pin->bOrphanedPin);
+			if (!Pin->DefaultValue.IsEmpty())
+			{
+				PinJson->SetStringField(TEXT("default_value"), Pin->DefaultValue);
+			}
+			if (Pin->DefaultObject)
+			{
+				PinJson->SetStringField(TEXT("default_object"), Pin->DefaultObject->GetPathName());
+			}
+			PinValues.Add(MakeShared<FJsonValueObject>(PinJson));
+		}
+		return PinValues;
+	}
+
 	static TArray<FString> ApplyReflectedProperties(UEdGraphNode* Node, const TSharedPtr<FJsonObject>& Properties)
 	{
 		TArray<FString> Errors;
@@ -189,9 +322,12 @@ namespace
 				continue;
 			}
 
+			Node->PreEditChange(Property);
+
 			FString SetError;
 			if (!FBridgePropertySerializer::DeserializePropertyValue(Property, Container, Pair.Value, SetError))
 			{
+				Node->PostEditChange();
 				Errors.Add(FString::Printf(TEXT("Failed to set property %s: %s"), *Pair.Key, *SetError));
 				continue;
 			}
@@ -215,19 +351,29 @@ namespace
 				continue;
 			}
 
-			if ((*ValuePtr)->Type == EJson::Number)
+			if (TryApplyObjectPinDefault(Pin, *ValuePtr))
+			{
+				ResolvedByPin.Add(PropertyName);
+			}
+			else if ((*ValuePtr)->Type == EJson::Number)
 			{
 				Pin->DefaultValue = FString::Printf(TEXT("%g"), (*ValuePtr)->AsNumber());
+				ResolvedByPin.Add(PropertyName);
 			}
 			else if ((*ValuePtr)->Type == EJson::Boolean)
 			{
 				Pin->DefaultValue = (*ValuePtr)->AsBool() ? TEXT("true") : TEXT("false");
+				ResolvedByPin.Add(PropertyName);
+			}
+			else if ((*ValuePtr)->Type == EJson::String)
+			{
+				Pin->DefaultValue = (*ValuePtr)->AsString();
+				ResolvedByPin.Add(PropertyName);
 			}
 			else
 			{
-				Pin->DefaultValue = (*ValuePtr)->AsString();
+				continue;
 			}
-			ResolvedByPin.Add(PropertyName);
 		}
 
 		for (const FString& PropertyName : ResolvedByPin)
@@ -235,6 +381,7 @@ namespace
 			Errors.Remove(FString::Printf(TEXT("Property not found: %s"), *PropertyName));
 		}
 
+		RefreshCustomizableObjectTableNodePins(Node);
 		return Errors;
 	}
 
@@ -287,6 +434,246 @@ namespace
 		}
 		Result->SetStringField(TEXT("node_creation_path"), TEXT("UEdGraph::CreateUserInvokedNode"));
 		return Result;
+	}
+
+	static FProperty* FindReturnProperty(UFunction* Function)
+	{
+		if (!Function)
+		{
+			return nullptr;
+		}
+		for (TFieldIterator<FProperty> It(Function); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (Property && Property->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				return Property;
+			}
+		}
+		return nullptr;
+	}
+
+	static bool SetCompileParamsBoolField(
+		UScriptStruct* CompileParamsStruct,
+		void* CompileParamsMemory,
+		std::initializer_list<const TCHAR*> NormalizedNames,
+		bool bValue,
+		TArray<FString>& OutConfiguredFields)
+	{
+		if (!CompileParamsStruct || !CompileParamsMemory)
+		{
+			return false;
+		}
+
+		for (TFieldIterator<FBoolProperty> It(CompileParamsStruct); It; ++It)
+		{
+			FBoolProperty* BoolProperty = *It;
+			if (!BoolProperty)
+			{
+				continue;
+			}
+
+			for (const TCHAR* Name : NormalizedNames)
+			{
+				if (MatchesNormalizedName(BoolProperty->GetName(), Name))
+				{
+					BoolProperty->SetPropertyValue(
+						BoolProperty->ContainerPtrToValuePtr<void>(CompileParamsMemory),
+						bValue);
+					OutConfiguredFields.AddUnique(BoolProperty->GetName());
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	static bool ConfigureCompileParams(FStructProperty* StructProperty, void* StructMemory, TArray<FString>& OutConfiguredFields)
+	{
+		if (!StructProperty || !StructProperty->Struct || !StructMemory ||
+			!StructProperty->Struct->GetName().Contains(TEXT("CompileParams"), ESearchCase::IgnoreCase))
+		{
+			return false;
+		}
+
+		bool bConfiguredAny = false;
+		bConfiguredAny |= SetCompileParamsBoolField(
+			StructProperty->Struct,
+			StructMemory,
+			{TEXT("async")},
+			false,
+			OutConfiguredFields);
+		bConfiguredAny |= SetCompileParamsBoolField(
+			StructProperty->Struct,
+			StructMemory,
+			{TEXT("gatherreferences")},
+			true,
+			OutConfiguredFields);
+		bConfiguredAny |= SetCompileParamsBoolField(
+			StructProperty->Struct,
+			StructMemory,
+			{TEXT("skipifcompiled")},
+			false,
+			OutConfiguredFields);
+		bConfiguredAny |= SetCompileParamsBoolField(
+			StructProperty->Struct,
+			StructMemory,
+			{TEXT("skipifnotoutofdate")},
+			false,
+			OutConfiguredFields);
+		return bConfiguredAny;
+	}
+
+	static bool TryCallNoParamBool(UObject* Target, const FName FunctionName, bool& OutValue)
+	{
+		if (!Target)
+		{
+			return false;
+		}
+		UFunction* Function = Target->FindFunction(FunctionName);
+		if (!Function)
+		{
+			return false;
+		}
+
+		FProperty* ReturnProperty = FindReturnProperty(Function);
+		FBoolProperty* BoolReturnProperty = CastField<FBoolProperty>(ReturnProperty);
+		if (!BoolReturnProperty)
+		{
+			return false;
+		}
+
+		FStructOnScope Params(Function);
+		uint8* ParamBuffer = Params.GetStructMemory();
+		Target->ProcessEvent(Function, ParamBuffer);
+		OutValue = BoolReturnProperty->GetPropertyValue(
+			BoolReturnProperty->ContainerPtrToValuePtr<void>(ParamBuffer));
+		return true;
+	}
+
+	static bool TryCallNoParamInt(UObject* Target, const FName FunctionName, int32& OutValue)
+	{
+		if (!Target)
+		{
+			return false;
+		}
+		UFunction* Function = Target->FindFunction(FunctionName);
+		if (!Function)
+		{
+			return false;
+		}
+
+		FProperty* ReturnProperty = FindReturnProperty(Function);
+		FNumericProperty* NumericReturnProperty = CastField<FNumericProperty>(ReturnProperty);
+		if (!NumericReturnProperty || !NumericReturnProperty->IsInteger())
+		{
+			return false;
+		}
+
+		FStructOnScope Params(Function);
+		uint8* ParamBuffer = Params.GetStructMemory();
+		Target->ProcessEvent(Function, ParamBuffer);
+		OutValue = static_cast<int32>(NumericReturnProperty->GetSignedIntPropertyValue(
+			NumericReturnProperty->ContainerPtrToValuePtr<void>(ParamBuffer)));
+		return true;
+	}
+
+	static bool TryCompileWithAssetMethod(
+		UObject* AssetObject,
+		FString& OutState,
+		bool& bOutCompileSucceeded,
+		int32& OutParameterCount,
+		TArray<FString>& OutConfiguredFields,
+		FString& OutError)
+	{
+		bOutCompileSucceeded = false;
+		OutParameterCount = INDEX_NONE;
+		if (!AssetObject)
+		{
+			OutError = TEXT("Asset is unavailable");
+			return false;
+		}
+
+		UFunction* CompileFunction = AssetObject->FindFunction(FName(TEXT("Compile")));
+		if (!CompileFunction)
+		{
+			OutError = TEXT("Compile function was not found on the CustomizableObject asset");
+			return false;
+		}
+
+		FStructOnScope Params(CompileFunction);
+		uint8* ParamBuffer = Params.GetStructMemory();
+		FProperty* ReturnProperty = nullptr;
+		bool bConfiguredCompileParams = false;
+
+		for (TFieldIterator<FProperty> It(CompileFunction); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (!Property || !Property->HasAnyPropertyFlags(CPF_Parm))
+			{
+				continue;
+			}
+
+			if (Property->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				ReturnProperty = Property;
+				continue;
+			}
+
+			void* ValuePtr = Property->ContainerPtrToValuePtr<void>(ParamBuffer);
+			if (FStructProperty* StructProperty = CastField<FStructProperty>(Property))
+			{
+				bConfiguredCompileParams |= ConfigureCompileParams(StructProperty, ValuePtr, OutConfiguredFields);
+			}
+			else if (FBoolProperty* BoolProperty = CastField<FBoolProperty>(Property))
+			{
+				if (MatchesNormalizedName(BoolProperty->GetName(), TEXT("async")))
+				{
+					BoolProperty->SetPropertyValue(ValuePtr, false);
+					OutConfiguredFields.AddUnique(BoolProperty->GetName());
+				}
+				else if (MatchesNormalizedName(BoolProperty->GetName(), TEXT("gatherreferences")))
+				{
+					BoolProperty->SetPropertyValue(ValuePtr, true);
+					OutConfiguredFields.AddUnique(BoolProperty->GetName());
+				}
+				else if (MatchesNormalizedName(BoolProperty->GetName(), TEXT("skipifcompiled")) ||
+					MatchesNormalizedName(BoolProperty->GetName(), TEXT("skipifnotoutofdate")))
+				{
+					BoolProperty->SetPropertyValue(ValuePtr, false);
+					OutConfiguredFields.AddUnique(BoolProperty->GetName());
+				}
+			}
+		}
+
+		AssetObject->ProcessEvent(CompileFunction, ParamBuffer);
+
+		if (ReturnProperty)
+		{
+			void* ReturnValuePtr = ReturnProperty->ContainerPtrToValuePtr<void>(ParamBuffer);
+			ReturnProperty->ExportText_Direct(OutState, ReturnValuePtr, ReturnValuePtr, AssetObject, PPF_None);
+		}
+
+		bool bIsCompiled = true;
+		if (TryCallNoParamBool(AssetObject, FName(TEXT("IsCompiled")), bIsCompiled))
+		{
+			bOutCompileSucceeded = bIsCompiled;
+		}
+		else
+		{
+			bOutCompileSucceeded = true;
+		}
+		TryCallNoParamInt(AssetObject, FName(TEXT("GetParameterCount")), OutParameterCount);
+
+		if (OutState.IsEmpty())
+		{
+			OutState = bOutCompileSucceeded ? TEXT("Compiled") : TEXT("NotCompiled");
+		}
+		if (!bConfiguredCompileParams && OutConfiguredFields.Num() == 0)
+		{
+			OutError = TEXT("Compile was called, but no CompileParams-compatible fields were reflected.");
+		}
+		return true;
 	}
 
 	static bool TryCompileWithFunctionLibrary(UObject* AssetObject, FString& OutState, bool& bOutCompileSucceeded, FString& OutError)
@@ -604,6 +991,11 @@ TMap<FString, FBridgeSchemaProperty> UConnectCustomizableObjectPinsTool::GetInpu
 		Schema.Add(Name, Prop);
 	}
 
+	FBridgeSchemaProperty AutoRegenerate;
+	AutoRegenerate.Type = TEXT("boolean");
+	AutoRegenerate.Description = TEXT("Regenerate each owning node once if a requested pin is missing before failing.");
+	Schema.Add(TEXT("auto_regenerate"), AutoRegenerate);
+
 	return Schema;
 }
 
@@ -621,6 +1013,7 @@ FBridgeToolResult UConnectCustomizableObjectPinsTool::Execute(
 	const FString SourcePinName = GetStringArgOrDefault(Arguments, TEXT("source_pin"));
 	const FString TargetNodeRef = GetStringArgOrDefault(Arguments, TEXT("target_node"));
 	const FString TargetPinName = GetStringArgOrDefault(Arguments, TEXT("target_pin"));
+	const bool bAutoRegenerate = GetBoolArgOrDefault(Arguments, TEXT("auto_regenerate"), true);
 	if (AssetPath.IsEmpty() || SourceNodeRef.IsEmpty() || SourcePinName.IsEmpty() ||
 		TargetNodeRef.IsEmpty() || TargetPinName.IsEmpty())
 	{
@@ -657,13 +1050,70 @@ FBridgeToolResult UConnectCustomizableObjectPinsTool::Execute(
 
 	UEdGraphPin* SourcePin = FindPin(SourceNode, SourcePinName);
 	UEdGraphPin* TargetPin = FindPin(TargetNode, TargetPinName);
+	bool bSourceRegenerated = false;
+	bool bTargetRegenerated = false;
+	TArray<UEdGraphNode*> RegeneratedNodes;
+	TSharedPtr<FScopedTransaction> Transaction;
+	auto EnsureTransaction = [&Transaction]()
+	{
+		if (!Transaction.IsValid())
+		{
+			Transaction = FBridgeAssetModifier::BeginTransaction(
+				NSLOCTEXT("SoftUEBridge", "ConnectCustomizableObjectPins", "Connect CustomizableObject pins"));
+		}
+	};
+	auto RegeneratePinsOnce = [&](UEdGraphNode* Node) -> bool
+	{
+		if (!Node)
+		{
+			return false;
+		}
+		EnsureTransaction();
+		FBridgeAssetModifier::MarkModified(AssetObject);
+		FBridgeAssetModifier::MarkModified(Node);
+		if (UEdGraph* OwningGraph = Node->GetGraph())
+		{
+			FBridgeAssetModifier::MarkModified(OwningGraph);
+		}
+		if (!RegeneratedNodes.Contains(Node))
+		{
+			RefreshCustomizableObjectNodePins(Node);
+			RegeneratedNodes.Add(Node);
+		}
+		return true;
+	};
+
+	if (bAutoRegenerate && !SourcePin)
+	{
+		bSourceRegenerated = RegeneratePinsOnce(SourceNode);
+		SourcePin = FindPin(SourceNode, SourcePinName);
+	}
+	if (bAutoRegenerate && !TargetPin)
+	{
+		bTargetRegenerated = RegeneratePinsOnce(TargetNode);
+		TargetPin = FindPin(TargetNode, TargetPinName);
+	}
+	if (bSourceRegenerated || (bTargetRegenerated && SourceNode == TargetNode))
+	{
+		SourcePin = FindPin(SourceNode, SourcePinName);
+	}
+	if (bTargetRegenerated || (bSourceRegenerated && SourceNode == TargetNode))
+	{
+		TargetPin = FindPin(TargetNode, TargetPinName);
+	}
 	if (!SourcePin)
 	{
-		return FBridgeToolResult::Error(FString::Printf(TEXT("Source pin not found: %s"), *SourcePinName));
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("%s: %s"),
+			bAutoRegenerate ? TEXT("Source pin not found after regenerate") : TEXT("Source pin not found"),
+			*SourcePinName));
 	}
 	if (!TargetPin)
 	{
-		return FBridgeToolResult::Error(FString::Printf(TEXT("Target pin not found: %s"), *TargetPinName));
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("%s: %s"),
+			bAutoRegenerate ? TEXT("Target pin not found after regenerate") : TEXT("Target pin not found"),
+			*TargetPinName));
 	}
 
 	const UEdGraphSchema* Schema = SourceGraph ? SourceGraph->GetSchema() : nullptr;
@@ -678,10 +1128,11 @@ FBridgeToolResult UConnectCustomizableObjectPinsTool::Execute(
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Cannot connect pins: %s"), *Response.Message.ToString()));
 	}
 
-	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
-		NSLOCTEXT("SoftUEBridge", "ConnectCustomizableObjectPins", "Connect CustomizableObject pins"));
-
+	EnsureTransaction();
 	FBridgeAssetModifier::MarkModified(AssetObject);
+	FBridgeAssetModifier::MarkModified(SourceGraph);
+	FBridgeAssetModifier::MarkModified(SourceNode);
+	FBridgeAssetModifier::MarkModified(TargetNode);
 	if (!Schema->TryCreateConnection(SourcePin, TargetPin))
 	{
 		return FBridgeToolResult::Error(TEXT("Failed to connect pins"));
@@ -697,6 +1148,97 @@ FBridgeToolResult UConnectCustomizableObjectPinsTool::Execute(
 	Result->SetStringField(TEXT("source_pin"), SourcePin->PinName.ToString());
 	Result->SetStringField(TEXT("target_node"), TargetNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
 	Result->SetStringField(TEXT("target_pin"), TargetPin->PinName.ToString());
+	Result->SetBoolField(TEXT("auto_regenerate"), bAutoRegenerate);
+	Result->SetBoolField(TEXT("source_regenerated"), bSourceRegenerated);
+	Result->SetBoolField(TEXT("target_regenerated"), bTargetRegenerated);
+	Result->SetBoolField(TEXT("needs_compile"), true);
+	Result->SetBoolField(TEXT("needs_save"), true);
+	return FBridgeToolResult::Json(Result);
+}
+
+FString URegenerateCustomizableObjectNodePinsTool::GetToolDescription() const
+{
+	return TEXT("Regenerate pins for a single Mutable/CustomizableObject graph node and return its refreshed pin list.");
+}
+
+TMap<FString, FBridgeSchemaProperty> URegenerateCustomizableObjectNodePinsTool::GetInputSchema() const
+{
+	TMap<FString, FBridgeSchemaProperty> Schema = CommonCustomizableObjectAssetSchema();
+
+	FBridgeSchemaProperty Node;
+	Node.Type = TEXT("string");
+	Node.Description = TEXT("Node GUID, object path, object name, or title");
+	Node.bRequired = true;
+	Schema.Add(TEXT("node"), Node);
+
+	return Schema;
+}
+
+TArray<FString> URegenerateCustomizableObjectNodePinsTool::GetRequiredParams() const
+{
+	return {TEXT("asset_path"), TEXT("node")};
+}
+
+FBridgeToolResult URegenerateCustomizableObjectNodePinsTool::Execute(
+	const TSharedPtr<FJsonObject>& Arguments,
+	const FBridgeToolContext& Context)
+{
+	const FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
+	const FString NodeRef = GetStringArgOrDefault(Arguments, TEXT("node"));
+	if (AssetPath.IsEmpty() || NodeRef.IsEmpty())
+	{
+		return FBridgeToolResult::Error(TEXT("asset_path and node are required"));
+	}
+
+	FString LoadError;
+	UObject* AssetObject = FBridgeAssetModifier::LoadAssetByPath(AssetPath, LoadError);
+	if (!AssetObject)
+	{
+		return FBridgeToolResult::Error(LoadError);
+	}
+	if (!LooksLikeCustomizableObject(AssetObject))
+	{
+		return FBridgeToolResult::Error(TEXT("Asset does not appear to be a Mutable/CustomizableObject asset."));
+	}
+
+	UEdGraph* Graph = nullptr;
+	UEdGraphNode* Node = FindNode(AssetObject, NodeRef, &Graph);
+	if (!Node)
+	{
+		return FBridgeToolResult::Error(FString::Printf(TEXT("CustomizableObject node not found: %s"), *NodeRef));
+	}
+
+	const int32 PinCountBefore = Node->Pins.Num();
+	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
+		FText::Format(NSLOCTEXT("SoftUEBridge", "RegenerateCustomizableObjectNodePins", "Regenerate pins on {0}"),
+			FText::FromString(NodeRef)));
+
+	FBridgeAssetModifier::MarkModified(AssetObject);
+	FBridgeAssetModifier::MarkModified(Node);
+	if (Graph)
+	{
+		FBridgeAssetModifier::MarkModified(Graph);
+	}
+	const bool bPinCountChanged = RefreshCustomizableObjectNodePins(Node);
+	FBridgeAssetModifier::MarkPackageDirty(AssetObject);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("asset"), AssetPath);
+	if (Graph)
+	{
+		Result->SetStringField(TEXT("graph"), Graph->GetName());
+		Result->SetStringField(TEXT("graph_path"), Graph->GetPathName());
+	}
+	Result->SetStringField(TEXT("node_guid"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+	Result->SetStringField(TEXT("node_name"), Node->GetName());
+	Result->SetStringField(TEXT("node_path"), Node->GetPathName());
+	Result->SetStringField(TEXT("node_class"), Node->GetClass()->GetName());
+	Result->SetBoolField(TEXT("regenerated"), true);
+	Result->SetBoolField(TEXT("pin_count_changed"), bPinCountChanged);
+	Result->SetNumberField(TEXT("pin_count_before"), PinCountBefore);
+	Result->SetNumberField(TEXT("pin_count"), Node->Pins.Num());
+	Result->SetArrayField(TEXT("pins"), BuildPinList(Node));
 	Result->SetBoolField(TEXT("needs_compile"), true);
 	Result->SetBoolField(TEXT("needs_save"), true);
 	return FBridgeToolResult::Json(Result);
@@ -741,13 +1283,41 @@ FBridgeToolResult UCompileCustomizableObjectTool::Execute(
 	FString CompileState;
 	FString CompileError;
 	bool bCompileSucceeded = false;
-	const bool bCompileCalled = TryCompileWithFunctionLibrary(AssetObject, CompileState, bCompileSucceeded, CompileError);
+	int32 ParameterCount = INDEX_NONE;
+	TArray<FString> ConfiguredCompileFields;
+	FString CompileMethod = TEXT("asset_compile");
+	bool bCompileCalled = TryCompileWithAssetMethod(
+		AssetObject,
+		CompileState,
+		bCompileSucceeded,
+		ParameterCount,
+		ConfiguredCompileFields,
+		CompileError);
+	if (!bCompileCalled)
+	{
+		CompileMethod = TEXT("editor_function_library");
+		bCompileCalled = TryCompileWithFunctionLibrary(AssetObject, CompileState, bCompileSucceeded, CompileError);
+	}
 
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 	Result->SetBoolField(TEXT("success"), bCompileCalled && bCompileSucceeded);
 	Result->SetStringField(TEXT("asset"), AssetPath);
 	Result->SetStringField(TEXT("loaded_class"), AssetObject->GetClass()->GetName());
 	Result->SetBoolField(TEXT("compile_requested"), bCompileCalled);
+	Result->SetStringField(TEXT("compile_method"), CompileMethod);
+	if (ParameterCount != INDEX_NONE)
+	{
+		Result->SetNumberField(TEXT("parameter_count"), ParameterCount);
+	}
+	if (ConfiguredCompileFields.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> Fields;
+		for (const FString& Field : ConfiguredCompileFields)
+		{
+			Fields.Add(MakeShared<FJsonValueString>(Field));
+		}
+		Result->SetArrayField(TEXT("configured_compile_fields"), Fields);
+	}
 	if (!CompileState.IsEmpty())
 	{
 		Result->SetStringField(TEXT("compile_state"), CompileState);
@@ -768,5 +1338,86 @@ FBridgeToolResult UCompileCustomizableObjectTool::Execute(
 	{
 		Result->SetStringField(TEXT("status"), TEXT("compile_completed"));
 	}
+	return FBridgeToolResult::Json(Result);
+}
+
+FString URemoveCustomizableObjectNodeTool::GetToolDescription() const
+{
+	return TEXT("Remove a node from a Mutable/CustomizableObject graph by GUID, name, path, or title.");
+}
+
+TMap<FString, FBridgeSchemaProperty> URemoveCustomizableObjectNodeTool::GetInputSchema() const
+{
+	TMap<FString, FBridgeSchemaProperty> Schema = CommonCustomizableObjectAssetSchema();
+
+	FBridgeSchemaProperty Node;
+	Node.Type = TEXT("string");
+	Node.Description = TEXT("Node GUID, object path, object name, or title");
+	Node.bRequired = true;
+	Schema.Add(TEXT("node"), Node);
+
+	return Schema;
+}
+
+TArray<FString> URemoveCustomizableObjectNodeTool::GetRequiredParams() const
+{
+	return {TEXT("asset_path"), TEXT("node")};
+}
+
+FBridgeToolResult URemoveCustomizableObjectNodeTool::Execute(
+	const TSharedPtr<FJsonObject>& Arguments,
+	const FBridgeToolContext& Context)
+{
+	const FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
+	const FString NodeRef = GetStringArgOrDefault(Arguments, TEXT("node"));
+	if (AssetPath.IsEmpty() || NodeRef.IsEmpty())
+	{
+		return FBridgeToolResult::Error(TEXT("asset_path and node are required"));
+	}
+
+	FString LoadError;
+	UObject* AssetObject = FBridgeAssetModifier::LoadAssetByPath(AssetPath, LoadError);
+	if (!AssetObject)
+	{
+		return FBridgeToolResult::Error(LoadError);
+	}
+	if (!LooksLikeCustomizableObject(AssetObject))
+	{
+		return FBridgeToolResult::Error(TEXT("Asset does not appear to be a Mutable/CustomizableObject asset."));
+	}
+
+	UEdGraph* Graph = nullptr;
+	UEdGraphNode* Node = FindNode(AssetObject, NodeRef, &Graph);
+	if (!Node || !Graph)
+	{
+		return FBridgeToolResult::Error(FString::Printf(TEXT("CustomizableObject node not found: %s"), *NodeRef));
+	}
+
+	const FString RemovedNodeGuid = Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens);
+	const FString RemovedNodeName = Node->GetName();
+	const FString RemovedNodeClass = Node->GetClass() ? Node->GetClass()->GetName() : FString();
+
+	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
+		FText::Format(NSLOCTEXT("SoftUEBridge", "RemoveCustomizableObjectNode", "Remove CustomizableObject node {0}"),
+			FText::FromString(NodeRef)));
+
+	FBridgeAssetModifier::MarkModified(AssetObject);
+	FBridgeAssetModifier::MarkModified(Graph);
+	FBridgeAssetModifier::MarkModified(Node);
+	Node->BreakAllNodeLinks();
+	Graph->RemoveNode(Node);
+	Graph->NotifyGraphChanged();
+	FBridgeAssetModifier::MarkPackageDirty(AssetObject);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("asset"), AssetPath);
+	Result->SetStringField(TEXT("graph"), Graph->GetName());
+	Result->SetStringField(TEXT("removed_node"), NodeRef);
+	Result->SetStringField(TEXT("removed_node_guid"), RemovedNodeGuid);
+	Result->SetStringField(TEXT("removed_node_name"), RemovedNodeName);
+	Result->SetStringField(TEXT("removed_node_class"), RemovedNodeClass);
+	Result->SetBoolField(TEXT("needs_compile"), true);
+	Result->SetBoolField(TEXT("needs_save"), true);
 	return FBridgeToolResult::Json(Result);
 }

@@ -562,6 +562,19 @@ def cmd_connect_co_pins(args: argparse.Namespace) -> None:
                 "source_pin": args.source_pin,
                 "target_node": args.target_node,
                 "target_pin": args.target_pin,
+                "auto_regenerate": args.auto_regenerate,
+            },
+        )
+    )
+
+
+def cmd_regenerate_co_node_pins(args: argparse.Namespace) -> None:
+    _print_json(
+        _run_tool(
+            "regenerate-customizable-object-node-pins",
+            {
+                "asset_path": args.asset_path,
+                "node": args.node,
             },
         )
     )
@@ -569,6 +582,18 @@ def cmd_connect_co_pins(args: argparse.Namespace) -> None:
 
 def cmd_compile_co(args: argparse.Namespace) -> None:
     _print_json(_run_tool("compile-customizable-object", {"asset_path": args.asset_path}))
+
+
+def cmd_remove_co_node(args: argparse.Namespace) -> None:
+    _print_json(
+        _run_tool(
+            "remove-customizable-object-node",
+            {
+                "asset_path": args.asset_path,
+                "node": args.node,
+            },
+        )
+    )
 
 
 def cmd_get_asset_diff(args: argparse.Namespace) -> None:
@@ -1350,7 +1375,7 @@ def cmd_add_datatable_row(args: argparse.Namespace) -> None:
         "row_name": args.row_name,
     }
     if args.row_data:
-        arguments["row_data"] = _parse_json_arg(args.row_data, "--row-data")
+        arguments["row_data"] = _parse_json_object_arg(args.row_data, "--row-data")
     _print_json(_run_tool("add-datatable-row", arguments))
 
 
@@ -2896,7 +2921,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_ccp.add_argument("source_pin", help="Source pin name")
     p_ccp.add_argument("target_node", help="Target node GUID, name, path, or title")
     p_ccp.add_argument("target_pin", help="Target pin name")
+    p_ccp.add_argument(
+        "--no-auto-regenerate",
+        dest="auto_regenerate",
+        action="store_false",
+        default=True,
+        help="Do not regenerate node pins once before failing a missing-pin lookup",
+    )
     p_ccp.set_defaults(func=cmd_connect_co_pins)
+
+    p_rcop = sub.add_parser(
+        "regenerate-co-node-pins",
+        help="Regenerate pins for a Mutable/CustomizableObject graph node.",
+        description=(
+            "Forces a CustomizableObject graph node through the editor-style pin regeneration path.\n"
+            "Useful for NodeTable dynamic pins such as 'Mesh LOD_0 Mat_0'.\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli regenerate-co-node-pins /Game/Characters/CO_Hero.CO_Hero <node-guid>"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rcop.add_argument("asset_path", help="CustomizableObject asset path")
+    p_rcop.add_argument("node", help="Node GUID, name, path, or title")
+    p_rcop.set_defaults(func=cmd_regenerate_co_node_pins)
 
     p_cco = sub.add_parser(
         "compile-co",
@@ -2910,6 +2957,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_cco.add_argument("asset_path", help="CustomizableObject asset path")
     p_cco.set_defaults(func=cmd_compile_co)
+
+    p_rco = sub.add_parser(
+        "remove-co-node",
+        help="Remove a node from a Mutable/CustomizableObject graph.",
+        description=(
+            "Removes a CustomizableObject graph node found by GUID, object path, object name, or title.\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli remove-co-node /Game/Characters/CO_Hero.CO_Hero <node-guid>"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_rco.add_argument("asset_path", help="CustomizableObject asset path")
+    p_rco.add_argument("node", help="Node GUID, name, path, or title")
+    p_rco.set_defaults(func=cmd_remove_co_node)
 
     p_gad = sub.add_parser(
         "get-asset-diff",

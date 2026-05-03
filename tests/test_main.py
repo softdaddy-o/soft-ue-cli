@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
+"""Tests for cli/soft_ue_cli/__main__.py — argument parsing and cmd_setup output."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+
 from soft_ue_cli.__main__ import (
     _SCRIPTS_DIR,
     _claude_md_section,
@@ -16,6 +17,7 @@ from soft_ue_cli.__main__ import (
     _parse_vector,
     _validate_script_name,
     build_parser,
+    cmd_add_datatable_row,
     cmd_add_co_group_child,
     cmd_add_co_mesh_option,
     cmd_add_co_node,
@@ -878,7 +880,53 @@ def test_cmd_connect_co_pins_forwards_connection():
             "source_pin": "Value",
             "target_node": "target-node",
             "target_pin": "Input",
+            "auto_regenerate": True,
         },
+    )
+
+
+def test_cmd_connect_co_pins_can_disable_auto_regenerate():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "connect-co-pins",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "source-node",
+            "Value",
+            "target-node",
+            "Input",
+            "--no-auto-regenerate",
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_connect_co_pins(args)
+
+    mock_run.assert_called_once_with(
+        "connect-customizable-object-pins",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "source_node": "source-node",
+            "source_pin": "Value",
+            "target_node": "target-node",
+            "target_pin": "Input",
+            "auto_regenerate": False,
+        },
+    )
+
+
+def test_cmd_regenerate_co_node_pins_forwards_node_reference():
+    from soft_ue_cli import __main__ as main_mod
+
+    parser = build_parser()
+    args = parser.parse_args(["regenerate-co-node-pins", "/Game/Characters/CO_Hero.CO_Hero", "node-guid-1"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        main_mod.cmd_regenerate_co_node_pins(args)
+
+    mock_run.assert_called_once_with(
+        "regenerate-customizable-object-node-pins",
+        {"asset_path": "/Game/Characters/CO_Hero.CO_Hero", "node": "node-guid-1"},
     )
 
 
@@ -892,6 +940,51 @@ def test_cmd_compile_co_forwards_asset_path():
     mock_run.assert_called_once_with(
         "compile-customizable-object",
         {"asset_path": "/Game/Characters/CO_Hero.CO_Hero"},
+    )
+
+
+def test_cmd_remove_co_node_forwards_node_reference():
+    from soft_ue_cli import __main__ as main_mod
+
+    parser = build_parser()
+    args = parser.parse_args(["remove-co-node", "/Game/Characters/CO_Hero.CO_Hero", "node-guid-1"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        main_mod.cmd_remove_co_node(args)
+
+    mock_run.assert_called_once_with(
+        "remove-customizable-object-node",
+        {"asset_path": "/Game/Characters/CO_Hero.CO_Hero", "node": "node-guid-1"},
+    )
+
+
+def test_cmd_add_datatable_row_forwards_row_data_as_object():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "add-datatable-row",
+            "/Game/Data/DT_Items.DT_Items",
+            "Boots",
+            "--row-data",
+            '{"ItemId": 2, "SlotTag": {"TagName": "Equipment.Feet"}, "MutableEnumOption": "Boots", "DisplayName": "Boots"}',
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_datatable_row(args)
+
+    mock_run.assert_called_once_with(
+        "add-datatable-row",
+        {
+            "asset_path": "/Game/Data/DT_Items.DT_Items",
+            "row_name": "Boots",
+            "row_data": {
+                "ItemId": 2,
+                "SlotTag": {"TagName": "Equipment.Feet"},
+                "MutableEnumOption": "Boots",
+                "DisplayName": "Boots",
+            },
+        },
     )
 
 
@@ -1290,9 +1383,9 @@ def test_fix_msys_path_mangling():
     # Mangled by Git Bash
     assert _fix_msys_asset_path("C:/Program Files/Git/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
     assert _fix_msys_asset_path("C:/Program Files/Git/Engine/Content/Foo") == "/Engine/Content/Foo"
-    # Already correct ??pass through
+    # Already correct — pass through
     assert _fix_msys_asset_path("/Game/Materials/M_Rock") == "/Game/Materials/M_Rock"
-    # No mount point ??pass through
+    # No mount point — pass through
     assert _fix_msys_asset_path("some/local/path") == "some/local/path"
     # Empty/None
     assert _fix_msys_asset_path("") == ""

@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/mcp_server.py ??MCP server tool/prompt registration."""
+"""Tests for cli/soft_ue_cli/mcp_server.py — MCP server tool/prompt registration."""
 
 from __future__ import annotations
 

@@ -237,16 +237,18 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `query-enum` | Inspect a UserDefinedEnum asset -- authored names, display names, tooltips, numeric values |
 | `query-struct` | Inspect a UserDefinedStruct asset -- authored member names, defaults, and metadata |
 | `inspect-customizable-object-graph` | Inspect a Mutable/CustomizableObject graph and return graphs, nodes, pins, edges, and derived node roles |
-| `inspect-mutable-parameters` | Derive structured Mutable parameter metadata such as groups, defaults, options, tags, and related graph links |
+| `inspect-mutable-parameters` | Derive structured Mutable parameter metadata such as groups, defaults, runtime enum options, tags, and related graph links |
 | `inspect-mutable-diagnostics` | Report Mutable plugin availability and best-effort capability/runtime diagnostics for a target asset |
 | `add-co-node` | Add a node to a Mutable/CustomizableObject graph by class name, with optional position and properties |
 | `add-co-parameter` | Add a common Mutable parameter node such as float, color, enum, projector, texture, transform, or mesh |
 | `add-co-mesh-option` | Add a skeletal or static mesh option node and assign its mesh reference |
 | `set-co-base-mesh` | Set the mesh reference on an existing CustomizableObject node |
 | `add-co-group-child` | Connect a child object node into an object group using Mutable's default `Object` -> `Objects` pins |
-| `set-co-node-property` | Set reflected properties on a CustomizableObject graph node |
-| `connect-co-pins` | Connect two CustomizableObject graph pins by node GUID and pin name |
+| `set-co-node-property` | Set reflected properties or matching pin defaults on a CustomizableObject graph node |
+| `connect-co-pins` | Connect two CustomizableObject graph pins by node GUID and pin name, with one automatic pin regeneration retry by default |
+| `regenerate-co-node-pins` | Regenerate pins for one Mutable/CustomizableObject graph node and return the refreshed pin list |
 | `compile-co` | Compile a CustomizableObject asset and return structured status |
+| `remove-co-node` | Remove a CustomizableObject graph node by GUID, object path, object name, or title |
 | `create-asset` | Create new Blueprint, Material, DataTable, World (Level), or other asset types |
 | `delete-asset` | Delete an asset |
 | `release-asset-lock` | Best-effort close editors and release UE file handles for a specific asset |
@@ -335,7 +337,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
-| `add-datatable-row` | Add or update a row in a DataTable asset |
+| `add-datatable-row` | Add or update a row in a DataTable asset from a JSON object keyed by row struct field name |
 
 ### Performance Profiling (UE Insights)
 
@@ -497,7 +499,10 @@ soft-ue-cli inspect-mutable-diagnostics /Game/Characters/CO_Hero.CO_Hero
 soft-ue-cli add-co-parameter /Game/Characters/CO_Hero.CO_Hero BodyHeight --parameter-type float
 soft-ue-cli add-co-mesh-option /Game/Characters/CO_Hero.CO_Hero /Game/Meshes/SKM_Boots.SKM_Boots
 soft-ue-cli add-co-group-child /Game/Characters/CO_Hero.CO_Hero <group-node-guid> <child-node-guid>
+soft-ue-cli regenerate-co-node-pins /Game/Characters/CO_Hero.CO_Hero <node-guid>
+soft-ue-cli connect-co-pins /Game/Characters/CO_Hero.CO_Hero <source-node-guid> Value <target-node-guid> Input
 soft-ue-cli compile-co /Game/Characters/CO_Hero.CO_Hero
+soft-ue-cli remove-co-node /Game/Characters/CO_Hero.CO_Hero <node-guid>
 ```
 
 ### Start a PIE session and send input

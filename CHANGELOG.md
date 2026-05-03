@@ -2,6 +2,24 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.27.0] - 2026-05-03
+
+### Added
+- New `regenerate-co-node-pins` command and `regenerate-customizable-object-node-pins` bridge tool regenerate pins for one Mutable/CustomizableObject graph node and return the refreshed pin list
+- New `remove-co-node` command and bridge tool remove CustomizableObject graph nodes by GUID, path, name, or title
+- `connect-co-pins` now auto-regenerates missing source or target node pins once by default before failing; pass `--no-auto-regenerate` to keep the old strict lookup behavior
+- Mutable parameter inspection now includes runtime enum option metadata when available
+
+### Changed
+- `compile-co` now prefers reflected asset compile APIs with compile-parameter configuration before falling back to editor function library compilation
+- CustomizableObject NodeTable property edits now follow the editor details-panel change sequence and refresh dynamic pins after table/structure changes
+- CustomizableObject property pin fallback now supports object reference defaults, enabling asset links such as mesh/object pin values
+- `add-datatable-row` now forwards `row_data` as a JSON object and deserializes row fields individually
+
+### Fixed
+- UE 5.7 plugin builds no longer hit the ambiguous `SetIntPropertyValue` overload in Mutable runtime introspection
+- `connect-co-pins` distinguishes node-not-found errors from pin-not-found-after-regenerate errors
+
 ## [1.26.0] - 2026-05-01
 
 ### Added

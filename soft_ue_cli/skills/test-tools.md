@@ -362,7 +362,9 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             "add-customizable-object-node",
             "set-customizable-object-node-property",
             "connect-customizable-object-pins",
+            "regenerate-customizable-object-node-pins",
             "compile-customizable-object",
+            "remove-customizable-object-node",
         }
         tool_names = set(info.get("tool_names", [])) if isinstance(info, dict) else set()
         missing_co_tools = sorted(expected_co_tools - tool_names)
@@ -532,6 +534,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
              {"asset_path": bp_path}, lambda r: "available" in r and r["available"] is False)
     run_test("inspect-mutable-diagnostics unavailable smoke", "inspect-mutable-diagnostics",
              {"asset_path": bp_path}, lambda r: "available" in r)
+    run_cli("remove-co-node help", "remove-co-node", "--help",
+            check_stdout=lambda s: "remove-co-node" in s and "node" in s)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 7: Blueprint Inspect
@@ -802,6 +806,7 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         "add-co-group-child",
         "set-co-node-property",
         "connect-co-pins",
+        "regenerate-co-node-pins",
         "compile-co",
     ):
         run_cli(f"{_co_cmd} help", _co_cmd, "--help",

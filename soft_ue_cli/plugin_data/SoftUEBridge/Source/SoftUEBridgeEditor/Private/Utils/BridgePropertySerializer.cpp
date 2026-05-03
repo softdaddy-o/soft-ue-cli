@@ -1,6 +1,7 @@
 // Copyright softdaddy-o 2024. All Rights Reserved.
 
 #include "Utils/BridgePropertySerializer.h"
+#include "GameplayTagContainer.h"
 #include "JsonObjectConverter.h"
 #include "UObject/UnrealType.h"
 #include "UObject/TextProperty.h"
@@ -354,6 +355,41 @@ bool FBridgePropertySerializer::DeserializePropertyValue(
 	// Struct
 	if (FStructProperty* StructProp = CastField<FStructProperty>(Property))
 	{
+		if (StructProp->Struct == FGameplayTag::StaticStruct())
+		{
+			FString TagName;
+			if (!Value->TryGetString(TagName))
+			{
+				const TSharedPtr<FJsonObject>* TagObject = nullptr;
+				if (Value->TryGetObject(TagObject) && TagObject && TagObject->IsValid())
+				{
+					for (const TCHAR* FieldName : {TEXT("TagName"), TEXT("tag_name"), TEXT("Name"), TEXT("name")})
+					{
+						if ((*TagObject)->TryGetStringField(FieldName, TagName) && !TagName.IsEmpty())
+						{
+							break;
+						}
+					}
+				}
+			}
+
+			if (TagName.IsEmpty())
+			{
+				OutError = TEXT("Expected gameplay tag string or object with TagName");
+				return false;
+			}
+
+			const FGameplayTag GameplayTag = FGameplayTag::RequestGameplayTag(FName(*TagName), false);
+			if (!GameplayTag.IsValid())
+			{
+				OutError = FString::Printf(TEXT("Gameplay tag not found: %s"), *TagName);
+				return false;
+			}
+
+			*static_cast<FGameplayTag*>(ValuePtr) = GameplayTag;
+			return true;
+		}
+
 		const TSharedPtr<FJsonObject>* JsonObject = nullptr;
 		if (Value->TryGetObject(JsonObject) && JsonObject->IsValid())
 		{

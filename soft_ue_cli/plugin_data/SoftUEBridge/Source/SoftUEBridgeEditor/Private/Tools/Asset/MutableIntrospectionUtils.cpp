@@ -14,6 +14,7 @@
 #include "UObject/EnumProperty.h"
 #include "UObject/SoftObjectPath.h"
 #include "UObject/SoftObjectPtr.h"
+#include "UObject/StructOnScope.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/UnrealType.h"
 
@@ -43,6 +44,14 @@ namespace
 		int32 TableNodeCount = 0;
 		int32 OutputNodeCount = 0;
 		int32 ParameterNodeCount = 0;
+	};
+
+	struct FRuntimeMutableParameter
+	{
+		int32 Index = INDEX_NONE;
+		FString Name;
+		FString ParameterType;
+		TArray<FString> Options;
 	};
 
 	static bool ContainsToken(const FString& Source, std::initializer_list<const TCHAR*> Tokens)
@@ -105,6 +114,355 @@ namespace
 			JsonValues.Add(MakeShared<FJsonValueString>(Value));
 		}
 		return JsonValues;
+	}
+
+	static FString NormalizeMutableMemberName(FString Name)
+	{
+		Name.ToLowerInline();
+		Name.ReplaceInline(TEXT("_"), TEXT(""));
+		return Name;
+	}
+
+	static bool IsStringLikeProperty(const FProperty* Property)
+	{
+		return Property &&
+			(Property->IsA<FStrProperty>() || Property->IsA<FNameProperty>() || Property->IsA<FTextProperty>());
+	}
+
+	static bool SetStringLikeProperty(FProperty* Property, uint8* Buffer, const FString& Value)
+	{
+		if (!Property || !Buffer)
+		{
+			return false;
+		}
+		void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Buffer);
+		if (FStrProperty* StrProperty = CastField<FStrProperty>(Property))
+		{
+			StrProperty->SetPropertyValue(ValuePtr, Value);
+			return true;
+		}
+		if (FNameProperty* NameProperty = CastField<FNameProperty>(Property))
+		{
+			NameProperty->SetPropertyValue(ValuePtr, FName(*Value));
+			return true;
+		}
+		if (FTextProperty* TextProperty = CastField<FTextProperty>(Property))
+		{
+			TextProperty->SetPropertyValue(ValuePtr, FText::FromString(Value));
+			return true;
+		}
+		return false;
+	}
+
+	static bool SetIntegerProperty(FProperty* Property, uint8* Buffer, int32 Value)
+	{
+		FNumericProperty* NumericProperty = CastField<FNumericProperty>(Property);
+		if (!NumericProperty || !NumericProperty->IsInteger() || !Buffer)
+		{
+			return false;
+		}
+		NumericProperty->SetIntPropertyValue(
+			NumericProperty->ContainerPtrToValuePtr<void>(Buffer),
+			static_cast<int64>(Value));
+		return true;
+	}
+
+	static FProperty* FindRuntimeReturnProperty(UFunction* Function)
+	{
+		if (!Function)
+		{
+			return nullptr;
+		}
+		for (TFieldIterator<FProperty> It(Function); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (Property && Property->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				return Property;
+			}
+		}
+		return nullptr;
+	}
+
+	static bool ReturnPropertyToString(FProperty* ReturnProperty, uint8* Buffer, UObject* Owner, FString& OutValue)
+	{
+		if (!ReturnProperty || !Buffer)
+		{
+			return false;
+		}
+		void* ReturnValuePtr = ReturnProperty->ContainerPtrToValuePtr<void>(Buffer);
+		if (FStrProperty* StrProperty = CastField<FStrProperty>(ReturnProperty))
+		{
+			OutValue = StrProperty->GetPropertyValue(ReturnValuePtr);
+			return true;
+		}
+		if (FNameProperty* NameProperty = CastField<FNameProperty>(ReturnProperty))
+		{
+			OutValue = NameProperty->GetPropertyValue(ReturnValuePtr).ToString();
+			return true;
+		}
+		if (FTextProperty* TextProperty = CastField<FTextProperty>(ReturnProperty))
+		{
+			OutValue = TextProperty->GetPropertyValue(ReturnValuePtr).ToString();
+			return true;
+		}
+		if (FEnumProperty* EnumProperty = CastField<FEnumProperty>(ReturnProperty))
+		{
+			const int64 EnumValue = EnumProperty->GetUnderlyingProperty()->GetSignedIntPropertyValue(ReturnValuePtr);
+			OutValue = EnumProperty->GetEnum()
+				? EnumProperty->GetEnum()->GetNameStringByValue(EnumValue)
+				: FString::Printf(TEXT("%lld"), static_cast<long long>(EnumValue));
+			return true;
+		}
+		if (FByteProperty* ByteProperty = CastField<FByteProperty>(ReturnProperty))
+		{
+			const uint8 ByteValue = ByteProperty->GetPropertyValue(ReturnValuePtr);
+			OutValue = ByteProperty->Enum
+				? ByteProperty->Enum->GetNameStringByValue(ByteValue)
+				: FString::Printf(TEXT("%u"), static_cast<unsigned int>(ByteValue));
+			return true;
+		}
+
+		ReturnProperty->ExportText_Direct(OutValue, ReturnValuePtr, ReturnValuePtr, Owner, PPF_None);
+		return !OutValue.IsEmpty();
+	}
+
+	static bool ReturnPropertyToInteger(FProperty* ReturnProperty, uint8* Buffer, int32& OutValue)
+	{
+		FNumericProperty* NumericProperty = CastField<FNumericProperty>(ReturnProperty);
+		if (!NumericProperty || !NumericProperty->IsInteger() || !Buffer)
+		{
+			return false;
+		}
+		OutValue = static_cast<int32>(NumericProperty->GetSignedIntPropertyValue(
+			NumericProperty->ContainerPtrToValuePtr<void>(Buffer)));
+		return true;
+	}
+
+	static TArray<FProperty*> GetRuntimeInputProperties(UFunction* Function)
+	{
+		TArray<FProperty*> Inputs;
+		if (!Function)
+		{
+			return Inputs;
+		}
+		for (TFieldIterator<FProperty> It(Function); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (Property && Property->HasAnyPropertyFlags(CPF_Parm) &&
+				!Property->HasAnyPropertyFlags(CPF_ReturnParm))
+			{
+				Inputs.Add(Property);
+			}
+		}
+		return Inputs;
+	}
+
+	static bool TryCallNoParamRuntimeInteger(UObject* AssetObject, const FName FunctionName, int32& OutValue)
+	{
+		if (!AssetObject)
+		{
+			return false;
+		}
+		UFunction* Function = AssetObject->FindFunction(FunctionName);
+		if (!Function)
+		{
+			return false;
+		}
+		if (GetRuntimeInputProperties(Function).Num() > 0)
+		{
+			return false;
+		}
+
+		FStructOnScope Params(Function);
+		uint8* Buffer = Params.GetStructMemory();
+		AssetObject->ProcessEvent(Function, Buffer);
+		return ReturnPropertyToInteger(FindRuntimeReturnProperty(Function), Buffer, OutValue);
+	}
+
+	static bool TryCallRuntimeIndexedString(UObject* AssetObject, const FName FunctionName, int32 Index, FString& OutValue)
+	{
+		if (!AssetObject)
+		{
+			return false;
+		}
+		UFunction* Function = AssetObject->FindFunction(FunctionName);
+		if (!Function)
+		{
+			return false;
+		}
+
+		FStructOnScope Params(Function);
+		uint8* Buffer = Params.GetStructMemory();
+		bool bAssignedIndex = false;
+		for (FProperty* Property : GetRuntimeInputProperties(Function))
+		{
+			if (!bAssignedIndex && SetIntegerProperty(Property, Buffer, Index))
+			{
+				bAssignedIndex = true;
+			}
+		}
+		if (!bAssignedIndex)
+		{
+			return false;
+		}
+
+		AssetObject->ProcessEvent(Function, Buffer);
+		return ReturnPropertyToString(FindRuntimeReturnProperty(Function), Buffer, AssetObject, OutValue);
+	}
+
+	static bool RuntimeFunctionHasStringParameter(UFunction* Function)
+	{
+		for (FProperty* Property : GetRuntimeInputProperties(Function))
+		{
+			if (IsStringLikeProperty(Property))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static bool TryCallEnumParameterNumValues(
+		UObject* AssetObject,
+		const FString& ParameterName,
+		int32 ParameterIndex,
+		int32& OutCount)
+	{
+		if (!AssetObject)
+		{
+			return false;
+		}
+		UFunction* Function = AssetObject->FindFunction(FName(TEXT("GetEnumParameterNumValues")));
+		if (!Function)
+		{
+			return false;
+		}
+
+		FStructOnScope Params(Function);
+		uint8* Buffer = Params.GetStructMemory();
+		const bool bUsesName = RuntimeFunctionHasStringParameter(Function);
+		bool bAssignedSelector = false;
+
+		for (FProperty* Property : GetRuntimeInputProperties(Function))
+		{
+			if (bUsesName && !bAssignedSelector && SetStringLikeProperty(Property, Buffer, ParameterName))
+			{
+				bAssignedSelector = true;
+			}
+			else if (!bUsesName && !bAssignedSelector && SetIntegerProperty(Property, Buffer, ParameterIndex))
+			{
+				bAssignedSelector = true;
+			}
+		}
+		if (!bAssignedSelector)
+		{
+			return false;
+		}
+
+		AssetObject->ProcessEvent(Function, Buffer);
+		return ReturnPropertyToInteger(FindRuntimeReturnProperty(Function), Buffer, OutCount);
+	}
+
+	static bool TryCallEnumParameterValue(
+		UObject* AssetObject,
+		const FString& ParameterName,
+		int32 ParameterIndex,
+		int32 OptionIndex,
+		FString& OutValue)
+	{
+		if (!AssetObject)
+		{
+			return false;
+		}
+		UFunction* Function = AssetObject->FindFunction(FName(TEXT("GetEnumParameterValue")));
+		if (!Function)
+		{
+			return false;
+		}
+
+		FStructOnScope Params(Function);
+		uint8* Buffer = Params.GetStructMemory();
+		const bool bUsesName = RuntimeFunctionHasStringParameter(Function);
+		bool bAssignedSelector = false;
+		bool bAssignedOption = false;
+
+		for (FProperty* Property : GetRuntimeInputProperties(Function))
+		{
+			if (bUsesName && !bAssignedSelector && SetStringLikeProperty(Property, Buffer, ParameterName))
+			{
+				bAssignedSelector = true;
+				continue;
+			}
+			if (FNumericProperty* NumericProperty = CastField<FNumericProperty>(Property))
+			{
+				if (!NumericProperty->IsInteger())
+				{
+					continue;
+				}
+
+				const FString NormalizedName = NormalizeMutableMemberName(Property->GetName());
+				if (!bUsesName && !bAssignedSelector)
+				{
+					SetIntegerProperty(Property, Buffer, ParameterIndex);
+					bAssignedSelector = true;
+				}
+				else if (!bAssignedOption ||
+					NormalizedName.Contains(TEXT("value")) ||
+					NormalizedName.Contains(TEXT("option")))
+				{
+					SetIntegerProperty(Property, Buffer, OptionIndex);
+					bAssignedOption = true;
+				}
+			}
+		}
+		if (!bAssignedSelector || !bAssignedOption)
+		{
+			return false;
+		}
+
+		AssetObject->ProcessEvent(Function, Buffer);
+		return ReturnPropertyToString(FindRuntimeReturnProperty(Function), Buffer, AssetObject, OutValue);
+	}
+
+	static TArray<FRuntimeMutableParameter> CollectRuntimeMutableParameters(UObject* AssetObject)
+	{
+		TArray<FRuntimeMutableParameter> RuntimeParameters;
+		int32 RuntimeParameterCount = 0;
+		if (!TryCallNoParamRuntimeInteger(AssetObject, FName(TEXT("GetParameterCount")), RuntimeParameterCount) ||
+			RuntimeParameterCount <= 0)
+		{
+			return RuntimeParameters;
+		}
+
+		for (int32 Index = 0; Index < RuntimeParameterCount; ++Index)
+		{
+			FRuntimeMutableParameter RuntimeParameter;
+			RuntimeParameter.Index = Index;
+			TryCallRuntimeIndexedString(AssetObject, FName(TEXT("GetParameterName")), Index, RuntimeParameter.Name);
+			TryCallRuntimeIndexedString(AssetObject, FName(TEXT("GetParameterType")), Index, RuntimeParameter.ParameterType);
+			if (RuntimeParameter.Name.IsEmpty())
+			{
+				RuntimeParameter.Name = FString::Printf(TEXT("Parameter_%d"), Index);
+			}
+
+			int32 OptionCount = 0;
+			if (TryCallEnumParameterNumValues(AssetObject, RuntimeParameter.Name, Index, OptionCount))
+			{
+				for (int32 OptionIndex = 0; OptionIndex < OptionCount; ++OptionIndex)
+				{
+					FString Option;
+					if (TryCallEnumParameterValue(AssetObject, RuntimeParameter.Name, Index, OptionIndex, Option) &&
+						!Option.IsEmpty())
+					{
+						RuntimeParameter.Options.AddUnique(Option);
+					}
+				}
+			}
+			RuntimeParameters.Add(RuntimeParameter);
+		}
+
+		return RuntimeParameters;
 	}
 
 	static void CollectStringsFromJsonValue(const TSharedPtr<FJsonValue>& Value, TArray<FString>& OutValues)
@@ -754,6 +1112,8 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableParameterResult(c
 	}
 
 	const FGraphInspectionData GraphData = InspectGraphs(Context.AssetObject, false);
+	const TArray<FRuntimeMutableParameter> RuntimeParameters = CollectRuntimeMutableParameters(Context.AssetObject);
+	TSet<int32> ConsumedRuntimeParameterIndexes;
 
 	TArray<TSharedPtr<FJsonValue>> Parameters;
 	for (const TPair<FString, TSharedPtr<FJsonObject>>& Pair : GraphData.NodeByPath)
@@ -774,6 +1134,22 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableParameterResult(c
 		TArray<FString> AllowedOptions = GatherArrayFieldValues(Properties, {
 			TEXT("Options"), TEXT("AllowedOptions"), TEXT("PossibleValues"), TEXT("Values")
 		});
+		const FString FinalParameterName = ParameterName.IsEmpty() ? NodeTitle : ParameterName;
+		const FRuntimeMutableParameter* MatchingRuntimeParameter = nullptr;
+		for (const FRuntimeMutableParameter& RuntimeParameter : RuntimeParameters)
+		{
+			if (!RuntimeParameter.Name.IsEmpty() &&
+				RuntimeParameter.Name.Equals(FinalParameterName, ESearchCase::IgnoreCase))
+			{
+				MatchingRuntimeParameter = &RuntimeParameter;
+				ConsumedRuntimeParameterIndexes.Add(RuntimeParameter.Index);
+				for (const FString& Option : RuntimeParameter.Options)
+				{
+					AddUniqueString(AllowedOptions, Option);
+				}
+				break;
+			}
+		}
 		TArray<FString> Tags = GatherArrayFieldValues(Properties, {TEXT("Tags"), TEXT("ParameterTags"), TEXT("Tag")});
 		TArray<FString> PopulationTags = GatherArrayFieldValues(Properties, {
 			TEXT("PopulationTags"), TEXT("PopulationTag")
@@ -809,8 +1185,12 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableParameterResult(c
 		}
 
 		TSharedPtr<FJsonObject> ParameterJson = MakeShared<FJsonObject>();
-		ParameterJson->SetStringField(TEXT("name"), ParameterName.IsEmpty() ? NodeTitle : ParameterName);
-		ParameterJson->SetStringField(TEXT("parameter_type"), DeriveParameterType(NodeClass, NodeTitle));
+		ParameterJson->SetStringField(TEXT("name"), FinalParameterName);
+		ParameterJson->SetStringField(
+			TEXT("parameter_type"),
+			MatchingRuntimeParameter && !MatchingRuntimeParameter->ParameterType.IsEmpty()
+				? MatchingRuntimeParameter->ParameterType
+				: DeriveParameterType(NodeClass, NodeTitle));
 		ParameterJson->SetStringField(TEXT("group_type"), FirstStringField(Properties, {
 			TEXT("GroupType"), TEXT("ParameterGroup"), TEXT("Group"), TEXT("GroupName")
 		}));
@@ -822,6 +1202,7 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableParameterResult(c
 			TEXT("DefaultOption"), TEXT("DefaultItem"), TEXT("DefaultState")
 		}));
 		ParameterJson->SetArrayField(TEXT("allowed_options"), ToJsonStringArray(AllowedOptions));
+		ParameterJson->SetArrayField(TEXT("options"), ToJsonStringArray(AllowedOptions));
 		ParameterJson->SetArrayField(TEXT("tags"), ToJsonStringArray(Tags));
 		ParameterJson->SetArrayField(TEXT("population_tags"), ToJsonStringArray(PopulationTags));
 		ParameterJson->SetArrayField(TEXT("owned_child_objects"), ToJsonStringArray(OwnedChildObjects));
@@ -831,7 +1212,41 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableParameterResult(c
 		ParameterJson->SetStringField(TEXT("source_node"), Pair.Key);
 		ParameterJson->SetStringField(TEXT("source_node_class"), NodeClass);
 		ParameterJson->SetStringField(TEXT("source_node_title"), NodeTitle);
+		ParameterJson->SetStringField(TEXT("source"), MatchingRuntimeParameter ? TEXT("graph+runtime") : TEXT("graph"));
+		if (MatchingRuntimeParameter)
+		{
+			ParameterJson->SetNumberField(TEXT("runtime_index"), MatchingRuntimeParameter->Index);
+		}
 		ParameterJson->SetObjectField(TEXT("raw_properties"), Properties);
+		Parameters.Add(MakeShared<FJsonValueObject>(ParameterJson));
+	}
+
+	for (const FRuntimeMutableParameter& RuntimeParameter : RuntimeParameters)
+	{
+		if (ConsumedRuntimeParameterIndexes.Contains(RuntimeParameter.Index))
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> ParameterJson = MakeShared<FJsonObject>();
+		ParameterJson->SetStringField(TEXT("name"), RuntimeParameter.Name);
+		ParameterJson->SetStringField(
+			TEXT("parameter_type"),
+			RuntimeParameter.ParameterType.IsEmpty() ? TEXT("unknown") : RuntimeParameter.ParameterType);
+		ParameterJson->SetStringField(TEXT("group_type"), TEXT(""));
+		ParameterJson->SetStringField(TEXT("behavior"), TEXT("select"));
+		ParameterJson->SetStringField(TEXT("default_value"), TEXT(""));
+		ParameterJson->SetStringField(TEXT("default_option"), TEXT(""));
+		ParameterJson->SetArrayField(TEXT("allowed_options"), ToJsonStringArray(RuntimeParameter.Options));
+		ParameterJson->SetArrayField(TEXT("options"), ToJsonStringArray(RuntimeParameter.Options));
+		ParameterJson->SetArrayField(TEXT("tags"), {});
+		ParameterJson->SetArrayField(TEXT("population_tags"), {});
+		ParameterJson->SetArrayField(TEXT("owned_child_objects"), {});
+		ParameterJson->SetArrayField(TEXT("compatibility_links"), {});
+		ParameterJson->SetArrayField(TEXT("exclusivity_links"), {});
+		ParameterJson->SetArrayField(TEXT("connected_nodes"), {});
+		ParameterJson->SetStringField(TEXT("source"), TEXT("runtime"));
+		ParameterJson->SetNumberField(TEXT("runtime_index"), RuntimeParameter.Index);
 		Parameters.Add(MakeShared<FJsonValueObject>(ParameterJson));
 	}
 
@@ -841,6 +1256,8 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableParameterResult(c
 	Result->SetArrayField(TEXT("parameters"), Parameters);
 	TSharedPtr<FJsonObject> Summary = BuildGraphSummaryJson(GraphData);
 	Summary->SetNumberField(TEXT("parameter_count"), Parameters.Num());
+	Summary->SetNumberField(TEXT("graph_parameter_count"), GraphData.ParameterNodeCount);
+	Summary->SetNumberField(TEXT("runtime_parameter_count"), RuntimeParameters.Num());
 	Result->SetObjectField(TEXT("summary"), Summary);
 	return Result;
 }

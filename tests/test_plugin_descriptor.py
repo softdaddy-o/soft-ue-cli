@@ -174,6 +174,29 @@ def test_bridge_reload_tool_is_runtime_registered_and_cleans_editor_tools():
     assert "LoadModuleWithFailureReason" in reload_source
 
 
+def test_runtime_config_tools_are_explicitly_registered_in_startup():
+    module = _plugin_source_path(
+        "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
+    ).read_text(encoding="utf-8")
+    get_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/GetConfigValueTool.cpp"
+    ).read_text(encoding="utf-8")
+    set_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/SetConfigValueTool.cpp"
+    ).read_text(encoding="utf-8")
+    validate_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/ValidateConfigKeyTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "REGISTER_BRIDGE_TOOL(UGetConfigValueTool)" not in get_tool
+    assert "REGISTER_BRIDGE_TOOL(USetConfigValueTool)" not in set_tool
+    assert "REGISTER_BRIDGE_TOOL(UValidateConfigKeyTool)" not in validate_tool
+
+    assert "Registry.RegisterToolClass<UGetConfigValueTool>()" in module
+    assert "Registry.RegisterToolClass<USetConfigValueTool>()" in module
+    assert "Registry.RegisterToolClass<UValidateConfigKeyTool>()" in module
+
+
 def test_customizable_object_remove_tool_is_registered():
     header = _plugin_source_path(
         "Source/SoftUEBridgeEditor/Public/Tools/Asset/EditCustomizableObjectGraphTool.h"

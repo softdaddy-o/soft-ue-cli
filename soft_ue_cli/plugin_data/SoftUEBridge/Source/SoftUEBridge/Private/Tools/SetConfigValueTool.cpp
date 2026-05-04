@@ -4,10 +4,7 @@
 
 #include "Misc/ConfigCacheIni.h"
 #include "SoftUEBridgeModule.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "Tools/GetConfigValueTool.h"
-
-REGISTER_BRIDGE_TOOL(USetConfigValueTool)
 
 FString USetConfigValueTool::GetToolDescription() const
 {

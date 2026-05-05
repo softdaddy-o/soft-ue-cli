@@ -264,3 +264,15 @@ def test_editor_screenshot_compression_validates_dimensions_and_pixel_count():
     assert "const int64 ExpectedPixelCount" in source
     assert "RawData.Num() != ExpectedPixelCount" in source
     assert "ExpectedPixelCount * 4" in source
+
+
+def test_add_widget_supports_single_child_content_parents():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Write/AddWidgetTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "UContentWidget" in source
+    assert "SetContent(NewWidget)" in source
+    assert "AddChild(NewWidget)" in source
+    assert "GetContent()" in source
+    assert "already contains a child" in source

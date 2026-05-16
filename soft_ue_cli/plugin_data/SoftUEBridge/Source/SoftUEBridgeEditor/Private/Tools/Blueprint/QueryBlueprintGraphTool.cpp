@@ -28,6 +28,100 @@
 #include "Animation/AnimNodeBase.h"
 #include "Utils/BridgePropertySerializer.h"
 
+namespace
+{
+	static bool ContainsAnyToken(const FString& Source, std::initializer_list<const TCHAR*> Tokens)
+	{
+		for (const TCHAR* Token : Tokens)
+		{
+			if (Source.Contains(Token, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static FString ExportPropertyAsString(FProperty* Property, void* Container, UObject* Owner)
+	{
+		if (!Property || !Container)
+		{
+			return FString();
+		}
+
+		const void* ValuePtr = Property->ContainerPtrToValuePtr<void>(Container);
+		FString Exported;
+		Property->ExportText_Direct(Exported, ValuePtr, ValuePtr, Owner, PPF_None);
+		Exported.TrimStartAndEndInline();
+		Exported.TrimQuotesInline();
+		return Exported;
+	}
+
+	static FString ReadCacheNameFromObject(UObject* NodeObject)
+	{
+		if (!NodeObject)
+		{
+			return FString();
+		}
+
+		for (TFieldIterator<FProperty> It(NodeObject->GetClass()); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (!Property)
+			{
+				continue;
+			}
+
+			const FString Name = Property->GetName();
+			if (Name.Equals(TEXT("Node"), ESearchCase::IgnoreCase))
+			{
+				continue;
+			}
+			if (Name.Equals(TEXT("CacheName"), ESearchCase::IgnoreCase) ||
+				Name.Equals(TEXT("CachePoseName"), ESearchCase::IgnoreCase) ||
+				Name.Equals(TEXT("NameOfCache"), ESearchCase::IgnoreCase) ||
+				Name.Equals(TEXT("cache_name"), ESearchCase::IgnoreCase))
+			{
+				const FString Value = ExportPropertyAsString(Property, NodeObject, NodeObject);
+				if (!Value.IsEmpty())
+				{
+					return Value;
+				}
+			}
+		}
+
+		FStructProperty* InnerNodeProp = CastField<FStructProperty>(NodeObject->GetClass()->FindPropertyByName(TEXT("Node")));
+		void* InnerNodeContainer = InnerNodeProp ? InnerNodeProp->ContainerPtrToValuePtr<void>(NodeObject) : nullptr;
+		UScriptStruct* InnerNodeStruct = InnerNodeProp ? InnerNodeProp->Struct : nullptr;
+		if (InnerNodeStruct && InnerNodeContainer)
+		{
+			for (TFieldIterator<FProperty> It(InnerNodeStruct); It; ++It)
+			{
+				FProperty* Property = *It;
+				if (!Property)
+				{
+					continue;
+				}
+
+				const FString Name = Property->GetName();
+				if (Name.Equals(TEXT("CacheName"), ESearchCase::IgnoreCase) ||
+					Name.Equals(TEXT("CachePoseName"), ESearchCase::IgnoreCase) ||
+					Name.Equals(TEXT("NameOfCache"), ESearchCase::IgnoreCase) ||
+					Name.Equals(TEXT("cache_name"), ESearchCase::IgnoreCase))
+				{
+					const FString Value = ExportPropertyAsString(Property, InnerNodeContainer, NodeObject);
+					if (!Value.IsEmpty())
+					{
+						return Value;
+					}
+				}
+			}
+		}
+
+		return FString();
+	}
+}
+
 FString UQueryBlueprintGraphTool::GetToolDescription() const
 {
 	return TEXT("Query Blueprint graphs: list all graphs, get specific node by GUID, get callable details, or list callables. "
@@ -398,6 +492,12 @@ TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::NodeToJson(UEdGraphNode* Node,
 			if (AnimPropsJson.IsValid())
 			{
 				NodeJson->SetObjectField(TEXT("anim_node_properties"), AnimPropsJson);
+			}
+
+			TSharedPtr<FJsonObject> AnimGraphNodeJson = ExtractAnimGraphNodeMetadata(AnimGraphNode);
+			if (AnimGraphNodeJson.IsValid())
+			{
+				NodeJson->SetObjectField(TEXT("anim_graph_node"), AnimGraphNodeJson);
 			}
 		}
 	}
@@ -1080,6 +1180,195 @@ TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::ExtractAnimNodeProperties(UAni
 
 		Result->SetObjectField(TEXT("properties"), PropsObj);
 		return Result;
+	}
+
+	return nullptr;
+}
+
+TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::ExtractAnimGraphNodeMetadata(UAnimGraphNode_Base* AnimGraphNode) const
+{
+	if (!AnimGraphNode)
+	{
+		return nullptr;
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+	TSharedPtr<FJsonObject> WrapperProperties = MakeShareable(new FJsonObject);
+	TSharedPtr<FJsonObject> CacheJson = MakeShareable(new FJsonObject);
+	TSharedPtr<FJsonObject> PropertyBindingsJson = MakeShareable(new FJsonObject);
+	TSharedPtr<FJsonObject> FastPathJson = MakeShareable(new FJsonObject);
+
+	bool bHasWrapperProperties = false;
+	bool bHasCache = false;
+	bool bHasBindings = false;
+	bool bHasFastPath = false;
+	FString CacheName = ReadCacheNameFromObject(AnimGraphNode);
+
+	for (TFieldIterator<FProperty> It(AnimGraphNode->GetClass()); It; ++It)
+	{
+		FProperty* Property = *It;
+		if (!Property)
+		{
+			continue;
+		}
+
+		const FString PropertyName = Property->GetName();
+		if (PropertyName.Equals(TEXT("Node"), ESearchCase::IgnoreCase) ||
+			Property->HasAnyPropertyFlags(CPF_Transient | CPF_DuplicateTransient))
+		{
+			continue;
+		}
+
+		const bool bCacheProperty = ContainsAnyToken(PropertyName, {
+			TEXT("Cache"),
+			TEXT("CachePose"),
+			TEXT("NameOfCache")
+		});
+		const bool bBindingProperty = ContainsAnyToken(PropertyName, {
+			TEXT("Binding"),
+			TEXT("PropertyBinding"),
+			TEXT("ExposedValue"),
+			TEXT("ExposedInputs")
+		});
+		const bool bFastPathProperty = ContainsAnyToken(PropertyName, {
+			TEXT("FastPath"),
+			TEXT("Fast Path")
+		});
+
+		if (!bCacheProperty && !bBindingProperty && !bFastPathProperty)
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonValue> Value = FBridgePropertySerializer::SerializePropertyValue(
+			Property,
+			AnimGraphNode,
+			AnimGraphNode,
+			0,
+			2);
+		if (!Value.IsValid())
+		{
+			continue;
+		}
+
+		WrapperProperties->SetField(PropertyName, Value);
+		bHasWrapperProperties = true;
+
+		if (bCacheProperty)
+		{
+			CacheJson->SetField(PropertyName, Value);
+			const FString Exported = ExportPropertyAsString(Property, AnimGraphNode, AnimGraphNode);
+			if (!Exported.IsEmpty())
+			{
+				CacheName = Exported;
+			}
+			bHasCache = true;
+		}
+		if (bBindingProperty)
+		{
+			PropertyBindingsJson->SetField(PropertyName, Value);
+			bHasBindings = true;
+		}
+		if (bFastPathProperty)
+		{
+			FastPathJson->SetField(PropertyName, Value);
+			bHasFastPath = true;
+		}
+	}
+
+	FStructProperty* InnerNodeProp = CastField<FStructProperty>(AnimGraphNode->GetClass()->FindPropertyByName(TEXT("Node")));
+	void* InnerNodeContainer = InnerNodeProp ? InnerNodeProp->ContainerPtrToValuePtr<void>(AnimGraphNode) : nullptr;
+	UScriptStruct* InnerNodeStruct = InnerNodeProp ? InnerNodeProp->Struct : nullptr;
+	if (InnerNodeStruct && InnerNodeContainer)
+	{
+		for (TFieldIterator<FProperty> It(InnerNodeStruct); It; ++It)
+		{
+			FProperty* Property = *It;
+			if (!Property)
+			{
+				continue;
+			}
+
+			const FString PropertyName = Property->GetName();
+			if (!ContainsAnyToken(PropertyName, {TEXT("Cache"), TEXT("CachePose"), TEXT("NameOfCache")}))
+			{
+				continue;
+			}
+
+			const FString Exported = ExportPropertyAsString(Property, InnerNodeContainer, AnimGraphNode);
+			if (!Exported.IsEmpty())
+			{
+				CacheName = Exported;
+				CacheJson->SetStringField(PropertyName, Exported);
+				bHasCache = true;
+			}
+		}
+	}
+
+	if (!CacheName.IsEmpty())
+	{
+		CacheJson->SetStringField(TEXT("cache_name"), CacheName);
+		if (AnimGraphNode->GetClass()->GetName().Contains(TEXT("UseCachedPose"), ESearchCase::IgnoreCase))
+		{
+			CacheJson->SetStringField(TEXT("name_of_cache"), CacheName);
+			if (UEdGraphNode* LinkedSaveNode = FindLinkedSaveCachedPoseNode(AnimGraphNode, CacheName))
+			{
+				CacheJson->SetStringField(TEXT("linked_save_node_guid"), LinkedSaveNode->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
+				CacheJson->SetStringField(TEXT("linked_save_node_title"), LinkedSaveNode->GetNodeTitle(ENodeTitleType::ListView).ToString());
+			}
+		}
+		bHasCache = true;
+	}
+
+	if (bHasWrapperProperties)
+	{
+		Result->SetObjectField(TEXT("wrapper_properties"), WrapperProperties);
+	}
+	if (bHasCache)
+	{
+		Result->SetObjectField(TEXT("cache"), CacheJson);
+	}
+	if (bHasBindings)
+	{
+		Result->SetObjectField(TEXT("property_bindings"), PropertyBindingsJson);
+	}
+	if (bHasFastPath)
+	{
+		Result->SetObjectField(TEXT("fast_path"), FastPathJson);
+	}
+
+	return Result->Values.Num() > 0 ? Result : nullptr;
+}
+
+UEdGraphNode* UQueryBlueprintGraphTool::FindLinkedSaveCachedPoseNode(UAnimGraphNode_Base* AnimGraphNode, const FString& CacheName) const
+{
+	if (!AnimGraphNode || CacheName.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	UEdGraph* Graph = AnimGraphNode->GetGraph();
+	if (!Graph)
+	{
+		return nullptr;
+	}
+
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (!Node || Node == AnimGraphNode)
+		{
+			continue;
+		}
+		if (!Node->GetClass()->GetName().Contains(TEXT("SaveCachedPose"), ESearchCase::IgnoreCase))
+		{
+			continue;
+		}
+
+		const FString SaveCacheName = ReadCacheNameFromObject(Node);
+		if (SaveCacheName.Equals(CacheName, ESearchCase::IgnoreCase))
+		{
+			return Node;
+		}
 	}
 
 	return nullptr;

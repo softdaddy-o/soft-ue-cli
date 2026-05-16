@@ -195,6 +195,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `setup` | Copy SoftUEBridge plugin into a UE project |
 | `check-setup` | Verify plugin files, .uproject settings, and bridge server reachability |
 | `status` | Health check -- returns server status |
+| `wait-for-ready` | Poll the same bridge health probe as `status` until it is ready (`await-bridge` alias) |
 | `project-info` | Get project name, engine version, target platforms, and module info |
 
 ### Actor and Level Operations
@@ -365,8 +366,8 @@ Requires the **Animation Insights (GameplayInsights)** plugin enabled in Edit > 
 
 | Command | Description |
 |---------|-------------|
-| `build-and-relaunch` | Trigger a full C++ rebuild and optionally relaunch the editor (`--wait` to monitor progress) |
-| `trigger-live-coding` | Trigger a Live Coding compile (hot reload); warns on risky reflected header changes, with optional module/plugin scope filters |
+| `build-and-relaunch` | Trigger a full C++ rebuild and optionally relaunch the editor (`--wait` monitors staged progress and reports timeout diagnostics) |
+| `trigger-live-coding` | Trigger a Live Coding compile (hot reload); warns on risky reflected header changes and returns full-build guidance when Unreal cancels unsupported changes |
 | `reload-bridge-module` | Reload the bridge editor module from disk without a full editor restart |
 
 ### Skills (LLM Workflow Prompts)
@@ -701,7 +702,7 @@ soft-ue-cli report-bug \
   --description "Detailed description"
 ```
 
-Do not include project-specific information or personal information. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
+Do not include project-specific information, personal information, or any clue that could identify your project. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
 
 Optional flags: `--steps`, `--expected`, `--actual`, `--severity critical|major|minor`, `--no-system-info`.
 
@@ -713,7 +714,7 @@ soft-ue-cli request-feature \
   --description "What the feature should do"
 ```
 
-Do not include project-specific information or personal information. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
+Do not include project-specific information, personal information, or any clue that could identify your project. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
 
 Optional flags: `--use-case`, `--priority enhancement|nice-to-have`.
 

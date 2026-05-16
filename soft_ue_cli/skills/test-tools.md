@@ -377,6 +377,11 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         # MCP: reaching here means mcp-serve started and initialized successfully
         _record("mcp-serve started", "mcp-serve", {}, True, 0, None)
 
+    run_cli("wait-for-ready immediate", "wait-for-ready", "--timeout", "5", "--poll-interval", "0.25",
+            check_stdout=lambda s: '"status": "ready"' in s and '"success": true' in s)
+    run_cli("await-bridge alias help", "await-bridge", "--help",
+            check_stdout=lambda s: "wait-for-ready" in s and "--launch-editor" in s)
+
     project_info = None
     project_dir = None
     try:
@@ -524,6 +529,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_test("query-asset by path", "query-asset", {"path": TEST_NS}, has("assets"))
     run_test("query-asset by class", "query-asset",
              {"class": "Blueprint", "path": TEST_NS}, has("assets"))
+    run_test("query-asset by name pattern", "query-asset",
+             {"query": "BP_SoftUETest", "class": "Blueprint", "path": TEST_NS}, has("assets"))
     run_test("query-asset inspect", "query-asset", {"asset_path": bp_path}, has("path"))
     run_test("query-asset inspect world settings", "query-asset",
              {"asset_path": test_level_path}, lambda r: "world_settings" in r and "default_game_mode" in r)
@@ -810,9 +817,12 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         "connect-co-pins",
         "regenerate-co-node-pins",
         "compile-co",
+        "create-co-from-spec",
     ):
         run_cli(f"{_co_cmd} help", _co_cmd, "--help",
                 check_stdout=lambda s, _cmd=_co_cmd: _cmd in s and "CustomizableObject" in s)
+    run_cli("compile-co gather references help", "compile-co", "--help",
+            check_stdout=lambda s: "--gather-references" in s)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 15: Python Scripting

@@ -157,11 +157,11 @@ def call_tool(tool_name: str, arguments: dict[str, Any], timeout: float | None =
     return result
 
 
-def health_check() -> dict[str, Any]:
+def health_check(timeout: float = 5.0) -> dict[str, Any]:
     """GET /bridge health check."""
     url = get_server_url()
     try:
-        response = httpx.get(f"{url}/bridge", timeout=5.0)
+        response = httpx.get(f"{url}/bridge", timeout=timeout)
         response.raise_for_status()
         return response.json()
     except Exception as exc:

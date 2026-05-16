@@ -10,12 +10,14 @@ from unittest.mock import patch
 
 import pytest
 
+
 from soft_ue_cli.__main__ import (
     _SCRIPTS_DIR,
     _claude_md_section,
     _parse_int_list,
     _parse_vector,
     _validate_script_name,
+    _wait_for_build_and_relaunch,
     build_parser,
     cmd_add_datatable_row,
     cmd_add_co_group_child,
@@ -46,11 +48,15 @@ from soft_ue_cli.__main__ import (
     cmd_run_python_script,
     cmd_save_script,
     cmd_setup,
+    cmd_wait_for_ready,
     cmd_set_co_base_mesh,
     cmd_set_co_node_property,
     cmd_connect_co_pins,
+    cmd_create_co_from_spec,
+    cmd_query_asset,
     cmd_validate_class_path,
     cmd_trigger_live_coding,
+    cmd_set_node_position,
     cmd_wire_co_slot_from_table,
 )
 
@@ -194,6 +200,14 @@ def test_parser_build_and_relaunch_flags():
     assert args.wait is True
     assert args.startup_recovery == "skip"
     assert args.remember_startup_recovery is True
+
+
+def test_parser_wait_for_ready_alias_and_timeout():
+    parser = build_parser()
+    args = parser.parse_args(["await-bridge", "--timeout", "5", "--poll-interval", "0.25"])
+    assert args.func == cmd_wait_for_ready
+    assert args.timeout == 5.0
+    assert args.poll_interval == 0.25
 
 
 def test_parser_trigger_live_coding_scope_flags():
@@ -585,6 +599,169 @@ def test_cmd_build_and_relaunch_forwards_args(capsys):
     )
 
 
+def test_cmd_wait_for_ready_returns_when_bridge_health_succeeds(capsys, monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["wait-for-ready", "--timeout", "5"])
+    monkeypatch.setattr(
+        "soft_ue_cli.__main__.health_check",
+        lambda **_kwargs: {"running": True, "name": "soft-ue-bridge"},
+    )
+    monkeypatch.setattr("soft_ue_cli.__main__.get_server_url", lambda: "http://127.0.0.1:8080")
+    monkeypatch.setattr("time.monotonic", lambda: 0.0)
+
+    cmd_wait_for_ready(args)
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"] is True
+    assert result["status"] == "ready"
+    assert result["server_url"] == "http://127.0.0.1:8080"
+    assert result["health"]["running"] is True
+
+
+def test_cmd_wait_for_ready_timeout_reports_last_error(capsys, monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["wait-for-ready", "--timeout", "2", "--poll-interval", "1"])
+    clock = {"now": 0.0}
+
+    def fake_sleep(seconds):
+        clock["now"] += seconds
+
+    monkeypatch.setattr("soft_ue_cli.__main__.health_check", lambda **_kwargs: {"error": "connection refused"})
+    monkeypatch.setattr("soft_ue_cli.__main__.get_server_url", lambda: "http://127.0.0.1:8080")
+    monkeypatch.setattr("time.sleep", fake_sleep)
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+
+    with pytest.raises(SystemExit) as exc:
+        cmd_wait_for_ready(args)
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["success"] is False
+    assert result["status"] == "timeout"
+    assert result["last_error"] == "connection refused"
+    assert "bridge did not become ready within 2s" in captured.err
+
+
+def test_cmd_wait_for_ready_launches_editor_before_polling(capsys, monkeypatch, tmp_path):
+    uproject_path = tmp_path / "MyGame.uproject"
+    uproject_path.write_text("{}", encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args(["wait-for-ready", "--launch-editor", str(uproject_path)])
+    launched: list[str] = []
+
+    monkeypatch.setattr("soft_ue_cli.__main__._launch_editor_for_wait", lambda path: launched.append(path))
+    monkeypatch.setattr(
+        "soft_ue_cli.__main__.health_check",
+        lambda **_kwargs: {"running": True, "name": "soft-ue-bridge"},
+    )
+    monkeypatch.setattr("soft_ue_cli.__main__.get_server_url", lambda: "http://127.0.0.1:8080")
+    monkeypatch.setattr("time.monotonic", lambda: 0.0)
+
+    cmd_wait_for_ready(args)
+
+    assert launched == [str(uproject_path)]
+    assert json.loads(capsys.readouterr().out)["status"] == "ready"
+
+
+def test_wait_for_build_and_relaunch_reports_intermediate_status(tmp_path, capsys, monkeypatch):
+    status_path = tmp_path / "BuildAndRelaunch.status.json"
+    log_path = tmp_path / "BuildAndRelaunch.log"
+    log_path.write_text("build log\n", encoding="utf-8")
+    pending_statuses = [
+        {
+            "complete": False,
+            "success": False,
+            "stage": "waiting_for_editor_shutdown",
+            "message": "Waiting for editor process 123 to exit.",
+        },
+        {
+            "complete": False,
+            "success": False,
+            "stage": "building",
+            "message": "Running Build.bat for MyGameEditor.",
+        },
+        {
+            "complete": True,
+            "success": True,
+            "stage": "completed",
+            "exit_code": 0,
+            "message": "Build completed successfully.",
+        },
+    ]
+    clock = {"now": 0.0}
+
+    def fake_sleep(_seconds):
+        clock["now"] += 1.0
+        if pending_statuses:
+            status_path.write_text(json.dumps(pending_statuses.pop(0)), encoding="utf-8")
+
+    monkeypatch.setattr("time.sleep", fake_sleep)
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+
+    _wait_for_build_and_relaunch(
+        {
+            "project": "MyGame",
+            "build_status_path": str(status_path),
+            "build_log_path": str(log_path),
+        },
+        skip_relaunch=True,
+        poll_interval=0.1,
+        build_timeout=10.0,
+    )
+
+    captured = capsys.readouterr()
+    assert "waiting_for_editor_shutdown" in captured.err
+    assert "building" in captured.err
+    assert json.loads(captured.out)["status"] == "build_succeeded"
+
+
+def test_wait_for_build_and_relaunch_timeout_reports_last_stage(tmp_path, capsys, monkeypatch):
+    status_path = tmp_path / "BuildAndRelaunch.status.json"
+    log_path = tmp_path / "BuildAndRelaunch.log"
+    status_path.write_text(
+        json.dumps(
+            {
+                "complete": False,
+                "success": False,
+                "stage": "building",
+                "message": "Running Build.bat for MyGameEditor.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    log_path.write_text("UnrealBuildTool is still running\n", encoding="utf-8")
+    clock = {"now": 0.0}
+
+    def fake_sleep(seconds):
+        clock["now"] += seconds
+
+    monkeypatch.setattr("time.sleep", fake_sleep)
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+
+    with pytest.raises(SystemExit) as exc:
+        _wait_for_build_and_relaunch(
+            {
+                "project": "MyGame",
+                "build_status_path": str(status_path),
+                "build_log_path": str(log_path),
+            },
+            skip_relaunch=True,
+            poll_interval=1.0,
+            build_timeout=2.0,
+        )
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["status"] == "build_timeout"
+    assert result["last_stage"] == "building"
+    assert "UnrealBuildTool is still running" in result["build_output_tail"]
+    assert "last stage: building" in captured.err
+    assert str(status_path) in captured.err
+    assert str(log_path) in captured.err
+
+
 def test_cmd_trigger_live_coding_forwards_scope_args():
     parser = build_parser()
     args = parser.parse_args([
@@ -704,6 +881,26 @@ def test_cmd_release_asset_lock_forwards_args():
         cmd_release_asset_lock(args)
 
     mock_run.assert_called_once_with("release-asset-lock", {"asset_path": "/Game/Blueprints/BP_Player"})
+
+
+def test_parser_query_asset_pattern_alias():
+    parser = build_parser()
+    args = parser.parse_args(["query-asset", "--pattern", "CO_PC_Test", "--class", "CustomizableObject"])
+    assert args.query == "CO_PC_Test"
+    assert args.asset_class == "CustomizableObject"
+
+
+def test_cmd_query_asset_pattern_forwards_query():
+    parser = build_parser()
+    args = parser.parse_args(["query-asset", "--pattern", "CO_PC_Test", "--class", "CustomizableObject"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_query_asset(args)
+
+    mock_run.assert_called_once_with(
+        "query-asset",
+        {"query": "CO_PC_Test", "class": "CustomizableObject"},
+    )
 
 
 def test_parser_inspect_customizable_object_graph():
@@ -1013,6 +1210,68 @@ def test_cmd_compile_co_forwards_asset_path():
     mock_run.assert_called_once_with(
         "compile-customizable-object",
         {"asset_path": "/Game/Characters/CO_Hero.CO_Hero"},
+    )
+
+
+def test_cmd_compile_co_gather_references_forwards_flag():
+    parser = build_parser()
+    args = parser.parse_args(["compile-co", "/Game/Characters/CO_Hero.CO_Hero", "--gather-references"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_compile_co(args)
+
+    mock_run.assert_called_once_with(
+        "compile-customizable-object",
+        {"asset_path": "/Game/Characters/CO_Hero.CO_Hero", "gather_references": True},
+    )
+
+
+def test_cmd_create_co_from_spec_forwards_json_spec():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "create-co-from-spec",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "--spec",
+            '{"nodes":[{"id":"mesh","class":"CustomizableObjectNodeSkeletalMesh"}],"edges":[]}',
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_create_co_from_spec(args)
+
+    mock_run.assert_called_once_with(
+        "create-customizable-object-from-spec",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "spec": {
+                "nodes": [{"id": "mesh", "class": "CustomizableObjectNodeSkeletalMesh"}],
+                "edges": [],
+            },
+        },
+    )
+
+
+def test_cmd_set_node_position_forwards_positions_for_customizable_object_paths():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "set-node-position",
+            "/Game/Characters/CO_Hero.CO_Hero",
+            "--positions",
+            '[{"guid":"11111111-2222-3333-4444-555555555555","x":120,"y":240}]',
+        ]
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_set_node_position(args)
+
+    mock_run.assert_called_once_with(
+        "set-node-position",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "positions": [{"guid": "11111111-2222-3333-4444-555555555555", "x": 120, "y": 240}],
+        },
     )
 
 

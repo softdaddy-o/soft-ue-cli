@@ -7,7 +7,7 @@
 #include "SetNodePositionTool.generated.h"
 
 /**
- * Batch-set editor positions for nodes in a Material, Blueprint, or AnimBlueprint graph.
+ * Batch-set editor positions for nodes in a Material, Blueprint, AnimBlueprint, or CustomizableObject graph.
  * Nodes are identified by GUID. All moves happen in a single undo transaction.
  */
 UCLASS()

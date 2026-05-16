@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+
 from soft_ue_cli.startup_recovery import (
     StartupRecoveryBlocked,
     StartupRecoveryPrompt,

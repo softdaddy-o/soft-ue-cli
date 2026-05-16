@@ -2,6 +2,27 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.29.0] - 2026-05-17
+
+### Added
+- New `wait-for-ready` command, with `await-bridge` alias, polls the bridge health probe until it is ready and can optionally launch a `.uproject` first
+- New `create-co-from-spec` command and bridge tool build a CustomizableObject graph from a JSON node/edge specification
+- `compile-co` now supports `--gather-references` for the editor's Compile and Gather References mode when available
+- `query-blueprint-graph --include-anim-props` now exposes AnimGraph wrapper cache properties, property bindings, fast-path metadata, and linked SaveCachedPose details
+- `query-asset --pattern` is now an alias for name-pattern asset searches
+
+### Changed
+- `set-node-position` now supports CustomizableObject graph nodes in addition to Material, Blueprint, and AnimBlueprint graphs
+- `compile-blueprint` now returns structured compiler diagnostics with severity, message, and error/warning counts
+
+### Fixed
+- SoftUEBridge runtime config tools are now registered during module startup, avoiding editor-launch `ERROR_DLL_INIT_FAILED` failures
+- `add-widget` now supports single-child `ContentWidget` parents such as Border and rejects already-filled content parents before attachment
+- `capture-screenshot window` now avoids the unsafe full-window Slate screenshot path while PIE has `bDisableWorldRendering` set and falls back to viewport capture
+- `build-and-relaunch --wait` now follows staged worker progress, waits for a terminal status instead of treating the first status file as final, and reports the last stage plus log paths on timeout
+- `trigger-live-coding` now returns an `unsupported_change` status with full-build recovery guidance when Unreal cancels Live Coding compilation
+- AnimGraph SaveCachedPose cache-name edits now update the wrapper and inner anim node consistently
+
 ## [1.28.0] - 2026-05-03
 
 ### Added

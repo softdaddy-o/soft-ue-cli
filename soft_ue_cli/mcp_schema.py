@@ -6,6 +6,7 @@ import argparse
 from typing import Any
 
 EXCLUDED_COMMANDS: frozenset[str] = frozenset({
+    "await-bridge",
     "skills",
     "mcp-serve",
 })
@@ -14,6 +15,7 @@ EXCLUDED_COMMANDS: frozenset[str] = frozenset({
 # are invoked directly by the MCP server instead of being forwarded to the bridge.
 CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "status",
+    "wait-for-ready",
     "check-setup",
     "setup",
     "report-bug",
@@ -109,6 +111,11 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
     "set-co-node-property": {
         "properties": {
             "properties": {"type": "object", "description": "Reflected node properties to set"},
+        },
+    },
+    "create-co-from-spec": {
+        "properties": {
+            "spec": {"type": "object", "description": "CustomizableObject graph spec with nodes and edges arrays"},
         },
     },
     "wire-customizable-object-slot-from-table": {

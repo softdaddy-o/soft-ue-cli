@@ -5,6 +5,42 @@
 #include "SoftUEBridgeEditorModule.h"
 #include "Engine/Blueprint.h"
 #include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/CompilerResultsLog.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "Logging/TokenizedMessage.h"
+
+namespace
+{
+	static FString SeverityToString(EMessageSeverity::Type Severity)
+	{
+		switch (Severity)
+		{
+		case EMessageSeverity::Error:
+			return TEXT("error");
+		case EMessageSeverity::Warning:
+			return TEXT("warning");
+		case EMessageSeverity::PerformanceWarning:
+			return TEXT("performance_warning");
+		case EMessageSeverity::Info:
+			return TEXT("info");
+		default:
+			return TEXT("unknown");
+		}
+	}
+
+	static TArray<TSharedPtr<FJsonValue>> BuildCompilerDiagnostics(const FCompilerResultsLog& ResultsLog)
+	{
+		TArray<TSharedPtr<FJsonValue>> Diagnostics;
+		for (const TSharedRef<FTokenizedMessage>& Message : ResultsLog.Messages)
+		{
+			TSharedPtr<FJsonObject> Diagnostic = MakeShared<FJsonObject>();
+			Diagnostic->SetStringField(TEXT("severity"), SeverityToString(Message->GetSeverity()));
+			Diagnostic->SetStringField(TEXT("message"), Message->ToText().ToString());
+			Diagnostics.Add(MakeShared<FJsonValueObject>(Diagnostic));
+		}
+		return Diagnostics;
+	}
+}
 
 FString UCompileBlueprintTool::GetToolDescription() const
 {
@@ -53,13 +89,18 @@ FBridgeToolResult UCompileBlueprintTool::Execute(
 	// Refresh nodes before compiling to ensure pins are up to date
 	FBridgeAssetModifier::RefreshBlueprintNodes(Blueprint);
 
-	// Compile
-	FString CompileError;
-	bool bSuccess = FBridgeAssetModifier::CompileBlueprint(Blueprint, CompileError);
+	// Compile with an operation-local results log so callers can associate
+	// diagnostics with this compile request without scraping stale output logs.
+	FCompilerResultsLog ResultsLog;
+	FKismetEditorUtilities::CompileBlueprint(Blueprint, EBlueprintCompileOptions::None, &ResultsLog);
+	const bool bSuccess = Blueprint->Status != BS_Error && ResultsLog.NumErrors == 0;
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetStringField(TEXT("asset"), AssetPath);
 	Result->SetBoolField(TEXT("success"), bSuccess);
+	Result->SetNumberField(TEXT("error_count"), ResultsLog.NumErrors);
+	Result->SetNumberField(TEXT("warning_count"), ResultsLog.NumWarnings);
+	Result->SetArrayField(TEXT("diagnostics"), BuildCompilerDiagnostics(ResultsLog));
 
 	// Report status
 	if (Blueprint->Status == BS_UpToDate)
@@ -81,8 +122,10 @@ FBridgeToolResult UCompileBlueprintTool::Execute(
 
 	if (!bSuccess)
 	{
-		Result->SetStringField(TEXT("error"), CompileError);
-		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("compile-blueprint: %s failed: %s"), *AssetPath, *CompileError);
+		Result->SetStringField(TEXT("error"), TEXT("Blueprint compilation failed with errors"));
+		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("compile-blueprint: %s failed with %d errors"),
+			*AssetPath,
+			ResultsLog.NumErrors);
 	}
 	else
 	{

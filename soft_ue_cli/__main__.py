@@ -170,6 +170,81 @@ def cmd_status(args: argparse.Namespace) -> None:
     _print_json(health_check())
 
 
+def _launch_editor_for_wait(path: str) -> None:
+    launch_path = Path(path).expanduser()
+    if not launch_path.exists():
+        print(f"error: launch path not found: {path}", file=sys.stderr)
+        sys.exit(1)
+
+    if launch_path.suffix.lower() == ".uproject" and hasattr(os, "startfile"):
+        os.startfile(str(launch_path))  # type: ignore[attr-defined]
+        return
+
+    import subprocess
+
+    subprocess.Popen(
+        [str(launch_path)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _bridge_health_is_ready(health: dict) -> bool:
+    return "error" not in health and bool(health)
+
+
+def cmd_wait_for_ready(args: argparse.Namespace) -> None:
+    timeout = float(getattr(args, "timeout", 120.0) or 120.0)
+    poll_interval = float(getattr(args, "poll_interval", 2.0) or 2.0)
+    launch_editor = getattr(args, "launch_editor", None)
+    if launch_editor:
+        _launch_editor_for_wait(launch_editor)
+
+    server_url = get_server_url()
+    start = time.monotonic()
+    attempts = 0
+    last_error = ""
+    last_health: dict = {}
+
+    while True:
+        attempts += 1
+        elapsed = time.monotonic() - start
+        probe_timeout = max(0.2, min(5.0, poll_interval, max(timeout - elapsed, 0.2)))
+        health = health_check(timeout=probe_timeout)
+        last_health = health
+        if _bridge_health_is_ready(health):
+            _print_json({
+                "success": True,
+                "status": "ready",
+                "server_url": server_url,
+                "attempts": attempts,
+                "ready_time_seconds": round(time.monotonic() - start, 1),
+                "health": health,
+            })
+            return
+
+        last_error = str(health.get("error", "bridge not ready"))
+        elapsed = time.monotonic() - start
+        if elapsed >= timeout:
+            print(f"error: bridge did not become ready within {timeout:g}s at {server_url}", file=sys.stderr)
+            if last_error:
+                print(f"last error: {last_error}", file=sys.stderr)
+            _print_json({
+                "success": False,
+                "status": "timeout",
+                "server_url": server_url,
+                "timeout_seconds": timeout,
+                "elapsed_seconds": round(elapsed, 1),
+                "attempts": attempts,
+                "last_error": last_error,
+                "last_health": last_health,
+            })
+            sys.exit(1)
+
+        time.sleep(min(poll_interval, max(timeout - elapsed, 0.0)))
+
+
 def cmd_spawn_actor(args: argparse.Namespace) -> None:
     arguments: dict = {"actor_class": args.actor_class}
     if args.location:
@@ -581,7 +656,38 @@ def cmd_regenerate_co_node_pins(args: argparse.Namespace) -> None:
 
 
 def cmd_compile_co(args: argparse.Namespace) -> None:
-    _print_json(_run_tool("compile-customizable-object", {"asset_path": args.asset_path}))
+    arguments: dict = {"asset_path": args.asset_path}
+    if getattr(args, "gather_references", False):
+        arguments["gather_references"] = True
+    _print_json(_run_tool("compile-customizable-object", arguments))
+
+
+def cmd_create_co_from_spec(args: argparse.Namespace) -> None:
+    if getattr(args, "spec_file", None):
+        spec_path = Path(args.spec_file).expanduser()
+        try:
+            spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            print(f"error: file not found: {args.spec_file}", file=sys.stderr)
+            sys.exit(1)
+        except json.JSONDecodeError:
+            print("error: --spec-file must contain a JSON object", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(spec, dict):
+            print("error: --spec-file must contain a JSON object", file=sys.stderr)
+            sys.exit(1)
+    else:
+        spec = _parse_json_object_arg(args.spec, "--spec")
+
+    _print_json(
+        _run_tool(
+            "create-customizable-object-from-spec",
+            {
+                "asset_path": args.asset_path,
+                "spec": spec,
+            },
+        )
+    )
 
 
 def cmd_remove_co_node(args: argparse.Namespace) -> None:
@@ -844,6 +950,42 @@ def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
     )
 
 
+def _build_and_relaunch_stage(status: dict) -> str:
+    stage = status.get("stage") or status.get("last_stage") or ""
+    return stage if isinstance(stage, str) else ""
+
+
+def _build_and_relaunch_status_is_terminal(status: dict) -> bool:
+    if not status:
+        return False
+    if status.get("complete") is True:
+        return True
+    stage = _build_and_relaunch_stage(status)
+    if stage in {"completed", "build_failed", "worker_error"}:
+        return True
+    # Backward compatibility with older bridge workers that only wrote a final
+    # success/exit_code payload after Build.bat finished.
+    return "complete" not in status and not stage and "success" in status
+
+
+def _read_text_tail(path: Path, *, max_chars: int = 4000) -> str:
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    if len(content) <= max_chars:
+        return content
+    return content[-max_chars:]
+
+
+def _format_build_and_relaunch_progress(status: dict) -> str:
+    stage = _build_and_relaunch_stage(status) or "unknown"
+    message = status.get("message")
+    if isinstance(message, str) and message:
+        return f"Build status: {stage} - {message}"
+    return f"Build status: {stage}"
+
+
 def _wait_for_build_and_relaunch(
     initiation_result: dict,
     *,
@@ -851,6 +993,7 @@ def _wait_for_build_and_relaunch(
     startup_recovery: str | None = "ask",
     remember_startup_recovery: bool | None = None,
     poll_interval: float = 3.0,
+    progress_interval: float = 30.0,
     build_timeout: float = 600.0,
     relaunch_timeout: float = 120.0,
 ) -> None:
@@ -873,23 +1016,66 @@ def _wait_for_build_and_relaunch(
     project = initiation_result.get("project", "")
     print(f"Build initiated for {project}. Waiting for completion...", file=sys.stderr)
 
-    # --- Phase 1: wait for build to finish (status file appears) ---
+    # --- Phase 1: wait for build to finish (status file reaches a terminal stage) ---
     start = time.monotonic()
     build_status: dict = {}
-    while time.monotonic() - start < build_timeout:
-        time.sleep(poll_interval)
+    last_progress_key: tuple[str, str, object] | None = None
+    last_progress_at = start
+    while True:
+        now = time.monotonic()
+        if now - start >= build_timeout:
+            last_stage = _build_and_relaunch_stage(build_status) or (
+                "worker_status_missing" if not status_path.exists() else "unknown"
+            )
+            print(
+                f"error: build did not finish within {build_timeout:.0f}s (last stage: {last_stage})",
+                file=sys.stderr,
+            )
+            print(f"status file: {status_path}", file=sys.stderr)
+            print(f"build log: {log_path}", file=sys.stderr)
+            last_message = build_status.get("message")
+            if isinstance(last_message, str) and last_message:
+                print(f"last message: {last_message}", file=sys.stderr)
+            log_tail = _read_text_tail(log_path)
+            result: dict = {
+                "success": False,
+                "status": "build_timeout",
+                "last_stage": last_stage,
+                "build_time_seconds": round(now - start, 1),
+                "build_status_path": str(status_path),
+                "build_log_path": str(log_path),
+                "message": (
+                    f"Build did not finish within {build_timeout:.0f}s "
+                    f"(last stage: {last_stage}). See build_log_path and build_status_path."
+                ),
+            }
+            if isinstance(last_message, str) and last_message:
+                result["last_message"] = last_message
+            if log_tail:
+                result["build_output_tail"] = log_tail
+            _print_json(result)
+            sys.exit(1)
+
         if status_path.exists():
             try:
                 build_status = _json.loads(status_path.read_text().strip())
             except (_json.JSONDecodeError, OSError):
+                time.sleep(poll_interval)
                 continue
-            break
-    else:
-        print(
-            f"error: build did not finish within {build_timeout:.0f}s",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+            stage = _build_and_relaunch_stage(build_status)
+            message = build_status.get("message")
+            progress_key = (stage, message if isinstance(message, str) else "", build_status.get("exit_code"))
+            if progress_key != last_progress_key or now - last_progress_at >= progress_interval:
+                print(_format_build_and_relaunch_progress(build_status), file=sys.stderr)
+                last_progress_key = progress_key
+                last_progress_at = now
+            if _build_and_relaunch_status_is_terminal(build_status):
+                break
+        elif now - last_progress_at >= progress_interval:
+            print("Build status: waiting for worker status file...", file=sys.stderr)
+            last_progress_at = now
+
+        time.sleep(poll_interval)
 
     build_elapsed = time.monotonic() - start
     build_success = build_status.get("success", False)
@@ -906,9 +1092,18 @@ def _wait_for_build_and_relaunch(
             "success": False,
             "status": "build_failed",
             "exit_code": build_status.get("exit_code", 1),
+            "last_stage": _build_and_relaunch_stage(build_status) or "build_failed",
             "build_time_seconds": round(build_elapsed, 1),
+            "build_status_path": str(status_path),
+            "build_log_path": str(log_path),
             "message": "Build failed. See build_output for compiler errors.",
         }
+        last_message = build_status.get("message")
+        if isinstance(last_message, str) and last_message:
+            result["last_message"] = last_message
+        error_text = build_status.get("error")
+        if isinstance(error_text, str) and error_text:
+            result["error"] = error_text
         if errors:
             result["build_output"] = errors
         _print_json(result)
@@ -1609,7 +1804,8 @@ def _gather_system_info() -> str:
 
 
 PRIVACY_GUIDANCE = (
-    "Do not include project-specific information or personal information. "
+    "Do not include project-specific information, personal information, "
+    "or any clue that could identify your project. "
     "Replace project names, internal paths, asset names, emails, tokens, "
     "and other sensitive details with generic placeholders."
 )
@@ -2379,6 +2575,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_status.set_defaults(func=cmd_status)
 
+    # wait-for-ready
+    p_wfr = sub.add_parser(
+        "wait-for-ready",
+        aliases=["await-bridge"],
+        help="Poll the bridge health probe until it is ready.",
+        description=(
+            "Waits until the SoftUEBridge HTTP server responds to the same internal\n"
+            "health probe used by 'soft-ue-cli status'. This avoids polling unrelated\n"
+            "routes such as /status, which are not public bridge endpoints.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli wait-for-ready --timeout 120\n"
+            "  soft-ue-cli await-bridge --launch-editor C:/dev/MyGame/MyGame.uproject"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_wfr.add_argument("--timeout", type=float, default=120.0, metavar="SEC", help="Maximum time to wait (default: 120)")
+    p_wfr.add_argument("--poll-interval", type=float, default=2.0, metavar="SEC", help="Seconds between probes (default: 2)")
+    p_wfr.add_argument(
+        "--launch-editor",
+        metavar="PATH",
+        help="Optional .uproject or executable path to launch before polling",
+    )
+    p_wfr.set_defaults(func=cmd_wait_for_ready)
+
     # -------------------------------------------------------------------------
     # Runtime tools
     # -------------------------------------------------------------------------
@@ -2735,6 +2955,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_qa.add_argument("--query", metavar="PATTERN", help="Search pattern (supports * and ?)")
+    p_qa.add_argument("--pattern", metavar="PATTERN", dest="query", help="Alias for --query")
     p_qa.add_argument(
         "--class", metavar="CLASS", dest="asset_class", help="Filter by asset class (e.g. Blueprint, StaticMesh)"
     )
@@ -3023,7 +3244,31 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_cco.add_argument("asset_path", help="CustomizableObject asset path")
+    p_cco.add_argument(
+        "--gather-references",
+        action="store_true",
+        help="Request the editor's Compile and Gather References mode when reflected compile params expose it",
+    )
     p_cco.set_defaults(func=cmd_compile_co)
+
+    p_ccofs = sub.add_parser(
+        "create-co-from-spec",
+        help="Create a CustomizableObject graph from a JSON node and edge specification.",
+        description=(
+            "Builds multiple CustomizableObject graph nodes and pin connections in one transaction.\n"
+            "The spec object accepts nodes and edges arrays. Nodes use id, class, optional position,\n"
+            "and optional properties. Edges reference source/target node ids and pin names.\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli create-co-from-spec /Game/Characters/CO_Hero.CO_Hero \\\n"
+            "    --spec '{\"nodes\":[{\"id\":\"mesh\",\"class\":\"CustomizableObjectNodeSkeletalMesh\"}],\"edges\":[]}'"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_ccofs.add_argument("asset_path", help="CustomizableObject asset path")
+    spec_group = p_ccofs.add_mutually_exclusive_group(required=True)
+    spec_group.add_argument("--spec", help="JSON object describing nodes and edges")
+    spec_group.add_argument("--spec-file", help="Path to a JSON spec file")
+    p_ccofs.set_defaults(func=cmd_create_co_from_spec)
 
     p_rco = sub.add_parser(
         "remove-co-node",
@@ -4283,7 +4528,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Auto-enriches with system info (CLI version, Python, OS, bridge status)\n"
             "unless --no-system-info is passed.\n\n"
             "PRIVACY:\n"
-            "  Do not include project-specific information or personal information.\n"
+            "  Do not include project-specific information, personal information,\n"
+            "  or any clue that could identify your project.\n"
             "  Replace project names, internal paths, asset names, emails, tokens,\n"
             "  and other sensitive details with generic placeholders.\n\n"
             "AUTHENTICATION:\n"
@@ -4314,7 +4560,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Creates a GitHub issue with structured feature request fields.\n\n"
             "PRIVACY:\n"
-            "  Do not include project-specific information or personal information.\n"
+            "  Do not include project-specific information, personal information,\n"
+            "  or any clue that could identify your project.\n"
             "  Replace project names, internal paths, asset names, emails, tokens,\n"
             "  and other sensitive details with generic placeholders.\n\n"
             "AUTHENTICATION:\n"

@@ -280,8 +280,11 @@ FBridgeToolResult UTriggerLiveCodingTool::ExecuteSynchronous(ILiveCodingModule* 
 
 	case ELiveCodingCompileResult::Cancelled:
 		bSuccess = false;
-		StatusStr = TEXT("cancelled");
-		MessageStr = TEXT("Live Coding compilation was cancelled");
+		StatusStr = TEXT("unsupported_change");
+		MessageStr = TEXT("Live Coding compilation was cancelled by Unreal, commonly because the change set is not supported by Live Coding. Run build-and-relaunch --wait for a full rebuild.");
+		Result->SetBoolField(TEXT("needs_full_build"), true);
+		Result->SetStringField(TEXT("cancelled_reason"), TEXT("unsupported_or_rejected_change_set"));
+		Result->SetStringField(TEXT("recovery_hint"), TEXT("Run soft-ue-cli build-and-relaunch --wait, then retry after the editor relaunches."));
 		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("trigger-live-coding: Compilation cancelled"));
 		break;
 

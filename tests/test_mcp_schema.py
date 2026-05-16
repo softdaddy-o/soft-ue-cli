@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
 
@@ -43,6 +44,7 @@ def test_extract_tools_contains_known_command():
     assert "inspect-uasset" in tool_names
     assert "diff-uasset" in tool_names
     assert "status" in tool_names
+    assert "wait-for-ready" in tool_names
 
 
 def test_tool_has_required_fields():
@@ -125,6 +127,7 @@ def test_customizable_object_convenience_commands_run_client_side_for_mcp():
         "regenerate-co-node-pins",
         "compile-co",
         "remove-co-node",
+        "wait-for-ready",
     }:
         assert command in CLIENT_SIDE_COMMANDS
 
@@ -148,9 +151,11 @@ def test_feedback_tools_include_privacy_guidance():
     feature_desc = feature["parameters"]["properties"]["description"]["description"]
     feature_use_case = feature["parameters"]["properties"]["use_case"]["description"]
 
-    assert "project-specific information or personal information" in report_desc
+    assert "project-specific information, personal information" in report_desc
+    assert "any clue that could identify your project" in report_desc
     assert "generic placeholders" in report_steps
-    assert "project-specific information or personal information" in feature_desc
+    assert "project-specific information, personal information" in feature_desc
+    assert "any clue that could identify your project" in feature_desc
     assert "generic placeholders" in feature_use_case
 
 

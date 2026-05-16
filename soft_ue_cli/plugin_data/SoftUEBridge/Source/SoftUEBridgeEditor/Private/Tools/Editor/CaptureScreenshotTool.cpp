@@ -3,6 +3,8 @@
 #include "Tools/Editor/CaptureScreenshotTool.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "IImageWrapper.h"
@@ -77,6 +79,26 @@ namespace
 		}
 
 		return nullptr;
+	}
+
+	bool IsUnsafeWindowScreenshotDuringPIE()
+	{
+		if (!GEngine)
+		{
+			return false;
+		}
+
+		for (const FWorldContext& WorldContext : GEngine->GetWorldContexts())
+		{
+			if (WorldContext.WorldType == EWorldType::PIE
+				&& WorldContext.GameViewport
+				&& WorldContext.GameViewport->bDisableWorldRendering)
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
 
@@ -212,6 +234,12 @@ FBridgeToolResult UCaptureScreenshotTool::CaptureWindow(const FString& Format, c
 	if (!EditorWindow.IsValid())
 	{
 		return FBridgeToolResult::Error(TEXT("No editor window found"));
+	}
+
+	if (IsUnsafeWindowScreenshotDuringPIE())
+	{
+		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("capture-screenshot window: PIE game viewport has bDisableWorldRendering=true; falling back to viewport capture to avoid an unsafe Slate full-window screenshot."));
+		return CaptureViewport(Format, OutputMode);
 	}
 
 	return CaptureFromWindow(EditorWindow, Format, OutputMode);

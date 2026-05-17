@@ -1,9 +1,10 @@
-﻿"""Tests for cli/soft_ue_cli/client.py ??uses httpx mock transport."""
+"""Tests for cli/soft_ue_cli/client.py ??uses httpx mock transport."""
 
 from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 

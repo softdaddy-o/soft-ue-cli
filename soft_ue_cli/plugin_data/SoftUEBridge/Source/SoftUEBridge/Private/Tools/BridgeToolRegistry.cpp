@@ -24,7 +24,11 @@ FBridgeToolRegistry::~FBridgeToolRegistry()
 
 void FBridgeToolRegistry::RegisterToolClass(UClass* ToolClass)
 {
-	if (!ToolClass) return;
+	if (!ToolClass)
+	{
+		UE_LOG(LogSoftUEBridge, Error, TEXT("RegisterToolClass called with null ToolClass; registration skipped"));
+		return;
+	}
 
 	// Temporarily instantiate to get the name
 	UBridgeToolBase* TempInstance = NewObject<UBridgeToolBase>(GetTransientPackage(), ToolClass);

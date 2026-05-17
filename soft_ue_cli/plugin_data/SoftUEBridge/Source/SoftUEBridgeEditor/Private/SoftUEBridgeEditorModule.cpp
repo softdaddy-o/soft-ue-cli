@@ -3,6 +3,7 @@
 #include "SoftUEBridgeEditorModule.h"
 #include "Tools/BridgeToolRegistry.h"
 #include "UI/BridgeToolbarExtension.h"
+#include "Misc/CoreDelegates.h"
 
 // Analysis
 #include "Tools/Analysis/ClassHierarchyTool.h"
@@ -109,6 +110,33 @@
 
 DEFINE_LOG_CATEGORY(LogSoftUEBridgeEditor);
 
+void FSoftUEBridgeEditorModule::RegisterAnimationTools()
+{
+	FBridgeToolRegistry& Registry = FBridgeToolRegistry::Get();
+
+	if (!Registry.HasTool(TEXT("add-anim-state-machine")))
+	{
+		Registry.RegisterToolClass<UAddAnimStateMachineTool>();
+	}
+	if (!Registry.HasTool(TEXT("add-anim-state")))
+	{
+		Registry.RegisterToolClass<UAddAnimStateTool>();
+	}
+	if (!Registry.HasTool(TEXT("add-anim-transition")))
+	{
+		Registry.RegisterToolClass<UAddAnimTransitionTool>();
+	}
+
+	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("Registered deferred animation bridge tools; total tools: %d"), Registry.GetToolCount());
+}
+
+bool FSoftUEBridgeEditorModule::RegisterAnimationToolsOnTicker(float /*DeltaTime*/)
+{
+	RegisterAnimationTools();
+	DeferredAnimationRegistrationHandle.Reset();
+	return false;
+}
+
 void FSoftUEBridgeEditorModule::StartupModule()
 {
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("SoftUEBridgeEditor module starting up"));
@@ -194,10 +222,13 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<UAddStateTreeTransitionTool>();
 	Registry.RegisterToolClass<URemoveStateTreeStateTool>();
 
-	// Animation
-	Registry.RegisterToolClass<UAddAnimStateMachineTool>();
-	Registry.RegisterToolClass<UAddAnimStateTool>();
-	Registry.RegisterToolClass<UAddAnimTransitionTool>();
+	// Animation tools are newly added UCLASSes and may not have valid StaticClass()
+	// pointers at module startup in freshly rebuilt editor sessions.
+	PostEngineInitHandle = FCoreDelegates::OnPostEngineInit.AddRaw(
+		this,
+		&FSoftUEBridgeEditorModule::RegisterAnimationTools);
+	DeferredAnimationRegistrationHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateRaw(this, &FSoftUEBridgeEditorModule::RegisterAnimationToolsOnTicker));
 
 	// Widget
 	Registry.RegisterToolClass<UWidgetBlueprintTool>();
@@ -232,6 +263,17 @@ void FSoftUEBridgeEditorModule::StartupModule()
 
 void FSoftUEBridgeEditorModule::ShutdownModule()
 {
+	if (PostEngineInitHandle.IsValid())
+	{
+		FCoreDelegates::OnPostEngineInit.Remove(PostEngineInitHandle);
+		PostEngineInitHandle.Reset();
+	}
+	if (DeferredAnimationRegistrationHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(DeferredAnimationRegistrationHandle);
+		DeferredAnimationRegistrationHandle.Reset();
+	}
+
 	FBridgeToolbarExtension::Shutdown();
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("SoftUEBridgeEditor module shutting down"));
 }

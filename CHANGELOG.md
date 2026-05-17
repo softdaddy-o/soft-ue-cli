@@ -2,6 +2,13 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.31.0] - 2026-05-17
+
+### Fixed
+- Deferred newly added AnimBlueprint state-machine bridge tool registration until editor UCLASS metadata is ready, preventing silent missing tools after rebuild/restart.
+- Bridge tool registration now logs an error when a null tool class is passed instead of silently skipping it.
+- Bridge health now includes process identity fields (`pid`, `started_at`, `bridge_instance_id`) so automation can distinguish an old session from a fresh editor restart.
+
 ## [1.30.0] - 2026-05-17
 
 ### Added

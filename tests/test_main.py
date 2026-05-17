@@ -1,10 +1,11 @@
-﻿"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
+"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest

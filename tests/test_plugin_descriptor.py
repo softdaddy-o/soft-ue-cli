@@ -1,4 +1,4 @@
-﻿"""Tests for the exported SoftUEBridge plugin descriptor."""
+"""Tests for the exported SoftUEBridge plugin descriptor."""
 
 from __future__ import annotations
 
@@ -248,13 +248,63 @@ def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
 
 
 def test_agent_guide_warns_new_tools_against_static_registration_macro():
-    guide_path = Path(__file__).parents[1].joinpath("AGENTS.md")
+    guide_path = _repo_root() / "AGENTS.md"
     if not guide_path.exists():
         return
     guide = guide_path.read_text(encoding="utf-8")
 
     assert "Do not use REGISTER_BRIDGE_TOOL" in guide
     assert "RegisterToolClass" in guide
+
+
+def test_new_anim_tools_are_deferred_until_editor_uclasses_are_ready():
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+
+    startup_body = module.split("void FSoftUEBridgeEditorModule::StartupModule()", 1)[1].split(
+        "void FSoftUEBridgeEditorModule::ShutdownModule()", 1
+    )[0]
+
+    assert "FCoreDelegates::OnPostEngineInit" in startup_body
+    assert "RegisterAnimationTools" in module
+    assert "Registry.RegisterToolClass<UAddAnimStateMachineTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UAddAnimStateTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UAddAnimTransitionTool>()" not in startup_body
+
+
+def test_null_tool_class_registration_is_logged_as_error():
+    registry_source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/BridgeToolRegistry.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "RegisterToolClass called with null ToolClass" in registry_source
+    assert "UE_LOG(LogSoftUEBridge, Error" in registry_source
+
+
+def test_bridge_health_includes_process_identity_for_restart_detection():
+    server_header = _plugin_source_path(
+        "Source/SoftUEBridge/Public/Server/BridgeServer.h"
+    ).read_text(encoding="utf-8")
+    server_source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Server/BridgeServer.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "BridgeInstanceId" in server_header
+    assert "StartedAtUtc" in server_header
+    assert 'SetNumberField(TEXT("pid")' in server_source
+    assert 'SetStringField(TEXT("started_at")' in server_source
+    assert 'SetStringField(TEXT("bridge_instance_id")' in server_source
+
+
+def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
+    guide_path = _repo_root() / "AGENTS.md"
+    if not guide_path.exists():
+        return
+    guide = guide_path.read_text(encoding="utf-8")
+
+    assert "OnPostEngineInit" in guide
+    assert "newly added UCLASS" in guide
 
 
 def test_compile_blueprint_returns_structured_compiler_diagnostics():

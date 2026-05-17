@@ -7,6 +7,8 @@
 #include "HttpPath.h"
 #include "Async/Async.h"
 #include "Serialization/JsonSerializer.h"
+#include "HAL/PlatformProcess.h"
+#include "Misc/Guid.h"
 #include "SocketSubsystem.h"
 #include "Sockets.h"
 
@@ -91,6 +93,9 @@ bool FBridgeServer::Start(int32 Port, const FString& BindAddress)
 	HttpServerModule.StartAllListeners();
 	bIsRunning = true;
 	Status = EBridgeServerStatus::Running;
+	BridgeProcessId = FPlatformProcess::GetCurrentProcessId();
+	StartedAtUtc = FDateTime::UtcNow().ToIso8601();
+	BridgeInstanceId = FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphens);
 
 	UE_LOG(LogSoftUEBridge, Log, TEXT("Bridge server started on http://%s:%d/bridge"), *BindAddress, ServerPort);
 	return true;
@@ -131,6 +136,9 @@ bool FBridgeServer::HandleRequest(const FHttpServerRequest& Request, const FHttp
 		Info->SetStringField(TEXT("name"), TEXT("soft-ue-bridge"));
 		Info->SetStringField(TEXT("version"), SOFTUEBRIDGE_VERSION);
 		Info->SetBoolField(TEXT("running"), true);
+		Info->SetNumberField(TEXT("pid"), BridgeProcessId);
+		Info->SetStringField(TEXT("started_at"), StartedAtUtc);
+		Info->SetStringField(TEXT("bridge_instance_id"), BridgeInstanceId);
 		Info->SetNumberField(TEXT("tools"), FBridgeToolRegistry::Get().GetToolCount());
 
 		TArray<TSharedPtr<FJsonValue>> ToolNames;

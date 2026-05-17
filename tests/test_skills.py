@@ -1,4 +1,4 @@
-﻿"""Tests for cli/soft_ue_cli/skills ??skill discovery and retrieval."""
+"""Tests for cli/soft_ue_cli/skills ??skill discovery and retrieval."""
 
 from __future__ import annotations
 
@@ -160,7 +160,7 @@ def test_authoring_subskills_target_cpp_committed_tests():
 
 def test_all_skills_have_required_frontmatter():
     """Every .md skill file must have name, description, and version in frontmatter."""
-    skills_dir = Path(__file__).parents[1] / "soft_ue_cli" / "skills"
+    skills_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
     for md_file in skills_dir.glob("*.md"):
         text = md_file.read_text(encoding="utf-8")
         assert text.startswith("---"), f"{md_file.name} missing frontmatter"

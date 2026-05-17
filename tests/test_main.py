@@ -1,11 +1,10 @@
-"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
+﻿"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +13,7 @@ import pytest
 from soft_ue_cli.__main__ import (
     _SCRIPTS_DIR,
     _claude_md_section,
+    _default_build_and_relaunch_build_timeout,
     _parse_int_list,
     _parse_vector,
     _validate_script_name,
@@ -25,6 +25,9 @@ from soft_ue_cli.__main__ import (
     cmd_add_co_node,
     cmd_add_co_parameter,
     cmd_add_graph_node,
+    cmd_add_anim_state,
+    cmd_add_anim_state_machine,
+    cmd_add_anim_transition,
     cmd_batch_call,
     cmd_build_and_relaunch,
     cmd_call_function,
@@ -191,6 +194,10 @@ def test_parser_build_and_relaunch_flags():
         "Debug",
         "--skip-relaunch",
         "--wait",
+        "--build-timeout",
+        "1200",
+        "--relaunch-timeout",
+        "180",
         "--startup-recovery",
         "skip",
         "--remember-startup-recovery",
@@ -198,6 +205,8 @@ def test_parser_build_and_relaunch_flags():
     assert args.config == "Debug"
     assert args.skip_relaunch is True
     assert args.wait is True
+    assert args.build_timeout == 1200
+    assert args.relaunch_timeout == 180
     assert args.startup_recovery == "skip"
     assert args.remember_startup_recovery is True
 
@@ -596,6 +605,43 @@ def test_cmd_build_and_relaunch_forwards_args(capsys):
     mock_run.assert_called_once_with(
         "build-and-relaunch",
         {"build_config": "Debug", "skip_relaunch": True},
+    )
+
+
+def test_build_and_relaunch_default_build_timeout_uses_bridge_timeout(monkeypatch):
+    monkeypatch.setenv("SOFT_UE_BRIDGE_TIMEOUT", "1200")
+
+    assert _default_build_and_relaunch_build_timeout() == 1200.0
+
+
+def test_cmd_build_and_relaunch_wait_forwards_timeout_overrides():
+    parser = build_parser()
+    args = parser.parse_args([
+        "build-and-relaunch",
+        "--wait",
+        "--build-timeout",
+        "12",
+        "--relaunch-timeout",
+        "3",
+    ])
+    result = {
+        "success": True,
+        "build_status_path": "BuildAndRelaunch.status.json",
+        "build_log_path": "BuildAndRelaunch.log",
+    }
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value=result), patch(
+        "soft_ue_cli.__main__._wait_for_build_and_relaunch"
+    ) as mock_wait:
+        cmd_build_and_relaunch(args)
+
+    mock_wait.assert_called_once_with(
+        result,
+        skip_relaunch=False,
+        startup_recovery="ask",
+        remember_startup_recovery=None,
+        build_timeout=12,
+        relaunch_timeout=3,
     )
 
 
@@ -1781,6 +1827,91 @@ def test_cmd_add_graph_node_invalid_position_exits():
     with pytest.raises(SystemExit) as exc:
         cmd_add_graph_node(args)
     assert exc.value.code == 1
+
+
+# -- AnimBlueprint state machine authoring -----------------------------------
+
+
+def test_cmd_add_anim_state_machine_calls_tool():
+    parser = build_parser()
+    args = parser.parse_args([
+        "add-anim-state-machine",
+        "/Game/Animation/ABP_Hero",
+        "Locomotion",
+        "--graph-name", "AnimGraph",
+        "--default-state", "Idle",
+        "--position", "120,240",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_anim_state_machine(args)
+
+    mock_run.assert_called_once_with(
+        "add-anim-state-machine",
+        {
+            "asset_path": "/Game/Animation/ABP_Hero",
+            "state_machine_name": "Locomotion",
+            "graph_name": "AnimGraph",
+            "default_state": "Idle",
+            "position": [120, 240],
+        },
+    )
+
+
+def test_cmd_add_anim_state_calls_tool():
+    parser = build_parser()
+    args = parser.parse_args([
+        "add-anim-state",
+        "/Game/Animation/ABP_Hero",
+        "Locomotion",
+        "Run",
+        "--entry",
+        "--position", "480,120",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_anim_state(args)
+
+    mock_run.assert_called_once_with(
+        "add-anim-state",
+        {
+            "asset_path": "/Game/Animation/ABP_Hero",
+            "state_machine_name": "Locomotion",
+            "state_name": "Run",
+            "entry": True,
+            "position": [480, 120],
+        },
+    )
+
+
+def test_cmd_add_anim_transition_calls_tool():
+    parser = build_parser()
+    args = parser.parse_args([
+        "add-anim-transition",
+        "/Game/Animation/ABP_Hero",
+        "Locomotion",
+        "Idle",
+        "Run",
+        "--crossfade-duration", "0.15",
+        "--priority", "2",
+        "--bidirectional",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_anim_transition(args)
+
+    mock_run.assert_called_once_with(
+        "add-anim-transition",
+        {
+            "asset_path": "/Game/Animation/ABP_Hero",
+            "state_machine_name": "Locomotion",
+            "source_state": "Idle",
+            "target_state": "Run",
+            "crossfade_duration": 0.15,
+            "priority": 2,
+            "bidirectional": True,
+        },
+    )
 
 
 # -- query-enum / query-struct ------------------------------------------------

@@ -1,4 +1,4 @@
-"""Tests for the exported SoftUEBridge plugin descriptor."""
+﻿"""Tests for the exported SoftUEBridge plugin descriptor."""
 
 from __future__ import annotations
 
@@ -224,6 +224,37 @@ def test_runtime_config_tools_are_explicitly_registered_in_startup():
     assert "Registry.RegisterToolClass<UGetConfigValueTool>()" in module
     assert "Registry.RegisterToolClass<USetConfigValueTool>()" in module
     assert "Registry.RegisterToolClass<UValidateConfigKeyTool>()" in module
+
+
+def test_runtime_capture_viewport_tool_is_explicitly_registered_without_static_init():
+    module = _plugin_source_path(
+        "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
+    ).read_text(encoding="utf-8")
+    capture_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/CaptureViewportTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "REGISTER_BRIDGE_TOOL(UCaptureViewportTool)" not in capture_tool
+    assert "Registry.RegisterToolClass<UCaptureViewportTool>()" in module
+
+
+def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
+    registry_source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/BridgeToolRegistry.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "TObjectPtr<UBridgeToolBase>* Instance = ToolInstances.Find" not in registry_source
+    assert "FoundInstance = ToolInstances.Find" in registry_source
+
+
+def test_agent_guide_warns_new_tools_against_static_registration_macro():
+    guide_path = Path(__file__).parents[1].joinpath("AGENTS.md")
+    if not guide_path.exists():
+        return
+    guide = guide_path.read_text(encoding="utf-8")
+
+    assert "Do not use REGISTER_BRIDGE_TOOL" in guide
+    assert "RegisterToolClass" in guide
 
 
 def test_compile_blueprint_returns_structured_compiler_diagnostics():

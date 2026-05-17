@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/discovery.py ??no live server required."""
+﻿"""Tests for cli/soft_ue_cli/discovery.py ??no live server required."""
 
 from __future__ import annotations
 

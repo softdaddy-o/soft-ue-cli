@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/skills ??skill discovery and retrieval."""
+﻿"""Tests for cli/soft_ue_cli/skills ??skill discovery and retrieval."""
 
 from __future__ import annotations
 

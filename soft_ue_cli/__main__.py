@@ -947,7 +947,21 @@ def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
         skip_relaunch=args.skip_relaunch,
         startup_recovery=args.startup_recovery,
         remember_startup_recovery=args.remember_startup_recovery,
+        build_timeout=(
+            args.build_timeout if args.build_timeout is not None else _default_build_and_relaunch_build_timeout()
+        ),
+        relaunch_timeout=args.relaunch_timeout,
     )
+
+
+def _default_build_and_relaunch_build_timeout() -> float:
+    timeout = os.environ.get("SOFT_UE_BRIDGE_TIMEOUT")
+    if not timeout:
+        return 600.0
+    try:
+        return float(timeout)
+    except ValueError:
+        return 600.0
 
 
 def _build_and_relaunch_stage(status: dict) -> str:
@@ -1659,6 +1673,51 @@ def cmd_add_graph_node(args: argparse.Namespace) -> None:
     if args.properties:
         arguments["properties"] = _parse_json_arg(args.properties, "--properties")
     _print_json(_run_tool("add-graph-node", arguments))
+
+
+def cmd_add_anim_state_machine(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "state_machine_name": args.state_machine_name,
+    }
+    if args.graph_name:
+        arguments["graph_name"] = args.graph_name
+    if args.default_state:
+        arguments["default_state"] = args.default_state
+    if args.position:
+        arguments["position"] = _parse_int_list(args.position)
+    _print_json(_run_tool("add-anim-state-machine", arguments))
+
+
+def cmd_add_anim_state(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "state_machine_name": args.state_machine_name,
+        "state_name": args.state_name,
+    }
+    if args.entry:
+        arguments["entry"] = True
+    if args.position:
+        arguments["position"] = _parse_int_list(args.position)
+    _print_json(_run_tool("add-anim-state", arguments))
+
+
+def cmd_add_anim_transition(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "state_machine_name": args.state_machine_name,
+        "source_state": args.source_state,
+        "target_state": args.target_state,
+    }
+    if args.crossfade_duration is not None:
+        arguments["crossfade_duration"] = args.crossfade_duration
+    if args.priority is not None:
+        arguments["priority"] = args.priority
+    if args.bidirectional:
+        arguments["bidirectional"] = True
+    if args.rule is not None:
+        arguments["rule"] = args.rule
+    _print_json(_run_tool("add-anim-transition", arguments))
 
 
 def cmd_modify_interface(args: argparse.Namespace) -> None:
@@ -3464,6 +3523,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Persist the selected startup recovery behavior in the project's .soft-ue-bridge/settings.json",
     )
+    p_bar.add_argument(
+        "--build-timeout",
+        type=float,
+        help="Seconds to wait for the detached build worker to finish (default: SOFT_UE_BRIDGE_TIMEOUT or 600)",
+    )
+    p_bar.add_argument(
+        "--relaunch-timeout",
+        type=float,
+        default=120.0,
+        help="Seconds to wait for the editor bridge to come back after a successful build (default: 120)",
+    )
     p_bar.set_defaults(func=cmd_build_and_relaunch)
 
     p_tlc = sub.add_parser(
@@ -4220,6 +4290,74 @@ def build_parser() -> argparse.ArgumentParser:
     p_agn.add_argument("--connect-to-pin", metavar="PIN", help="Pin name to position relative to")
     p_agn.add_argument("--properties", metavar="JSON", help="Node properties as JSON object")
     p_agn.set_defaults(func=cmd_add_graph_node)
+
+    p_aasm = sub.add_parser(
+        "add-anim-state-machine",
+        help="Add an AnimBlueprint state machine with an inner graph.",
+        description=(
+            "Creates an AnimGraphNode_StateMachine in an AnimBlueprint animation graph and initializes its inner state-machine graph.\n"
+            "Optionally creates a default state and connects the entry node to it.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli add-anim-state-machine /Game/Animation/ABP_Hero Locomotion --default-state Idle\n"
+            "  soft-ue-cli add-anim-state-machine /Game/Animation/ABP_Hero UpperBody --graph-name AnimGraph --position 500,200"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_aasm.add_argument("asset_path", help="AnimBlueprint asset path")
+    p_aasm.add_argument("state_machine_name", help="Name for the state machine graph")
+    p_aasm.add_argument("--graph-name", metavar="NAME", help="Parent animation graph name (default: AnimGraph)")
+    p_aasm.add_argument("--default-state", metavar="NAME", help="Create and connect an initial state")
+    p_aasm.add_argument("--position", metavar="X,Y", help="State machine node position as X,Y")
+    p_aasm.set_defaults(func=cmd_add_anim_state_machine)
+
+    p_aas = sub.add_parser(
+        "add-anim-state",
+        help="Add a state to an AnimBlueprint state machine.",
+        description=(
+            "Creates an AnimStateNode inside an existing AnimBlueprint state-machine graph.\n"
+            "The state's content graph is initialized so add-graph-node can target it by --graph-name.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli add-anim-state /Game/Animation/ABP_Hero Locomotion Run\n"
+            "  soft-ue-cli add-anim-state /Game/Animation/ABP_Hero Locomotion Idle --entry --position 300,0"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_aas.add_argument("asset_path", help="AnimBlueprint asset path")
+    p_aas.add_argument("state_machine_name", help="State machine graph name")
+    p_aas.add_argument("state_name", help="Name for the new state and its content graph")
+    p_aas.add_argument("--entry", action="store_true", help="Connect the state-machine entry node to this state")
+    p_aas.add_argument("--position", metavar="X,Y", help="State node position as X,Y")
+    p_aas.set_defaults(func=cmd_add_anim_state)
+
+    def _parse_bool(value: str) -> bool:
+        lowered = value.lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+        raise argparse.ArgumentTypeError("expected true or false")
+
+    p_aat = sub.add_parser(
+        "add-anim-transition",
+        help="Add a transition between AnimBlueprint states.",
+        description=(
+            "Creates an AnimStateTransitionNode between two states in an AnimBlueprint state-machine graph.\n"
+            "The transition rule graph is initialized and renamed for later graph-node edits.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli add-anim-transition /Game/Animation/ABP_Hero Locomotion Idle Run --rule true\n"
+            "  soft-ue-cli add-anim-transition /Game/Animation/ABP_Hero Locomotion Run Idle --crossfade-duration 0.15"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_aat.add_argument("asset_path", help="AnimBlueprint asset path")
+    p_aat.add_argument("state_machine_name", help="State machine graph name")
+    p_aat.add_argument("source_state", help="Source state name")
+    p_aat.add_argument("target_state", help="Target state name")
+    p_aat.add_argument("--crossfade-duration", type=float, help="Transition crossfade duration in seconds")
+    p_aat.add_argument("--priority", type=int, help="Transition priority order")
+    p_aat.add_argument("--bidirectional", action="store_true", help="Mark the transition as bidirectional")
+    p_aat.add_argument("--rule", type=_parse_bool, help="Set a literal transition rule default (true or false)")
+    p_aat.set_defaults(func=cmd_add_anim_transition)
 
     p_mi = sub.add_parser(
         "modify-interface",

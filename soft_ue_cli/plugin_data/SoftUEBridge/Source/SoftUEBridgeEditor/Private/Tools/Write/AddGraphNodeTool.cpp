@@ -25,6 +25,8 @@
 #include "AnimGraphNode_LinkedInputPose.h"
 #include "Animation/AnimBlueprint.h"
 #include "AnimGraphNode_LinkedAnimLayer.h"
+#include "AnimGraphNode_StateMachineBase.h"
+#include "AnimStateNode.h"
 
 FString UAddGraphNodeTool::GetToolDescription() const
 {
@@ -546,8 +548,16 @@ UEdGraphNode* UAddGraphNodeTool::CreateBlueprintNode(
 	NewNode->NodePosX = FMath::RoundToInt(FinalPosition.X);
 	NewNode->NodePosY = FMath::RoundToInt(FinalPosition.Y);
 
+	const bool bNeedsPostPlacedGraph = NewNode->IsA<UAnimGraphNode_StateMachineBase>() || NewNode->IsA<UAnimStateNode>();
+
+	if (bNeedsPostPlacedGraph)
+	{
+		Graph->AddNode(NewNode, false, false);
+		NewNode->PostPlacedNewNode();
+		NewNode->AllocateDefaultPins();
+	}
 	// Special handling for certain node types that need extra setup
-	if (UK2Node* K2Node = Cast<UK2Node>(NewNode))
+	else if (UK2Node* K2Node = Cast<UK2Node>(NewNode))
 	{
 		// For CallFunction nodes, try to set up the function reference from properties
 		if (UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(NewNode))
@@ -572,9 +582,12 @@ UEdGraphNode* UAddGraphNodeTool::CreateBlueprintNode(
 		NewNode->AllocateDefaultPins();
 	}
 
-	// Add to graph with bFromUI=false to skip PostPlacedNewNode, which can crash
-	// for nodes like LinkedAnimLayer that require prior interface setup.
-	Graph->AddNode(NewNode, false, false);
+	if (!bNeedsPostPlacedGraph)
+	{
+		// Add to graph with bFromUI=false to skip PostPlacedNewNode, which can crash
+		// for nodes like LinkedAnimLayer that require prior interface setup.
+		Graph->AddNode(NewNode, false, false);
+	}
 
 	// Extract LinkedAnimLayer pseudo-properties before stripping them from Properties.
 	// "Layer" and "Interface" are not regular UPROPERTYs — they configure the inner

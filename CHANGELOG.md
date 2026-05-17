@@ -2,6 +2,17 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.30.0] - 2026-05-17
+
+### Added
+- New `add-anim-state-machine`, `add-anim-state`, and `add-anim-transition` commands and bridge tools create AnimBlueprint state-machine graphs, states, transitions, and transition rule graphs programmatically.
+
+### Fixed
+- `add-graph-node AnimGraphNode_StateMachine` now initializes the inner state-machine graph instead of leaving the node in the "Error: No Graph" state.
+- `build-and-relaunch --wait` now respects `SOFT_UE_BRIDGE_TIMEOUT`, supports explicit build/relaunch timeout overrides, and reports `worker_failed_to_start` promptly if the detached worker never starts.
+- `capture-viewport` is now registered during runtime module startup instead of through static DLL-load registration, avoiding Windows module initialization failures.
+- Bridge module reload cleanup no longer shadows the registry singleton name, removing a C4458 build warning.
+
 ## [1.29.0] - 2026-05-17
 
 ### Added

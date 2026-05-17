@@ -76,6 +76,11 @@
 #include "Tools/StateTree/AddStateTreeTransitionTool.h"
 #include "Tools/StateTree/RemoveStateTreeStateTool.h"
 
+// Animation
+#include "Tools/Animation/AddAnimStateMachineTool.h"
+#include "Tools/Animation/AddAnimStateTool.h"
+#include "Tools/Animation/AddAnimTransitionTool.h"
+
 // Widget
 #include "Tools/Widget/WidgetBlueprintTool.h"
 #include "Tools/Widget/InspectRuntimeWidgetsTool.h"
@@ -188,6 +193,11 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<UAddStateTreeTaskTool>();
 	Registry.RegisterToolClass<UAddStateTreeTransitionTool>();
 	Registry.RegisterToolClass<URemoveStateTreeStateTool>();
+
+	// Animation
+	Registry.RegisterToolClass<UAddAnimStateMachineTool>();
+	Registry.RegisterToolClass<UAddAnimStateTool>();
+	Registry.RegisterToolClass<UAddAnimTransitionTool>();
 
 	// Widget
 	Registry.RegisterToolClass<UWidgetBlueprintTool>();

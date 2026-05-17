@@ -219,6 +219,9 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `inspect-uasset` | Inspect a local `.uasset` file offline by parsed metadata, with best support for Blueprint and External Actor assets |
 | `diff-uasset` | Diff two local `.uasset` files offline by parsed metadata, with best support for Blueprint and External Actor assets |
 | `add-graph-node` | Add a node to a Blueprint or Material graph (supports `AnimLayerFunction` for ALIs) |
+| `add-anim-state-machine` | Add an initialized AnimBlueprint state machine with optional initial state |
+| `add-anim-state` | Add a state and state content graph to an AnimBlueprint state machine |
+| `add-anim-transition` | Add a transition and transition rule graph between AnimBlueprint states |
 | `modify-interface` | Add or remove an implemented interface on a Blueprint or AnimBlueprint |
 | `remove-graph-node` | Remove a node from a graph |
 | `connect-graph-pins` | Connect two pins between graph nodes |
@@ -541,6 +544,15 @@ soft-ue-cli query-blueprint /Game/ABP_Character --include interfaces
 
 ```bash
 soft-ue-cli add-graph-node /Game/ALI_Locomotion AnimLayerFunction --graph-name FullBody
+```
+
+### Create an AnimBlueprint state machine
+
+```bash
+soft-ue-cli add-anim-state-machine /Game/ABP_Hero Locomotion --default-state Idle
+soft-ue-cli add-anim-state /Game/ABP_Hero Locomotion Run --position 500,0
+soft-ue-cli add-anim-transition /Game/ABP_Hero Locomotion Idle Run --rule true
+soft-ue-cli add-graph-node /Game/ABP_Hero AnimGraphNode_SequencePlayer --graph-name Run
 ```
 
 ### Insert a node between two connected nodes

@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
+﻿"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
@@ -170,7 +170,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 105
+    assert len(tools) <= 110
 
 
 def test_skills_excluded():

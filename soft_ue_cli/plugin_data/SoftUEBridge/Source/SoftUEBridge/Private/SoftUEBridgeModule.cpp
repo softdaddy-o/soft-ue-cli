@@ -6,6 +6,7 @@
 #include "Tools/QueryLevelTool.h"
 #include "Tools/BatchCallTool.h"
 #include "Tools/CallFunctionTool.h"
+#include "Tools/CaptureViewportTool.h"
 #include "Tools/GetLogsTool.h"
 #include "Tools/ConsoleVarTool.h"
 #include "Tools/GetConfigValueTool.h"
@@ -28,6 +29,7 @@ void FSoftUEBridgeModule::StartupModule()
 	Registry.RegisterToolClass<UQueryLevelTool>();
 	Registry.RegisterToolClass<UBatchCallTool>();
 	Registry.RegisterToolClass<UCallFunctionTool>();
+	Registry.RegisterToolClass<UCaptureViewportTool>();
 	Registry.RegisterToolClass<UGetLogsTool>();
 	Registry.RegisterToolClass<UGetConsoleVarTool>();
 	Registry.RegisterToolClass<USetConsoleVarTool>();

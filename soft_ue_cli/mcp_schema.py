@@ -89,6 +89,21 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "position": {"type": "array", "description": "[X, Y] node position"},
         },
     },
+    "add-anim-state-machine": {
+        "properties": {
+            "position": {"type": "array", "description": "[X, Y] state machine node position"},
+        },
+    },
+    "add-anim-state": {
+        "properties": {
+            "position": {"type": "array", "description": "[X, Y] state node position"},
+        },
+    },
+    "add-anim-transition": {
+        "properties": {
+            "rule": {"type": "boolean", "description": "Optional literal transition rule default"},
+        },
+    },
     # CustomizableObject graph editing: position/properties are native JSON in MCP
     "add-co-node": {
         "properties": {

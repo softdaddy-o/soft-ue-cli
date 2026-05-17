@@ -5,6 +5,7 @@
 #include "HAL/PlatformFileManager.h"
 #include "HAL/PlatformMisc.h"
 #include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
 #include "Containers/Ticker.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -15,6 +16,12 @@ namespace
 	FString EscapePowerShellSingleQuotedString(const FString& Value)
 	{
 		return Value.Replace(TEXT("'"), TEXT("''"));
+	}
+
+	FString QuoteWindowsCommandLineArg(const FString& Value)
+	{
+		FString Escaped = Value.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("\"%s\""), *Escaped);
 	}
 }
 
@@ -104,14 +111,17 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	// Paths for build log and status file (used by CLI --wait)
 	FString BuildLogPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.log"));
 	FString BuildStatusPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.status.json"));
+	FString WorkerStartedPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.started"));
 
 	// Remove stale artifacts so CLI doesn't read an old result.
 	PlatformFile.DeleteFile(*BuildStatusPath);
 	PlatformFile.DeleteFile(*BuildLogPath);
+	PlatformFile.DeleteFile(*WorkerStartedPath);
 
 	const FString EscapedTempScriptPath = EscapePowerShellSingleQuotedString(TempScriptPath);
 	const FString EscapedBuildLogPath = EscapePowerShellSingleQuotedString(BuildLogPath);
 	const FString EscapedBuildStatusPath = EscapePowerShellSingleQuotedString(BuildStatusPath);
+	const FString EscapedWorkerStartedPath = EscapePowerShellSingleQuotedString(WorkerStartedPath);
 	const FString EscapedBuildBatchFile = EscapePowerShellSingleQuotedString(BuildBatchFile);
 	const FString EscapedEditorExecutable = EscapePowerShellSingleQuotedString(EditorExecutable);
 	const FString EscapedProjectPath = EscapePowerShellSingleQuotedString(ProjectPath);
@@ -122,6 +132,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += FString::Printf(TEXT("$WorkerScriptPath = '%s'\n"), *EscapedTempScriptPath);
 	WorkerScript += FString::Printf(TEXT("$BuildLogPath = '%s'\n"), *EscapedBuildLogPath);
 	WorkerScript += FString::Printf(TEXT("$BuildStatusPath = '%s'\n"), *EscapedBuildStatusPath);
+	WorkerScript += FString::Printf(TEXT("$WorkerStartedPath = '%s'\n"), *EscapedWorkerStartedPath);
 	WorkerScript += FString::Printf(TEXT("$BuildBatchFile = '%s'\n"), *EscapedBuildBatchFile);
 	WorkerScript += FString::Printf(TEXT("$EditorExecutable = '%s'\n"), *EscapedEditorExecutable);
 	WorkerScript += FString::Printf(TEXT("$ProjectPath = '%s'\n"), *EscapedProjectPath);
@@ -158,6 +169,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += TEXT("}\n");
 	WorkerScript += TEXT("\n");
 	WorkerScript += TEXT("try {\n");
+	WorkerScript += TEXT("    \"started\" | Set-Content -Path $WorkerStartedPath -Encoding utf8\n");
 	WorkerScript += TEXT("    \"build-and-relaunch worker started $(Get-Date -Format o)\" | Set-Content -Path $BuildLogPath -Encoding utf8\n");
 	WorkerScript += TEXT("    Write-BridgeStatus -Stage 'waiting_for_editor_shutdown' -Message \"Waiting for editor process $EditorPid to exit.\"\n");
 	WorkerScript += TEXT("    $EditorProcess = Get-Process -Id $EditorPid -ErrorAction SilentlyContinue\n");
@@ -202,12 +214,9 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Created worker script at: %s"), *TempScriptPath);
 
-	const FString LauncherCommand = FString::Printf(
-		TEXT("Start-Process -WindowStyle Hidden -FilePath powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File','%s')"),
-		*EscapedTempScriptPath);
 	const FString CmdArgs = FString::Printf(
-		TEXT("-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"%s\""),
-		*LauncherCommand);
+		TEXT("-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File %s"),
+		*QuoteWindowsCommandLineArg(TempScriptPath));
 	FProcHandle ProcHandle = FPlatformProcess::CreateProc(
 		TEXT("powershell.exe"),
 		*CmdArgs,
@@ -222,9 +231,30 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 
 	if (!ProcHandle.IsValid())
 	{
-		return FBridgeToolResult::Error(TEXT("Failed to launch build worker"));
+		return FBridgeToolResult::Error(TEXT("worker_failed_to_start: failed to launch build worker process"));
+	}
+
+	bool bWorkerStarted = false;
+	const double StartupDeadline = FPlatformTime::Seconds() + 5.0;
+	while (FPlatformTime::Seconds() < StartupDeadline)
+	{
+		if (PlatformFile.FileExists(*WorkerStartedPath) ||
+			PlatformFile.FileExists(*BuildLogPath) ||
+			PlatformFile.FileExists(*BuildStatusPath))
+		{
+			bWorkerStarted = true;
+			break;
+		}
+		FPlatformProcess::Sleep(0.1f);
 	}
 	FPlatformProcess::CloseProc(ProcHandle);
+
+	if (!bWorkerStarted)
+	{
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("worker_failed_to_start: build worker did not create a startup marker within 5s (script: %s)"),
+			*TempScriptPath));
+	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("build-and-relaunch: Detached build worker launched successfully (PID: %d). Requesting editor shutdown..."), CurrentPID);
 
@@ -241,6 +271,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	Result->SetNumberField(TEXT("editor_pid"), CurrentPID);
 	Result->SetStringField(TEXT("build_log_path"), BuildLogPath);
 	Result->SetStringField(TEXT("build_status_path"), BuildStatusPath);
+	Result->SetStringField(TEXT("worker_started_path"), WorkerStartedPath);
 	Result->SetStringField(TEXT("progress_status_path"), BuildStatusPath);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Build and relaunch workflow initiated for this editor instance (PID: %d). Editor will close momentarily."), CurrentPID));
 

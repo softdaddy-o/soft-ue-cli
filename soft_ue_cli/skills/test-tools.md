@@ -23,6 +23,7 @@ When a new CLI tool, MCP-exposed tool, or new inspect/diff section is added, ext
 - `soft-ue-cli` installed — `pip install soft-ue-cli`
 - MCP mode also requires — `pip install soft-ue-cli[mcp]`
 - UE running with SoftUEBridge enabled and reachable
+- Optional AnimBlueprint smoke coverage: set `SOFT_UE_TEST_ANIM_BP=/Game/.../ABP_Test`
 
 ## Usage
 
@@ -647,6 +648,39 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     else:
         _record("set-node-position", "set-node-position", {},
                 False, 0, "skipped: no branch_guid")
+
+    anim_bp_path = os.environ.get("SOFT_UE_TEST_ANIM_BP", "").strip()
+    if anim_bp_path:
+        sm_name = f"SM_{LABEL_PFX}"
+        idle_name = f"Idle_{LABEL_PFX}"
+        run_name = f"Run_{LABEL_PFX}"
+        run_test("add-anim-state-machine", "add-anim-state-machine", {
+            "asset_path": anim_bp_path,
+            "state_machine_name": sm_name,
+            "default_state": idle_name,
+            "position": [700, 0],
+        }, has("node_guid"))
+        run_test("add-anim-state", "add-anim-state", {
+            "asset_path": anim_bp_path,
+            "state_machine_name": sm_name,
+            "state_name": run_name,
+            "position": [1000, 0],
+        }, has("node_guid"))
+        run_test("add-anim-transition", "add-anim-transition", {
+            "asset_path": anim_bp_path,
+            "state_machine_name": sm_name,
+            "source_state": idle_name,
+            "target_state": run_name,
+            "crossfade_duration": 0.15,
+            "rule": True,
+        }, has("transition_graph"))
+    else:
+        _record("add-anim-state-machine", "add-anim-state-machine", {},
+                True, 0, "skipped: SOFT_UE_TEST_ANIM_BP not set")
+        _record("add-anim-state", "add-anim-state", {},
+                True, 0, "skipped: SOFT_UE_TEST_ANIM_BP not set")
+        _record("add-anim-transition", "add-anim-transition", {},
+                True, 0, "skipped: SOFT_UE_TEST_ANIM_BP not set")
 
     run_test("compile-blueprint", "compile-blueprint", {"asset_path": bp_path}, has("success"))
     run_test("save-asset blueprint", "save-asset", {"asset_path": bp_path}, has("success"))

@@ -18,7 +18,7 @@
 
 namespace
 {
-	static bool ContainsToken(const FString& Source, std::initializer_list<const TCHAR*> Tokens)
+	static bool MatchesAnyToken(const FString& Source, std::initializer_list<const TCHAR*> Tokens)
 	{
 		for (const TCHAR* Token : Tokens)
 		{
@@ -47,7 +47,7 @@ namespace
 	static bool LooksLikeCustomizableObject(const UObject* Object)
 	{
 		return Object && Object->GetClass() &&
-			ContainsToken(Object->GetClass()->GetName(), {TEXT("CustomizableObject"), TEXT("Mutable")});
+			MatchesAnyToken(Object->GetClass()->GetName(), {TEXT("CustomizableObject"), TEXT("Mutable")});
 	}
 
 	static void CollectGraphs(UObject* AssetObject, TArray<UEdGraph*>& OutGraphs)
@@ -111,7 +111,7 @@ namespace
 		for (UEdGraph* Graph : Graphs)
 		{
 			if (Graph && Graph->GetClass() &&
-				ContainsToken(Graph->GetClass()->GetName(), {TEXT("CustomizableObject"), TEXT("Mutable")}))
+				MatchesAnyToken(Graph->GetClass()->GetName(), {TEXT("CustomizableObject"), TEXT("Mutable")}))
 			{
 				return Graph;
 			}

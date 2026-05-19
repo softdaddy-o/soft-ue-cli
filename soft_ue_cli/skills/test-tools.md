@@ -23,6 +23,7 @@ When a new CLI tool, MCP-exposed tool, or new inspect/diff section is added, ext
 - `soft-ue-cli` installed — `pip install soft-ue-cli`
 - MCP mode also requires — `pip install soft-ue-cli[mcp]`
 - UE running with SoftUEBridge enabled and reachable
+- Optional AnimBlueprint smoke coverage: set `SOFT_UE_TEST_ANIM_BP=/Game/.../ABP_Test`
 
 ## Usage
 
@@ -377,6 +378,11 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         # MCP: reaching here means mcp-serve started and initialized successfully
         _record("mcp-serve started", "mcp-serve", {}, True, 0, None)
 
+    run_cli("wait-for-ready immediate", "wait-for-ready", "--timeout", "5", "--poll-interval", "0.25",
+            check_stdout=lambda s: '"status": "ready"' in s and '"success": true' in s)
+    run_cli("await-bridge alias help", "await-bridge", "--help",
+            check_stdout=lambda s: "wait-for-ready" in s and "--launch-editor" in s)
+
     project_info = None
     project_dir = None
     try:
@@ -524,6 +530,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_test("query-asset by path", "query-asset", {"path": TEST_NS}, has("assets"))
     run_test("query-asset by class", "query-asset",
              {"class": "Blueprint", "path": TEST_NS}, has("assets"))
+    run_test("query-asset by name pattern", "query-asset",
+             {"query": "BP_SoftUETest", "class": "Blueprint", "path": TEST_NS}, has("assets"))
     run_test("query-asset inspect", "query-asset", {"asset_path": bp_path}, has("path"))
     run_test("query-asset inspect world settings", "query-asset",
              {"asset_path": test_level_path}, lambda r: "world_settings" in r and "default_game_mode" in r)
@@ -640,6 +648,39 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     else:
         _record("set-node-position", "set-node-position", {},
                 False, 0, "skipped: no branch_guid")
+
+    anim_bp_path = os.environ.get("SOFT_UE_TEST_ANIM_BP", "").strip()
+    if anim_bp_path:
+        sm_name = f"SM_{LABEL_PFX}"
+        idle_name = f"Idle_{LABEL_PFX}"
+        run_name = f"Run_{LABEL_PFX}"
+        run_test("add-anim-state-machine", "add-anim-state-machine", {
+            "asset_path": anim_bp_path,
+            "state_machine_name": sm_name,
+            "default_state": idle_name,
+            "position": [700, 0],
+        }, has("node_guid"))
+        run_test("add-anim-state", "add-anim-state", {
+            "asset_path": anim_bp_path,
+            "state_machine_name": sm_name,
+            "state_name": run_name,
+            "position": [1000, 0],
+        }, has("node_guid"))
+        run_test("add-anim-transition", "add-anim-transition", {
+            "asset_path": anim_bp_path,
+            "state_machine_name": sm_name,
+            "source_state": idle_name,
+            "target_state": run_name,
+            "crossfade_duration": 0.15,
+            "rule": True,
+        }, has("transition_graph"))
+    else:
+        _record("add-anim-state-machine", "add-anim-state-machine", {},
+                True, 0, "skipped: SOFT_UE_TEST_ANIM_BP not set")
+        _record("add-anim-state", "add-anim-state", {},
+                True, 0, "skipped: SOFT_UE_TEST_ANIM_BP not set")
+        _record("add-anim-transition", "add-anim-transition", {},
+                True, 0, "skipped: SOFT_UE_TEST_ANIM_BP not set")
 
     run_test("compile-blueprint", "compile-blueprint", {"asset_path": bp_path}, has("success"))
     run_test("save-asset blueprint", "save-asset", {"asset_path": bp_path}, has("success"))
@@ -810,9 +851,12 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         "connect-co-pins",
         "regenerate-co-node-pins",
         "compile-co",
+        "create-co-from-spec",
     ):
         run_cli(f"{_co_cmd} help", _co_cmd, "--help",
                 check_stdout=lambda s, _cmd=_co_cmd: _cmd in s and "CustomizableObject" in s)
+    run_cli("compile-co gather references help", "compile-co", "--help",
+            check_stdout=lambda s: "--gather-references" in s)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 15: Python Scripting

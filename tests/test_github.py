@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
 import pytest
+
 
 from soft_ue_cli.__main__ import build_parser
 from soft_ue_cli.github import _resolve_token, create_issue

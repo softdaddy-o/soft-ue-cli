@@ -195,6 +195,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `setup` | Copy SoftUEBridge plugin into a UE project |
 | `check-setup` | Verify plugin files, .uproject settings, and bridge server reachability |
 | `status` | Health check -- returns server status |
+| `wait-for-ready` | Poll the same bridge health probe as `status` until it is ready (`await-bridge` alias) |
 | `project-info` | Get project name, engine version, target platforms, and module info |
 
 ### Actor and Level Operations
@@ -218,6 +219,9 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `inspect-uasset` | Inspect a local `.uasset` file offline by parsed metadata, with best support for Blueprint and External Actor assets |
 | `diff-uasset` | Diff two local `.uasset` files offline by parsed metadata, with best support for Blueprint and External Actor assets |
 | `add-graph-node` | Add a node to a Blueprint or Material graph (supports `AnimLayerFunction` for ALIs) |
+| `add-anim-state-machine` | Add an initialized AnimBlueprint state machine with optional initial state |
+| `add-anim-state` | Add a state and state content graph to an AnimBlueprint state machine |
+| `add-anim-transition` | Add a transition and transition rule graph between AnimBlueprint states |
 | `modify-interface` | Add or remove an implemented interface on a Blueprint or AnimBlueprint |
 | `remove-graph-node` | Remove a node from a graph |
 | `connect-graph-pins` | Connect two pins between graph nodes |
@@ -365,8 +369,8 @@ Requires the **Animation Insights (GameplayInsights)** plugin enabled in Edit > 
 
 | Command | Description |
 |---------|-------------|
-| `build-and-relaunch` | Trigger a full C++ rebuild and optionally relaunch the editor (`--wait` to monitor progress) |
-| `trigger-live-coding` | Trigger a Live Coding compile (hot reload); warns on risky reflected header changes, with optional module/plugin scope filters |
+| `build-and-relaunch` | Trigger a full C++ rebuild and optionally relaunch the editor (`--wait` monitors staged progress and reports timeout diagnostics) |
+| `trigger-live-coding` | Trigger a Live Coding compile (hot reload); warns on risky reflected header changes and returns full-build guidance when Unreal cancels unsupported changes |
 | `reload-bridge-module` | Reload the bridge editor module from disk without a full editor restart |
 
 ### Skills (LLM Workflow Prompts)
@@ -542,6 +546,15 @@ soft-ue-cli query-blueprint /Game/ABP_Character --include interfaces
 soft-ue-cli add-graph-node /Game/ALI_Locomotion AnimLayerFunction --graph-name FullBody
 ```
 
+### Create an AnimBlueprint state machine
+
+```bash
+soft-ue-cli add-anim-state-machine /Game/ABP_Hero Locomotion --default-state Idle
+soft-ue-cli add-anim-state /Game/ABP_Hero Locomotion Run --position 500,0
+soft-ue-cli add-anim-transition /Game/ABP_Hero Locomotion Idle Run --rule true
+soft-ue-cli add-graph-node /Game/ABP_Hero AnimGraphNode_SequencePlayer --graph-name Run
+```
+
 ### Insert a node between two connected nodes
 
 ```bash
@@ -701,7 +714,7 @@ soft-ue-cli report-bug \
   --description "Detailed description"
 ```
 
-Do not include project-specific information or personal information. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
+Do not include project-specific information, personal information, or any clue that could identify your project. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
 
 Optional flags: `--steps`, `--expected`, `--actual`, `--severity critical|major|minor`, `--no-system-info`.
 
@@ -713,7 +726,7 @@ soft-ue-cli request-feature \
   --description "What the feature should do"
 ```
 
-Do not include project-specific information or personal information. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
+Do not include project-specific information, personal information, or any clue that could identify your project. Replace project names, internal paths, asset names, emails, tokens, and other sensitive details with generic placeholders.
 
 Optional flags: `--use-case`, `--priority enhancement|nice-to-have`.
 

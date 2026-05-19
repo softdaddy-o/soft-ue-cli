@@ -10,6 +10,121 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ScopedTransaction.h"
 
+namespace
+{
+	static bool IsAnimGraphCacheNameInput(const FString& PropertyName)
+	{
+		return PropertyName.Equals(TEXT("CachePoseName"), ESearchCase::IgnoreCase) ||
+			PropertyName.Equals(TEXT("CacheName"), ESearchCase::IgnoreCase) ||
+			PropertyName.Equals(TEXT("cache_name"), ESearchCase::IgnoreCase) ||
+			PropertyName.Equals(TEXT("NameOfCache"), ESearchCase::IgnoreCase);
+	}
+
+	static bool JsonValueToString(const TSharedPtr<FJsonValue>& Value, FString& OutValue)
+	{
+		if (!Value.IsValid())
+		{
+			return false;
+		}
+		if (Value->TryGetString(OutValue))
+		{
+			return true;
+		}
+		if (Value->Type == EJson::Number)
+		{
+			OutValue = FString::Printf(TEXT("%g"), Value->AsNumber());
+			return true;
+		}
+		if (Value->Type == EJson::Boolean)
+		{
+			OutValue = Value->AsBool() ? TEXT("true") : TEXT("false");
+			return true;
+		}
+		return false;
+	}
+
+	static bool SetNamedPropertyValue(UObject* Object, const TCHAR* PropertyName, const TSharedPtr<FJsonValue>& Value, TArray<FString>& Errors)
+	{
+		if (!Object)
+		{
+			return false;
+		}
+
+		FProperty* Property = Object->GetClass()->FindPropertyByName(PropertyName);
+		if (!Property)
+		{
+			return false;
+		}
+
+		Object->PreEditChange(Property);
+		FString SetError;
+		if (!FBridgePropertySerializer::DeserializePropertyValue(Property, Object, Value, SetError))
+		{
+			Object->PostEditChange();
+			Errors.Add(FString::Printf(TEXT("Failed to sync property %s: %s"), PropertyName, *SetError));
+			return false;
+		}
+
+		FPropertyChangedEvent ChangeEvent(Property);
+		Object->PostEditChangeProperty(ChangeEvent);
+		return true;
+	}
+
+	static bool SetInnerAnimNodePropertyValue(UObject* Object, const TCHAR* PropertyName, const TSharedPtr<FJsonValue>& Value, TArray<FString>& Errors)
+	{
+		if (!Object)
+		{
+			return false;
+		}
+
+		FStructProperty* InnerNodeProp = CastField<FStructProperty>(Object->GetClass()->FindPropertyByName(TEXT("Node")));
+		void* InnerNodeContainer = InnerNodeProp ? InnerNodeProp->ContainerPtrToValuePtr<void>(Object) : nullptr;
+		UScriptStruct* InnerNodeStruct = InnerNodeProp ? InnerNodeProp->Struct : nullptr;
+		if (!InnerNodeStruct || !InnerNodeContainer)
+		{
+			return false;
+		}
+
+		FProperty* Property = InnerNodeStruct->FindPropertyByName(PropertyName);
+		if (!Property)
+		{
+			return false;
+		}
+
+		FString SetError;
+		if (!FBridgePropertySerializer::DeserializePropertyValue(Property, InnerNodeContainer, Value, SetError))
+		{
+			Errors.Add(FString::Printf(TEXT("Failed to sync inner Node.%s: %s"), PropertyName, *SetError));
+			return false;
+		}
+		return true;
+	}
+
+	static bool SyncAnimGraphCacheName(UObject* Node, const FString& PropertyName, const TSharedPtr<FJsonValue>& Value, TArray<FString>& Errors)
+	{
+		if (!Node || !IsAnimGraphCacheNameInput(PropertyName) ||
+			!Node->GetClass()->GetName().Contains(TEXT("AnimGraphNode_SaveCachedPose"), ESearchCase::IgnoreCase))
+		{
+			return false;
+		}
+
+		FString CacheName;
+		if (!JsonValueToString(Value, CacheName) || CacheName.IsEmpty())
+		{
+			return false;
+		}
+
+		TSharedPtr<FJsonValue> NameValue = MakeShared<FJsonValueString>(CacheName);
+		bool bSyncedAny = false;
+		bSyncedAny |= SetNamedPropertyValue(Node, TEXT("CacheName"), NameValue, Errors);
+		bSyncedAny |= SetNamedPropertyValue(Node, TEXT("CachePoseName"), NameValue, Errors);
+		bSyncedAny |= SetNamedPropertyValue(Node, TEXT("cache_name"), NameValue, Errors);
+		bSyncedAny |= SetInnerAnimNodePropertyValue(Node, TEXT("CachePoseName"), NameValue, Errors);
+		bSyncedAny |= SetInnerAnimNodePropertyValue(Node, TEXT("NameOfCache"), NameValue, Errors);
+		return bSyncedAny;
+	}
+}
+
 FString USetNodePropertyTool::GetToolDescription() const
 {
 	return TEXT("Set properties on a graph node by GUID. Supports UPROPERTY members, "
@@ -170,6 +285,11 @@ TArray<FString> USetNodePropertyTool::ApplyProperties(UObject* Node, const TShar
 
 				if (!Property)
 				{
+					if (SyncAnimGraphCacheName(Node, PropertyName, Value, Errors))
+					{
+						continue;
+					}
+
 					FString Msg = FString::Printf(TEXT("Property not found: %s"), *PropertyName);
 					UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("%s"), *Msg);
 					Errors.Add(Msg);
@@ -184,6 +304,10 @@ TArray<FString> USetNodePropertyTool::ApplyProperties(UObject* Node, const TShar
 			FString Msg = FString::Printf(TEXT("Failed to set property %s: %s"), *PropertyName, *SetError);
 			UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("%s"), *Msg);
 			Errors.Add(Msg);
+		}
+		else
+		{
+			SyncAnimGraphCacheName(Node, PropertyName, Value, Errors);
 		}
 	}
 

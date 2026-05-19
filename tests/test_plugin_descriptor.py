@@ -149,6 +149,35 @@ def test_live_coding_reflected_header_check_can_scope_to_module_or_plugin():
     assert "DetectReflectedHeaderChanges(TArray<FString>& OutFiles, const FString& ModuleScope, const FString& PluginScope)" in header
 
 
+def test_live_coding_cancelled_result_explains_full_build_recovery():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Build/TriggerLiveCodingTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert 'StatusStr = TEXT("unsupported_change")' in source
+    assert 'SetBoolField(TEXT("needs_full_build"), true)' in source
+    assert 'SetStringField(TEXT("cancelled_reason")' in source
+    assert 'SetStringField(TEXT("recovery_hint")' in source
+    assert "build-and-relaunch --wait" in source
+
+
+def test_build_and_relaunch_worker_writes_progress_status():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Build/BuildAndRelaunchTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "function Write-BridgeStatus" in source
+    assert "complete = $Complete" in source
+    assert "stage = $Stage" in source
+    assert "last_stage = $Stage" in source
+    assert "build_log_path = $BuildLogPath" in source
+    assert "-Stage 'waiting_for_editor_shutdown'" in source
+    assert "-Stage 'building'" in source
+    assert "-Stage 'relaunching_editor'" in source
+    assert "-Stage 'completed'" in source
+    assert "-Stage 'worker_error'" in source
+
+
 def test_bridge_reload_tool_is_runtime_registered_and_cleans_editor_tools():
     runtime_module = _plugin_source_path(
         "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
@@ -172,6 +201,152 @@ def test_bridge_reload_tool_is_runtime_registered_and_cleans_editor_tools():
     assert "RemoveToolsForModule" in registry_source
     assert "UnloadModule" in reload_source
     assert "LoadModuleWithFailureReason" in reload_source
+
+
+def test_runtime_config_tools_are_explicitly_registered_in_startup():
+    module = _plugin_source_path(
+        "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
+    ).read_text(encoding="utf-8")
+    get_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/GetConfigValueTool.cpp"
+    ).read_text(encoding="utf-8")
+    set_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/SetConfigValueTool.cpp"
+    ).read_text(encoding="utf-8")
+    validate_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/ValidateConfigKeyTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "REGISTER_BRIDGE_TOOL(UGetConfigValueTool)" not in get_tool
+    assert "REGISTER_BRIDGE_TOOL(USetConfigValueTool)" not in set_tool
+    assert "REGISTER_BRIDGE_TOOL(UValidateConfigKeyTool)" not in validate_tool
+
+    assert "Registry.RegisterToolClass<UGetConfigValueTool>()" in module
+    assert "Registry.RegisterToolClass<USetConfigValueTool>()" in module
+    assert "Registry.RegisterToolClass<UValidateConfigKeyTool>()" in module
+
+
+def test_runtime_capture_viewport_tool_is_explicitly_registered_without_static_init():
+    module = _plugin_source_path(
+        "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
+    ).read_text(encoding="utf-8")
+    capture_tool = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/CaptureViewportTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "REGISTER_BRIDGE_TOOL(UCaptureViewportTool)" not in capture_tool
+    assert "Registry.RegisterToolClass<UCaptureViewportTool>()" in module
+
+
+def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
+    registry_source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/BridgeToolRegistry.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "TObjectPtr<UBridgeToolBase>* Instance = ToolInstances.Find" not in registry_source
+    assert "FoundInstance = ToolInstances.Find" in registry_source
+
+
+def test_agent_guide_warns_new_tools_against_static_registration_macro():
+    guide_path = _repo_root() / "AGENTS.md"
+    if not guide_path.exists():
+        return
+    guide = guide_path.read_text(encoding="utf-8")
+
+    assert "Do not use REGISTER_BRIDGE_TOOL" in guide
+    assert "RegisterToolClass" in guide
+
+
+def test_new_anim_tools_are_deferred_until_editor_uclasses_are_ready():
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+
+    startup_body = module.split("void FSoftUEBridgeEditorModule::StartupModule()", 1)[1].split(
+        "void FSoftUEBridgeEditorModule::ShutdownModule()", 1
+    )[0]
+
+    assert "FCoreDelegates::OnPostEngineInit" in startup_body
+    assert "RegisterAnimationTools" in module
+    assert "Registry.RegisterToolClass<UAddAnimStateMachineTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UAddAnimStateTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UAddAnimTransitionTool>()" not in startup_body
+
+
+def test_null_tool_class_registration_is_logged_as_error():
+    registry_source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/BridgeToolRegistry.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "RegisterToolClass called with null ToolClass" in registry_source
+    assert "UE_LOG(LogSoftUEBridge, Error" in registry_source
+
+
+def test_bridge_health_includes_process_identity_for_restart_detection():
+    server_header = _plugin_source_path(
+        "Source/SoftUEBridge/Public/Server/BridgeServer.h"
+    ).read_text(encoding="utf-8")
+    server_source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Server/BridgeServer.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "BridgeInstanceId" in server_header
+    assert "StartedAtUtc" in server_header
+    assert 'SetNumberField(TEXT("pid")' in server_source
+    assert 'SetStringField(TEXT("started_at")' in server_source
+    assert 'SetStringField(TEXT("bridge_instance_id")' in server_source
+
+
+def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
+    guide_path = _repo_root() / "AGENTS.md"
+    if not guide_path.exists():
+        return
+    guide = guide_path.read_text(encoding="utf-8")
+
+    assert "OnPostEngineInit" in guide
+    assert "newly added UCLASS" in guide
+
+
+def test_compile_blueprint_returns_structured_compiler_diagnostics():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Write/CompileBlueprintTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "FCompilerResultsLog" in source
+    assert "&ResultsLog" in source
+    assert 'SetArrayField(TEXT("diagnostics")' in source
+    assert 'SetNumberField(TEXT("error_count")' in source
+    assert 'SetNumberField(TEXT("warning_count")' in source
+    assert 'SetStringField(TEXT("severity")' in source
+    assert 'SetStringField(TEXT("message")' in source
+    assert "ToText().ToString()" in source
+
+
+def test_anim_graph_query_exposes_cache_wrapper_and_binding_metadata():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Blueprint/QueryBlueprintGraphTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "ExtractAnimGraphNodeMetadata" in source
+    assert 'SetObjectField(TEXT("anim_graph_node")' in source
+    assert 'SetObjectField(TEXT("cache")' in source
+    assert 'SetObjectField(TEXT("property_bindings")' in source
+    assert 'SetObjectField(TEXT("fast_path")' in source
+    assert 'SetStringField(TEXT("cache_name")' in source
+    assert 'SetStringField(TEXT("linked_save_node_guid")' in source
+    assert "FindLinkedSaveCachedPoseNode" in source
+
+
+def test_set_node_property_syncs_anim_graph_cache_wrapper_name():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Write/SetNodePropertyTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "SyncAnimGraphCacheName" in source
+    assert "AnimGraphNode_SaveCachedPose" in source
+    assert "CachePoseName" in source
+    assert "CacheName" in source
+    assert "FPropertyChangedEvent" in source
 
 
 def test_customizable_object_remove_tool_is_registered():
@@ -216,8 +391,46 @@ def test_customizable_object_slot_wiring_macro_is_registered_and_wires_expected_
     assert "created_edges" in source
 
 
+def test_create_customizable_object_from_spec_tool_is_registered_and_uses_graph_helpers():
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Asset/EditCustomizableObjectGraphTool.h"
+    ).read_text(encoding="utf-8")
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/EditCustomizableObjectGraphTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "create-customizable-object-from-spec" in header
+    assert "UCreateCustomizableObjectFromSpecTool" in module
+    assert "CreateCustomizableObjectGraphNode" in source
+    assert 'TryGetArrayField(TEXT("nodes")' in source
+    assert 'TryGetArrayField(TEXT("edges")' in source
+    assert "spec_node_id" in source
+    assert "created_edges" in source
+
+
+def test_set_node_position_supports_customizable_object_graphs():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Write/SetNodePositionTool.cpp"
+    ).read_text(encoding="utf-8")
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Write/SetNodePositionTool.h"
+    ).read_text(encoding="utf-8")
+
+    assert "CustomizableObject" in header
+    assert "LooksLikeCustomizableObject" in source
+    assert "FindCustomizableObjectGraph" in source
+    assert "Asset must be a Material, Blueprint, AnimBlueprint, or CustomizableObject" in source
+    assert "FBridgeAssetModifier::MarkPackageDirty(Object)" in source
+
+
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    content = (_repo_root() / "soft_ue_cli" / "skills" / "test-tools.md").read_text(encoding="utf-8")
+    root = _repo_root()
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / "test-tools.md"
+    exported_path = root / "soft_ue_cli" / "skills" / "test-tools.md"
+    content = (monorepo_path if monorepo_path.exists() else exported_path).read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
 
@@ -241,3 +454,26 @@ def test_editor_screenshot_compression_validates_dimensions_and_pixel_count():
     assert "const int64 ExpectedPixelCount" in source
     assert "RawData.Num() != ExpectedPixelCount" in source
     assert "ExpectedPixelCount * 4" in source
+
+
+def test_window_screenshot_avoids_unsafe_pie_world_rendering_path():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Editor/CaptureScreenshotTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "IsUnsafeWindowScreenshotDuringPIE" in source
+    assert "bDisableWorldRendering" in source
+    assert "falling back to viewport capture" in source
+    assert "return CaptureViewport(Format, OutputMode)" in source
+
+
+def test_add_widget_supports_single_child_content_parents():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Write/AddWidgetTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "UContentWidget" in source
+    assert "SetContent(NewWidget)" in source
+    assert "AddChild(NewWidget)" in source
+    assert "GetContent()" in source
+    assert "already contains a child" in source

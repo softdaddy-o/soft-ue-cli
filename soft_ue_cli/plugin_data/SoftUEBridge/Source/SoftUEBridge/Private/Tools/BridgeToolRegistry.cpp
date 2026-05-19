@@ -24,7 +24,11 @@ FBridgeToolRegistry::~FBridgeToolRegistry()
 
 void FBridgeToolRegistry::RegisterToolClass(UClass* ToolClass)
 {
-	if (!ToolClass) return;
+	if (!ToolClass)
+	{
+		UE_LOG(LogSoftUEBridge, Error, TEXT("RegisterToolClass called with null ToolClass; registration skipped"));
+		return;
+	}
 
 	// Temporarily instantiate to get the name
 	UBridgeToolBase* TempInstance = NewObject<UBridgeToolBase>(GetTransientPackage(), ToolClass);
@@ -73,11 +77,11 @@ int32 FBridgeToolRegistry::RemoveToolsForModule(const FString& ModuleName)
 
 	for (const FString& ToolName : ToolNamesToRemove)
 	{
-		if (TObjectPtr<UBridgeToolBase>* ExistingInstance = ToolInstances.Find(ToolName))
+		if (TObjectPtr<UBridgeToolBase>* FoundInstance = ToolInstances.Find(ToolName))
 		{
-			if (ExistingInstance->Get())
+			if (FoundInstance->Get())
 			{
-				ExistingInstance->Get()->RemoveFromRoot();
+				FoundInstance->Get()->RemoveFromRoot();
 			}
 		}
 		ToolInstances.Remove(ToolName);

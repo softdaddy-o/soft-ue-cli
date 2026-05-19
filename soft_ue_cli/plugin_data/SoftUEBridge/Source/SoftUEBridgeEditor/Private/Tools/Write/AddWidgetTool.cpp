@@ -9,6 +9,8 @@
 #include "Components/CanvasPanel.h"
 #include "Components/VerticalBox.h"
 #include "Components/HorizontalBox.h"
+#include "Components/PanelWidget.h"
+#include "Components/ContentWidget.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
 #include "Components/Image.h"
@@ -142,7 +144,8 @@ FBridgeToolResult UAddWidgetTool::Execute(
 	}
 
 	// Find parent widget
-	UPanelWidget* Parent = nullptr;
+	UWidget* ParentWidgetObject = nullptr;
+	bool bSetAsRootWidget = false;
 
 	if (!ParentWidget.IsEmpty())
 	{
@@ -150,18 +153,36 @@ FBridgeToolResult UAddWidgetTool::Execute(
 		{
 			if (Widget && Widget->GetName().Equals(ParentWidget, ESearchCase::IgnoreCase))
 			{
-				Parent = Cast<UPanelWidget>(Widget);
+				ParentWidgetObject = Widget;
 			}
 		});
 
-		if (!Parent)
+		if (!ParentWidgetObject)
 		{
-			return FBridgeToolResult::Error(FString::Printf(TEXT("Parent widget not found or not a panel: %s"), *ParentWidget));
+			return FBridgeToolResult::Error(FString::Printf(TEXT("Parent widget not found: %s"), *ParentWidget));
+		}
+
+		if (!Cast<UPanelWidget>(ParentWidgetObject) && !Cast<UContentWidget>(ParentWidgetObject))
+		{
+			return FBridgeToolResult::Error(FString::Printf(
+				TEXT("Parent widget does not support child attachment: %s"),
+				*ParentWidget));
+		}
+
+		if (UContentWidget* ContentParent = Cast<UContentWidget>(ParentWidgetObject))
+		{
+			if (ContentParent->GetContent())
+			{
+				return FBridgeToolResult::Error(FString::Printf(
+					TEXT("Parent widget already contains a child: %s"),
+					*ParentWidget));
+			}
 		}
 	}
 	else
 	{
-		Parent = Cast<UPanelWidget>(WidgetTree->RootWidget);
+		ParentWidgetObject = Cast<UPanelWidget>(WidgetTree->RootWidget);
+		bSetAsRootWidget = (ParentWidgetObject == nullptr);
 	}
 
 	// Begin transaction
@@ -180,13 +201,21 @@ FBridgeToolResult UAddWidgetTool::Execute(
 	}
 
 	// Add to parent or set as root
-	if (Parent)
+	if (UPanelWidget* PanelParent = Cast<UPanelWidget>(ParentWidgetObject))
 	{
-		Parent->AddChild(NewWidget);
+		PanelParent->AddChild(NewWidget);
+	}
+	else if (UContentWidget* ContentParent = Cast<UContentWidget>(ParentWidgetObject))
+	{
+		ContentParent->SetContent(NewWidget);
+	}
+	else if (bSetAsRootWidget)
+	{
+		WidgetTree->RootWidget = NewWidget;
 	}
 	else
 	{
-		WidgetTree->RootWidget = NewWidget;
+		return FBridgeToolResult::Error(TEXT("Failed to resolve widget attachment target"));
 	}
 
 	FBridgeAssetModifier::MarkPackageDirty(WidgetBP);

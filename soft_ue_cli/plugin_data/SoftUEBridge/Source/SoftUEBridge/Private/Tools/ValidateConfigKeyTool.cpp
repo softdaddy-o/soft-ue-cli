@@ -3,10 +3,7 @@
 #include "Tools/ValidateConfigKeyTool.h"
 
 #include "Misc/ConfigCacheIni.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "Tools/GetConfigValueTool.h"
-
-REGISTER_BRIDGE_TOOL(UValidateConfigKeyTool)
 
 FString UValidateConfigKeyTool::GetToolDescription() const
 {

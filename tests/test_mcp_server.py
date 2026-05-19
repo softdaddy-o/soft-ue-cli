@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 
 # Skip all tests if mcp is not installed
 mcp = pytest.importorskip("mcp")
 
 from soft_ue_cli.errors import BridgeError, ErrorKind
+from soft_ue_cli.mcp_schema import extract_tools
 from soft_ue_cli.mcp_server import create_server, _make_client_tool_fn
 
 
@@ -32,6 +35,14 @@ def test_server_has_prompts():
     server = create_server()
     assert server._prompt_manager is not None
     assert len(server._prompt_manager._prompts) > 0
+
+
+def test_anim_state_machine_tools_have_native_mcp_types():
+    tools = {tool["name"]: tool for tool in extract_tools()}
+
+    assert tools["add-anim-state-machine"]["parameters"]["properties"]["position"]["type"] == "array"
+    assert tools["add-anim-state"]["parameters"]["properties"]["position"]["type"] == "array"
+    assert tools["add-anim-transition"]["parameters"]["properties"]["rule"]["type"] == "boolean"
 
 
 @patch("soft_ue_cli.client.call_tool")

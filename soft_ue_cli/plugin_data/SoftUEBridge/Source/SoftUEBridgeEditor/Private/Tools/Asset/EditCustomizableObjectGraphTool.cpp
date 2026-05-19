@@ -482,6 +482,60 @@ namespace
 		return Edge;
 	}
 
+	static bool TryGetStringFieldAlias(
+		const TSharedPtr<FJsonObject>& Object,
+		std::initializer_list<const TCHAR*> Names,
+		FString& OutValue)
+	{
+		if (!Object.IsValid())
+		{
+			return false;
+		}
+		for (const TCHAR* Name : Names)
+		{
+			if (Object->TryGetStringField(Name, OutValue) && !OutValue.IsEmpty())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static FVector2D ReadSpecNodePosition(const TSharedPtr<FJsonObject>& NodeObject, int32 NodeIndex)
+	{
+		if (!NodeObject.IsValid())
+		{
+			return FVector2D(NodeIndex * 300.0, 0.0);
+		}
+
+		double X = 0.0;
+		double Y = 0.0;
+		if (NodeObject->TryGetNumberField(TEXT("x"), X) && NodeObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			return FVector2D(X, Y);
+		}
+
+		const TSharedPtr<FJsonObject>* PositionObject = nullptr;
+		if (NodeObject->TryGetObjectField(TEXT("position"), PositionObject) && PositionObject && PositionObject->IsValid() &&
+			(*PositionObject)->TryGetNumberField(TEXT("x"), X) && (*PositionObject)->TryGetNumberField(TEXT("y"), Y))
+		{
+			return FVector2D(X, Y);
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* PositionArray = nullptr;
+		if (NodeObject->TryGetArrayField(TEXT("position"), PositionArray) && PositionArray && PositionArray->Num() >= 2)
+		{
+			double ArrayX = 0.0;
+			double ArrayY = 0.0;
+			if ((*PositionArray)[0]->TryGetNumber(ArrayX) && (*PositionArray)[1]->TryGetNumber(ArrayY))
+			{
+				return FVector2D(ArrayX, ArrayY);
+			}
+		}
+
+		return FVector2D(NodeIndex * 300.0, 0.0);
+	}
+
 	static UEdGraphNode* CreateCustomizableObjectGraphNode(
 		UObject* AssetObject,
 		UEdGraph* TargetGraph,
@@ -659,7 +713,11 @@ namespace
 		return false;
 	}
 
-	static bool ConfigureCompileParams(FStructProperty* StructProperty, void* StructMemory, TArray<FString>& OutConfiguredFields)
+	static bool ConfigureCompileParams(
+		FStructProperty* StructProperty,
+		void* StructMemory,
+		bool bGatherReferences,
+		TArray<FString>& OutConfiguredFields)
 	{
 		if (!StructProperty || !StructProperty->Struct || !StructMemory ||
 			!StructProperty->Struct->GetName().Contains(TEXT("CompileParams"), ESearchCase::IgnoreCase))
@@ -678,7 +736,7 @@ namespace
 			StructProperty->Struct,
 			StructMemory,
 			{TEXT("gatherreferences")},
-			true,
+			bGatherReferences,
 			OutConfiguredFields);
 		bConfiguredAny |= SetCompileParamsBoolField(
 			StructProperty->Struct,
@@ -751,6 +809,7 @@ namespace
 
 	static bool TryCompileWithAssetMethod(
 		UObject* AssetObject,
+		bool bGatherReferences,
 		FString& OutState,
 		bool& bOutCompileSucceeded,
 		int32& OutParameterCount,
@@ -794,7 +853,11 @@ namespace
 			void* ValuePtr = Property->ContainerPtrToValuePtr<void>(ParamBuffer);
 			if (FStructProperty* StructProperty = CastField<FStructProperty>(Property))
 			{
-				bConfiguredCompileParams |= ConfigureCompileParams(StructProperty, ValuePtr, OutConfiguredFields);
+				bConfiguredCompileParams |= ConfigureCompileParams(
+					StructProperty,
+					ValuePtr,
+					bGatherReferences,
+					OutConfiguredFields);
 			}
 			else if (FBoolProperty* BoolProperty = CastField<FBoolProperty>(Property))
 			{
@@ -805,7 +868,7 @@ namespace
 				}
 				else if (MatchesNormalizedName(BoolProperty->GetName(), TEXT("gatherreferences")))
 				{
-					BoolProperty->SetPropertyValue(ValuePtr, true);
+					BoolProperty->SetPropertyValue(ValuePtr, bGatherReferences);
 					OutConfiguredFields.AddUnique(BoolProperty->GetName());
 				}
 				else if (MatchesNormalizedName(BoolProperty->GetName(), TEXT("skipifcompiled")) ||
@@ -1422,7 +1485,15 @@ FString UCompileCustomizableObjectTool::GetToolDescription() const
 
 TMap<FString, FBridgeSchemaProperty> UCompileCustomizableObjectTool::GetInputSchema() const
 {
-	return CommonCustomizableObjectAssetSchema();
+	TMap<FString, FBridgeSchemaProperty> Schema = CommonCustomizableObjectAssetSchema();
+
+	FBridgeSchemaProperty GatherReferences;
+	GatherReferences.Type = TEXT("boolean");
+	GatherReferences.Description = TEXT("Request Compile and Gather References mode when compile params expose it");
+	GatherReferences.bRequired = false;
+	Schema.Add(TEXT("gather_references"), GatherReferences);
+
+	return Schema;
 }
 
 TArray<FString> UCompileCustomizableObjectTool::GetRequiredParams() const
@@ -1451,6 +1522,7 @@ FBridgeToolResult UCompileCustomizableObjectTool::Execute(
 		return FBridgeToolResult::Error(TEXT("Asset does not appear to be a Mutable/CustomizableObject asset."));
 	}
 
+	const bool bGatherReferences = GetBoolArgOrDefault(Arguments, TEXT("gather_references"), true);
 	FString CompileState;
 	FString CompileError;
 	bool bCompileSucceeded = false;
@@ -1459,6 +1531,7 @@ FBridgeToolResult UCompileCustomizableObjectTool::Execute(
 	FString CompileMethod = TEXT("asset_compile");
 	bool bCompileCalled = TryCompileWithAssetMethod(
 		AssetObject,
+		bGatherReferences,
 		CompileState,
 		bCompileSucceeded,
 		ParameterCount,
@@ -1475,6 +1548,7 @@ FBridgeToolResult UCompileCustomizableObjectTool::Execute(
 	Result->SetStringField(TEXT("asset"), AssetPath);
 	Result->SetStringField(TEXT("loaded_class"), AssetObject->GetClass()->GetName());
 	Result->SetBoolField(TEXT("compile_requested"), bCompileCalled);
+	Result->SetBoolField(TEXT("gather_references_requested"), bGatherReferences);
 	Result->SetStringField(TEXT("compile_method"), CompileMethod);
 	if (ParameterCount != INDEX_NONE)
 	{
@@ -1509,6 +1583,225 @@ FBridgeToolResult UCompileCustomizableObjectTool::Execute(
 	{
 		Result->SetStringField(TEXT("status"), TEXT("compile_completed"));
 	}
+	return FBridgeToolResult::Json(Result);
+}
+
+FString UCreateCustomizableObjectFromSpecTool::GetToolDescription() const
+{
+	return TEXT("Create multiple Mutable/CustomizableObject graph nodes and edges from one JSON specification.");
+}
+
+TMap<FString, FBridgeSchemaProperty> UCreateCustomizableObjectFromSpecTool::GetInputSchema() const
+{
+	TMap<FString, FBridgeSchemaProperty> Schema = CommonCustomizableObjectAssetSchema();
+
+	FBridgeSchemaProperty Spec;
+	Spec.Type = TEXT("object");
+	Spec.Description = TEXT("Graph spec with nodes and edges arrays");
+	Spec.bRequired = true;
+	Schema.Add(TEXT("spec"), Spec);
+
+	return Schema;
+}
+
+TArray<FString> UCreateCustomizableObjectFromSpecTool::GetRequiredParams() const
+{
+	return {TEXT("asset_path"), TEXT("spec")};
+}
+
+FBridgeToolResult UCreateCustomizableObjectFromSpecTool::Execute(
+	const TSharedPtr<FJsonObject>& Arguments,
+	const FBridgeToolContext& Context)
+{
+	const FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
+	if (AssetPath.IsEmpty())
+	{
+		return FBridgeToolResult::Error(TEXT("asset_path is required"));
+	}
+
+	const TSharedPtr<FJsonObject>* SpecObject = nullptr;
+	if (!Arguments->TryGetObjectField(TEXT("spec"), SpecObject) || !SpecObject || !SpecObject->IsValid())
+	{
+		return FBridgeToolResult::Error(TEXT("spec object is required"));
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* NodesArray = nullptr;
+	if (!(*SpecObject)->TryGetArrayField(TEXT("nodes"), NodesArray) || !NodesArray)
+	{
+		return FBridgeToolResult::Error(TEXT("spec.nodes array is required"));
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* EdgesArray = nullptr;
+	(*SpecObject)->TryGetArrayField(TEXT("edges"), EdgesArray);
+
+	FString LoadError;
+	UObject* AssetObject = FBridgeAssetModifier::LoadAssetByPath(AssetPath, LoadError);
+	if (!AssetObject)
+	{
+		return FBridgeToolResult::Error(LoadError);
+	}
+	if (!LooksLikeCustomizableObject(AssetObject))
+	{
+		return FBridgeToolResult::Error(TEXT("Asset does not appear to be a Mutable/CustomizableObject asset."));
+	}
+
+	FString GraphName;
+	(*SpecObject)->TryGetStringField(TEXT("graph_name"), GraphName);
+	UEdGraph* TargetGraph = ResolveGraph(AssetObject, GraphName);
+	if (!TargetGraph)
+	{
+		return FBridgeToolResult::Error(GraphName.IsEmpty()
+			? TEXT("No graph found on CustomizableObject asset")
+			: FString::Printf(TEXT("CustomizableObject graph not found: %s"), *GraphName));
+	}
+
+	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
+		FText::Format(NSLOCTEXT("SoftUEBridge", "CreateCustomizableObjectFromSpec", "Create CustomizableObject graph from spec in {0}"),
+			FText::FromString(AssetPath)));
+	FBridgeAssetModifier::MarkModified(AssetObject);
+
+	TMap<FString, UEdGraphNode*> NodesBySpecId;
+	TArray<TSharedPtr<FJsonValue>> CreatedNodes;
+	TArray<TSharedPtr<FJsonValue>> CreatedEdges;
+	TArray<FString> PropertyWarnings;
+
+	for (int32 NodeIndex = 0; NodeIndex < NodesArray->Num(); ++NodeIndex)
+	{
+		const TSharedPtr<FJsonObject>* NodeObject = nullptr;
+		if (!(*NodesArray)[NodeIndex]->TryGetObject(NodeObject) || !NodeObject || !NodeObject->IsValid())
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("spec.nodes[%d] must be an object"), NodeIndex));
+		}
+
+		FString NodeId;
+		if (!TryGetStringFieldAlias(*NodeObject, {TEXT("id"), TEXT("name")}, NodeId))
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("spec.nodes[%d] must include id"), NodeIndex));
+		}
+
+		FString NodeClassName;
+		if (!TryGetStringFieldAlias(*NodeObject, {TEXT("class"), TEXT("node_class")}, NodeClassName))
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("spec.nodes[%d] must include class"), NodeIndex));
+		}
+
+		const TSharedPtr<FJsonObject>* PropertiesObject = nullptr;
+		TSharedPtr<FJsonObject> Properties;
+		if ((*NodeObject)->TryGetObjectField(TEXT("properties"), PropertiesObject) && PropertiesObject && PropertiesObject->IsValid())
+		{
+			Properties = *PropertiesObject;
+		}
+
+		TArray<FString> NodePropertyWarnings;
+		FString CreateError;
+		UEdGraphNode* NewNode = CreateCustomizableObjectGraphNode(
+			AssetObject,
+			TargetGraph,
+			NodeClassName,
+			ReadSpecNodePosition(*NodeObject, NodeIndex),
+			Properties,
+			NodePropertyWarnings,
+			CreateError);
+		if (!NewNode)
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to create spec node %s: %s"), *NodeId, *CreateError));
+		}
+
+		NodesBySpecId.Add(NodeId, NewNode);
+		for (const FString& Warning : NodePropertyWarnings)
+		{
+			PropertyWarnings.Add(FString::Printf(TEXT("%s: %s"), *NodeId, *Warning));
+		}
+
+		TSharedPtr<FJsonObject> NodeSummary = BuildCreatedNodeSummary(NodeId, NewNode);
+		NodeSummary->SetStringField(TEXT("spec_node_id"), NodeId);
+		if (NodePropertyWarnings.Num() > 0)
+		{
+			NodeSummary->SetStringField(TEXT("property_warnings"), FString::Join(NodePropertyWarnings, TEXT("; ")));
+		}
+		CreatedNodes.Add(MakeShared<FJsonValueObject>(NodeSummary));
+	}
+
+	if (EdgesArray)
+	{
+		for (int32 EdgeIndex = 0; EdgeIndex < EdgesArray->Num(); ++EdgeIndex)
+		{
+			const TSharedPtr<FJsonObject>* EdgeObject = nullptr;
+			if (!(*EdgesArray)[EdgeIndex]->TryGetObject(EdgeObject) || !EdgeObject || !EdgeObject->IsValid())
+			{
+				return FBridgeToolResult::Error(FString::Printf(TEXT("spec.edges[%d] must be an object"), EdgeIndex));
+			}
+
+			FString SourceId;
+			FString TargetId;
+			FString SourcePin;
+			FString TargetPin;
+			if (!TryGetStringFieldAlias(*EdgeObject, {TEXT("source"), TEXT("source_node"), TEXT("from")}, SourceId) ||
+				!TryGetStringFieldAlias(*EdgeObject, {TEXT("target"), TEXT("target_node"), TEXT("to")}, TargetId) ||
+				!TryGetStringFieldAlias(*EdgeObject, {TEXT("source_pin"), TEXT("from_pin"), TEXT("output")}, SourcePin) ||
+				!TryGetStringFieldAlias(*EdgeObject, {TEXT("target_pin"), TEXT("to_pin"), TEXT("input")}, TargetPin))
+			{
+				return FBridgeToolResult::Error(FString::Printf(
+					TEXT("spec.edges[%d] must include source, source_pin, target, and target_pin"),
+					EdgeIndex));
+			}
+
+			UEdGraphNode* SourceNode = NodesBySpecId.FindRef(SourceId);
+			UEdGraphNode* TargetNode = NodesBySpecId.FindRef(TargetId);
+			if (!SourceNode)
+			{
+				SourceNode = FindNode(AssetObject, SourceId);
+			}
+			if (!TargetNode)
+			{
+				TargetNode = FindNode(AssetObject, TargetId);
+			}
+			if (!SourceNode || !TargetNode)
+			{
+				return FBridgeToolResult::Error(FString::Printf(
+					TEXT("spec.edges[%d] references unknown node(s): %s -> %s"),
+					EdgeIndex,
+					*SourceId,
+					*TargetId));
+			}
+
+			FString EdgeError;
+			const FString EdgeRole = FString::Printf(TEXT("spec edge %d"), EdgeIndex);
+			if (!ConnectCustomizableObjectPinsOrError(
+				TargetGraph,
+				SourceNode,
+				{SourcePin},
+				TargetNode,
+				{TargetPin},
+				EdgeRole,
+				CreatedEdges,
+				EdgeError))
+			{
+				return FBridgeToolResult::Error(EdgeError);
+			}
+		}
+	}
+
+	if (TargetGraph)
+	{
+		TargetGraph->NotifyGraphChanged();
+	}
+	FBridgeAssetModifier::MarkPackageDirty(AssetObject);
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetStringField(TEXT("asset"), AssetPath);
+	Result->SetStringField(TEXT("graph"), TargetGraph->GetName());
+	Result->SetNumberField(TEXT("node_count"), CreatedNodes.Num());
+	Result->SetNumberField(TEXT("edge_count"), CreatedEdges.Num());
+	Result->SetArrayField(TEXT("created_nodes"), CreatedNodes);
+	Result->SetArrayField(TEXT("created_edges"), CreatedEdges);
+	if (PropertyWarnings.Num() > 0)
+	{
+		Result->SetStringField(TEXT("property_warnings"), FString::Join(PropertyWarnings, TEXT("; ")));
+	}
+	Result->SetBoolField(TEXT("needs_compile"), true);
+	Result->SetBoolField(TEXT("needs_save"), CreatedNodes.Num() > 0 || CreatedEdges.Num() > 0);
 	return FBridgeToolResult::Json(Result);
 }
 

@@ -55,6 +55,12 @@ private:
 	/** Extract embedded FAnimNode_* struct properties from a UAnimGraphNode_Base node */
 	TSharedPtr<FJsonObject> ExtractAnimNodeProperties(class UAnimGraphNode_Base* AnimGraphNode) const;
 
+	/** Extract editor wrapper metadata from a UAnimGraphNode_Base node */
+	TSharedPtr<FJsonObject> ExtractAnimGraphNodeMetadata(class UAnimGraphNode_Base* AnimGraphNode) const;
+
+	/** Resolve UseCachedPose nodes to the matching SaveCachedPose node when a cache name is available */
+	class UEdGraphNode* FindLinkedSaveCachedPoseNode(class UAnimGraphNode_Base* AnimGraphNode, const FString& CacheName) const;
+
 	// === Node search ===
 
 	/** Find a node by GUID across all graphs */

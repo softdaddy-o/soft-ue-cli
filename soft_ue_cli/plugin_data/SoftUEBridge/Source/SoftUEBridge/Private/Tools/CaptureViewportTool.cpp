@@ -1,7 +1,6 @@
 // Copyright soft-ue-expert. All Rights Reserved.
 
 #include "Tools/CaptureViewportTool.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "SoftUEBridgeModule.h"
 #include "Engine/GameViewportClient.h"
 #include "UnrealClient.h"
@@ -20,8 +19,6 @@
 #include "LevelEditorViewport.h"
 #include "RenderingThread.h"
 #endif
-
-REGISTER_BRIDGE_TOOL(UCaptureViewportTool)
 
 TMap<FString, FBridgeSchemaProperty> UCaptureViewportTool::GetInputSchema() const
 {

@@ -10,12 +10,96 @@
 #include "EdGraph/EdGraphNode.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ScopedTransaction.h"
+#include "UObject/UObjectHash.h"
+
+namespace
+{
+	static bool ContainsToken(const FString& Source, std::initializer_list<const TCHAR*> Tokens)
+	{
+		for (const TCHAR* Token : Tokens)
+		{
+			if (Source.Contains(Token, ESearchCase::IgnoreCase))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static bool LooksLikeCustomizableObject(const UObject* Object)
+	{
+		return Object && Object->GetClass() &&
+			ContainsToken(Object->GetClass()->GetName(), {TEXT("CustomizableObject"), TEXT("Mutable")});
+	}
+
+	static UEdGraph* FindCustomizableObjectGraph(UObject* AssetObject, const FString& GraphName)
+	{
+		if (!AssetObject)
+		{
+			return nullptr;
+		}
+
+		TArray<UEdGraph*> Graphs;
+		if (UEdGraph* DirectGraph = Cast<UEdGraph>(AssetObject))
+		{
+			Graphs.AddUnique(DirectGraph);
+		}
+
+		TArray<UObject*> InnerObjects;
+		GetObjectsWithOuter(AssetObject, InnerObjects, true);
+		for (UObject* InnerObject : InnerObjects)
+		{
+			if (UEdGraph* Graph = Cast<UEdGraph>(InnerObject))
+			{
+				Graphs.AddUnique(Graph);
+			}
+		}
+
+		if (Graphs.Num() == 0)
+		{
+			return nullptr;
+		}
+
+		if (!GraphName.IsEmpty())
+		{
+			for (UEdGraph* Graph : Graphs)
+			{
+				if (Graph &&
+					(Graph->GetName().Equals(GraphName, ESearchCase::IgnoreCase) ||
+						Graph->GetPathName().Equals(GraphName, ESearchCase::IgnoreCase)))
+				{
+					return Graph;
+				}
+			}
+			return nullptr;
+		}
+
+		for (UEdGraph* Graph : Graphs)
+		{
+			if (Graph && Graph->GetName().Equals(TEXT("Source"), ESearchCase::IgnoreCase))
+			{
+				return Graph;
+			}
+		}
+
+		for (UEdGraph* Graph : Graphs)
+		{
+			if (Graph && Graph->GetClass() &&
+				ContainsToken(Graph->GetClass()->GetName(), {TEXT("CustomizableObject"), TEXT("Mutable")}))
+			{
+				return Graph;
+			}
+		}
+
+		return Graphs[0];
+	}
+}
 
 FString USetNodePositionTool::GetToolDescription() const
 {
-	return TEXT("Batch-set editor positions for nodes in a Material, Blueprint, or AnimBlueprint graph. "
+	return TEXT("Batch-set editor positions for nodes in a Material, Blueprint, AnimBlueprint, or CustomizableObject graph. "
 		"Nodes are identified by GUID. All moves happen in a single undo transaction. "
-		"Use query-material (with --include-positions) or query-blueprint-graph to get node GUIDs and current positions.");
+		"Use query-material, query-blueprint-graph, or inspect-customizable-object-graph to get node GUIDs and current positions.");
 }
 
 TMap<FString, FBridgeSchemaProperty> USetNodePositionTool::GetInputSchema() const
@@ -24,13 +108,13 @@ TMap<FString, FBridgeSchemaProperty> USetNodePositionTool::GetInputSchema() cons
 
 	FBridgeSchemaProperty AssetPath;
 	AssetPath.Type = TEXT("string");
-	AssetPath.Description = TEXT("Asset path to the Material, Blueprint, or AnimBlueprint");
+	AssetPath.Description = TEXT("Asset path to the Material, Blueprint, AnimBlueprint, or CustomizableObject");
 	AssetPath.bRequired = true;
 	Schema.Add(TEXT("asset_path"), AssetPath);
 
 	FBridgeSchemaProperty GraphName;
 	GraphName.Type = TEXT("string");
-	GraphName.Description = TEXT("Target graph name (for Blueprint/Anim). Default: 'EventGraph'. Ignored for Material assets.");
+	GraphName.Description = TEXT("Target graph name. Defaults to EventGraph for Blueprints and the source graph for CustomizableObjects. Ignored for Material assets.");
 	GraphName.bRequired = false;
 	Schema.Add(TEXT("graph_name"), GraphName);
 
@@ -53,7 +137,7 @@ FBridgeToolResult USetNodePositionTool::Execute(
 	const FBridgeToolContext& Context)
 {
 	FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
-	FString GraphName = GetStringArgOrDefault(Arguments, TEXT("graph_name"), TEXT("EventGraph"));
+	FString GraphName = GetStringArgOrDefault(Arguments, TEXT("graph_name"));
 
 	if (AssetPath.IsEmpty())
 	{
@@ -181,10 +265,11 @@ FBridgeToolResult USetNodePositionTool::Execute(
 	// Handle Blueprint / AnimBlueprint
 	else if (UBlueprint* Blueprint = Cast<UBlueprint>(Object))
 	{
-		UEdGraph* TargetGraph = FBridgeAssetModifier::FindGraphByName(Blueprint, GraphName);
+		const FString BlueprintGraphName = GraphName.IsEmpty() ? TEXT("EventGraph") : GraphName;
+		UEdGraph* TargetGraph = FBridgeAssetModifier::FindGraphByName(Blueprint, BlueprintGraphName);
 		if (!TargetGraph)
 		{
-			return FBridgeToolResult::Error(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
+			return FBridgeToolResult::Error(FString::Printf(TEXT("Graph not found: %s"), *BlueprintGraphName));
 		}
 
 		FBridgeAssetModifier::MarkModified(Blueprint);
@@ -219,9 +304,52 @@ FBridgeToolResult USetNodePositionTool::Execute(
 		FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 		FBridgeAssetModifier::MarkPackageDirty(Blueprint);
 	}
+	// Handle CustomizableObject / Mutable source graphs without a hard module dependency
+	else if (LooksLikeCustomizableObject(Object))
+	{
+		UEdGraph* TargetGraph = FindCustomizableObjectGraph(Object, GraphName);
+		if (!TargetGraph)
+		{
+			return FBridgeToolResult::Error(GraphName.IsEmpty()
+				? TEXT("No graph found on CustomizableObject asset")
+				: FString::Printf(TEXT("CustomizableObject graph not found: %s"), *GraphName));
+		}
+
+		FBridgeAssetModifier::MarkModified(Object);
+
+		for (const FNodePosition& Pos : RequestedPositions)
+		{
+			bool bFound = false;
+			for (UEdGraphNode* Node : TargetGraph->Nodes)
+			{
+				if (Node && Node->NodeGuid == Pos.Guid)
+				{
+					Node->NodePosX = Pos.X;
+					Node->NodePosY = Pos.Y;
+
+					TSharedPtr<FJsonObject> MovedEntry = MakeShareable(new FJsonObject);
+					MovedEntry->SetStringField(TEXT("guid"), Pos.Guid.ToString(EGuidFormats::DigitsWithHyphens));
+					MovedEntry->SetNumberField(TEXT("x"), Pos.X);
+					MovedEntry->SetNumberField(TEXT("y"), Pos.Y);
+					MovedArray.Add(MakeShareable(new FJsonValueObject(MovedEntry)));
+
+					bFound = true;
+					break;
+				}
+			}
+
+			if (!bFound)
+			{
+				NotFoundArray.Add(MakeShareable(new FJsonValueString(Pos.GuidString)));
+			}
+		}
+
+		TargetGraph->NotifyGraphChanged();
+		FBridgeAssetModifier::MarkPackageDirty(Object);
+	}
 	else
 	{
-		return FBridgeToolResult::Error(TEXT("Asset must be a Material, Blueprint, or AnimBlueprint"));
+		return FBridgeToolResult::Error(TEXT("Asset must be a Material, Blueprint, AnimBlueprint, or CustomizableObject"));
 	}
 
 	// Build result

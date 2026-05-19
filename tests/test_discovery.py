@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
+
 
 from soft_ue_cli.discovery import _find_project_instance, _load_instance_file, get_server_url
 

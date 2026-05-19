@@ -35,6 +35,9 @@ private:
 	bool bIsRunning = false;
 	int32 ServerPort = 8080;
 	EBridgeServerStatus Status = EBridgeServerStatus::Stopped;
+	int32 BridgeProcessId = 0;
+	FString StartedAtUtc;
+	FString BridgeInstanceId;
 
 	bool HandleRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
 	FBridgeResponse ProcessRequest(const FBridgeRequest& Request);

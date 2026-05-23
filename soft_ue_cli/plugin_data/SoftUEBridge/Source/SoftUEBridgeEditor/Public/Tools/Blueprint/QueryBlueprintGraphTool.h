@@ -11,6 +11,8 @@ struct FGraphSerializeOptions
 {
 	bool bIncludePositions = false;
 	bool bIncludeAnimNodeProperties = false;
+	bool bRecursive = false;
+	TArray<FString> NodeClassFilters;
 };
 
 /**
@@ -42,10 +44,18 @@ private:
 	// === Graph conversion ===
 
 	/** Convert a graph to JSON */
-	TSharedPtr<FJsonObject> GraphToJson(class UEdGraph* Graph, const FString& GraphType, const FGraphSerializeOptions& Options, const FString& SearchFilter = TEXT("")) const;
+	TSharedPtr<FJsonObject> GraphToJson(
+		class UEdGraph* Graph,
+		const FString& GraphType,
+		const FGraphSerializeOptions& Options,
+		const FString& SearchFilter = TEXT(""),
+		const FString& GraphPath = TEXT("")) const;
 
 	/** Convert a node to JSON */
-	TSharedPtr<FJsonObject> NodeToJson(class UEdGraphNode* Node, const FGraphSerializeOptions& Options) const;
+	TSharedPtr<FJsonObject> NodeToJson(
+		class UEdGraphNode* Node,
+		const FGraphSerializeOptions& Options,
+		const FString& GraphPath = TEXT("")) const;
 
 	/** Convert a pin to JSON */
 	TSharedPtr<FJsonObject> PinToJson(class UEdGraphPin* Pin) const;
@@ -87,6 +97,12 @@ private:
 
 	/** Get pin direction as string */
 	FString GetPinDirectionString(EEdGraphPinDirection Direction) const;
+
+	/** Build a stable best-effort path for nested animation graphs */
+	FString BuildGraphPath(class UEdGraph* Graph) const;
+
+	/** True when the node matches the optional node_class filter list */
+	bool MatchesNodeClassFilter(class UEdGraphNode* Node, const FGraphSerializeOptions& Options) const;
 
 	// === Animation Blueprint support ===
 

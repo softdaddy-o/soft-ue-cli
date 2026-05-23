@@ -29,10 +29,24 @@ public:
 		const FBridgeToolContext& Context) override;
 
 private:
-	FBridgeToolResult CaptureGameViewport(const FString& Format, const FString& OutputMode);
+	FBridgeToolResult CaptureGameViewport(
+		const FString& Format,
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious);
 
 #if WITH_EDITOR
-	FBridgeToolResult CaptureEditorViewport(const FString& Format, const FString& OutputMode);
+	FBridgeToolResult CaptureEditorViewport(
+		const FString& Format,
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious);
 #endif
 
 	TArray<uint8> CompressImage(
@@ -44,7 +58,13 @@ private:
 	FBridgeToolResult OutputImage(
 		const TArray<uint8>& ImageData,
 		const FString& Format,
-		const FString& OutputMode);
+		const FString& OutputMode,
+		int32 Width,
+		int32 Height,
+		int32 OriginalWidth,
+		int32 OriginalHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious);
 
 	void CleanupPreviousCaptures(const FString& TempDir);
 };

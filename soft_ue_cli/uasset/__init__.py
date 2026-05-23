@@ -12,7 +12,7 @@ from .blueprint import (
     extract_functions,
     extract_variables,
 )
-from .external_actor import extract_external_actor_summary
+from .external_actor import extract_external_actor_summary, extract_generic_asset_properties
 from .package import UAssetPackage
 from .reader import UAssetReader
 from .types import UAssetError
@@ -94,6 +94,15 @@ def inspect_uasset(
             )
             properties_section = external_actor.pop("properties", None)
             result.update(external_actor)
+            if properties_section is None:
+                generic_properties = extract_generic_asset_properties(
+                    package,
+                    reader,
+                    offset_adjust=offset_adjust,
+                )
+                if generic_properties:
+                    properties_section = generic_properties.pop("properties", None)
+                    result.update(generic_properties)
 
         if want_all or "summary" in requested:
             result["property_count"] = 0 if properties_section is None else properties_section.get("count", 0)

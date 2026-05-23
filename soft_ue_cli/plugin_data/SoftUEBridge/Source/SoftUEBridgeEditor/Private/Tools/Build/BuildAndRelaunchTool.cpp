@@ -20,7 +20,7 @@ namespace
 
 	FString QuoteWindowsCommandLineArg(const FString& Value)
 	{
-		FString Escaped = Value.Replace(TEXT("\""), TEXT("\\\""));
+		const FString Escaped = Value.Replace(TEXT("\""), TEXT("\\\""));
 		return FString::Printf(TEXT("\"%s\""), *Escaped);
 	}
 }
@@ -46,6 +46,12 @@ TMap<FString, FBridgeSchemaProperty> UBuildAndRelaunchTool::GetInputSchema() con
 	SkipRelaunch.bRequired = false;
 	Schema.Add(TEXT("skip_relaunch"), SkipRelaunch);
 
+	FBridgeSchemaProperty StartupMarkerTimeout;
+	StartupMarkerTimeout.Type = TEXT("number");
+	StartupMarkerTimeout.Description = TEXT("Seconds to wait for the detached worker startup marker (default: 30, minimum: 5)");
+	StartupMarkerTimeout.bRequired = false;
+	Schema.Add(TEXT("startup_marker_timeout"), StartupMarkerTimeout);
+
 	return Schema;
 }
 
@@ -56,6 +62,10 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 #if PLATFORM_WINDOWS
 	FString BuildConfig = GetStringArgOrDefault(Arguments, TEXT("build_config"), TEXT("Development"));
 	bool bSkipRelaunch = GetBoolArgOrDefault(Arguments, TEXT("skip_relaunch"), false);
+	const float StartupMarkerTimeoutSeconds = FMath::Clamp(
+		GetFloatArgOrDefault(Arguments, TEXT("startup_marker_timeout"), 30.0f),
+		5.0f,
+		120.0f);
 
 	// Validate build configuration
 	if (BuildConfig != TEXT("Development") && BuildConfig != TEXT("Debug") && BuildConfig != TEXT("Shipping"))
@@ -67,7 +77,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 		*BuildConfig, bSkipRelaunch ? TEXT("true") : TEXT("false"));
 
 	// Get project paths
-	FString ProjectPath = FPaths::GetProjectFilePath();
+	FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
 	if (ProjectPath.IsEmpty())
 	{
 		return FBridgeToolResult::Error(TEXT("Could not determine project path"));
@@ -76,7 +86,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	FString ProjectName = FPaths::GetBaseFilename(ProjectPath);
 
 	// Get engine paths
-	FString EngineDir = FPaths::EngineDir();
+	FString EngineDir = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
 	FString BuildBatchFile = FPaths::Combine(EngineDir, TEXT("Build/BatchFiles/Build.bat"));
 	FString EditorExecutable = FPaths::Combine(EngineDir, TEXT("Binaries/Win64/UnrealEditor.exe"));
 
@@ -111,17 +121,17 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	// Paths for build log and status file (used by CLI --wait)
 	FString BuildLogPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.log"));
 	FString BuildStatusPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.status.json"));
-	FString WorkerStartedPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.started"));
+	FString StartupMarkerPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.started"));
 
 	// Remove stale artifacts so CLI doesn't read an old result.
 	PlatformFile.DeleteFile(*BuildStatusPath);
 	PlatformFile.DeleteFile(*BuildLogPath);
-	PlatformFile.DeleteFile(*WorkerStartedPath);
+	PlatformFile.DeleteFile(*StartupMarkerPath);
 
 	const FString EscapedTempScriptPath = EscapePowerShellSingleQuotedString(TempScriptPath);
 	const FString EscapedBuildLogPath = EscapePowerShellSingleQuotedString(BuildLogPath);
 	const FString EscapedBuildStatusPath = EscapePowerShellSingleQuotedString(BuildStatusPath);
-	const FString EscapedWorkerStartedPath = EscapePowerShellSingleQuotedString(WorkerStartedPath);
+	const FString EscapedStartupMarkerPath = EscapePowerShellSingleQuotedString(StartupMarkerPath);
 	const FString EscapedBuildBatchFile = EscapePowerShellSingleQuotedString(BuildBatchFile);
 	const FString EscapedEditorExecutable = EscapePowerShellSingleQuotedString(EditorExecutable);
 	const FString EscapedProjectPath = EscapePowerShellSingleQuotedString(ProjectPath);
@@ -132,7 +142,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += FString::Printf(TEXT("$WorkerScriptPath = '%s'\n"), *EscapedTempScriptPath);
 	WorkerScript += FString::Printf(TEXT("$BuildLogPath = '%s'\n"), *EscapedBuildLogPath);
 	WorkerScript += FString::Printf(TEXT("$BuildStatusPath = '%s'\n"), *EscapedBuildStatusPath);
-	WorkerScript += FString::Printf(TEXT("$WorkerStartedPath = '%s'\n"), *EscapedWorkerStartedPath);
+	WorkerScript += FString::Printf(TEXT("$StartupMarkerPath = '%s'\n"), *EscapedStartupMarkerPath);
 	WorkerScript += FString::Printf(TEXT("$BuildBatchFile = '%s'\n"), *EscapedBuildBatchFile);
 	WorkerScript += FString::Printf(TEXT("$EditorExecutable = '%s'\n"), *EscapedEditorExecutable);
 	WorkerScript += FString::Printf(TEXT("$ProjectPath = '%s'\n"), *EscapedProjectPath);
@@ -169,8 +179,8 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += TEXT("}\n");
 	WorkerScript += TEXT("\n");
 	WorkerScript += TEXT("try {\n");
-	WorkerScript += TEXT("    \"started\" | Set-Content -Path $WorkerStartedPath -Encoding utf8\n");
 	WorkerScript += TEXT("    \"build-and-relaunch worker started $(Get-Date -Format o)\" | Set-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("    \"started $(Get-Date -Format o)\" | Set-Content -Path $StartupMarkerPath -Encoding utf8\n");
 	WorkerScript += TEXT("    Write-BridgeStatus -Stage 'waiting_for_editor_shutdown' -Message \"Waiting for editor process $EditorPid to exit.\"\n");
 	WorkerScript += TEXT("    $EditorProcess = Get-Process -Id $EditorPid -ErrorAction SilentlyContinue\n");
 	WorkerScript += TEXT("    if ($EditorProcess) {\n");
@@ -222,7 +232,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 		*CmdArgs,
 		true,  // bLaunchDetached
 		true,  // bLaunchHidden
-		false, // bLaunchReallyHidden
+		true,  // bLaunchReallyHidden
 		nullptr,
 		0,     // PriorityModifier
 		nullptr,
@@ -234,25 +244,36 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 		return FBridgeToolResult::Error(TEXT("worker_failed_to_start: failed to launch build worker process"));
 	}
 
-	bool bWorkerStarted = false;
-	const double StartupDeadline = FPlatformTime::Seconds() + 5.0;
-	while (FPlatformTime::Seconds() < StartupDeadline)
-	{
-		if (PlatformFile.FileExists(*WorkerStartedPath) ||
-			PlatformFile.FileExists(*BuildLogPath) ||
-			PlatformFile.FileExists(*BuildStatusPath))
-		{
-			bWorkerStarted = true;
-			break;
-		}
-		FPlatformProcess::Sleep(0.1f);
-	}
 	FPlatformProcess::CloseProc(ProcHandle);
 
-	if (!bWorkerStarted)
+	const double StartupWaitStart = FPlatformTime::Seconds();
+	while (FPlatformTime::Seconds() - StartupWaitStart < StartupMarkerTimeoutSeconds)
+	{
+		if (PlatformFile.FileExists(*StartupMarkerPath))
+		{
+			break;
+		}
+
+		if (PlatformFile.FileExists(*BuildStatusPath))
+		{
+			FString StatusText;
+			if (FFileHelper::LoadFileToString(StatusText, *BuildStatusPath) && StatusText.Contains(TEXT("error")))
+			{
+				return FBridgeToolResult::Error(FString::Printf(
+					TEXT("worker_failed_to_start: build worker wrote an error before startup marker (script: %s): %s"),
+					*TempScriptPath,
+					*StatusText));
+			}
+		}
+
+		FPlatformProcess::Sleep(0.1f);
+	}
+
+	if (!PlatformFile.FileExists(*StartupMarkerPath))
 	{
 		return FBridgeToolResult::Error(FString::Printf(
-			TEXT("worker_failed_to_start: build worker did not create a startup marker within 5s (script: %s)"),
+			TEXT("worker_failed_to_start: build worker did not create a startup marker within %.0fs (script: %s)"),
+			StartupMarkerTimeoutSeconds,
 			*TempScriptPath));
 	}
 
@@ -271,8 +292,10 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	Result->SetNumberField(TEXT("editor_pid"), CurrentPID);
 	Result->SetStringField(TEXT("build_log_path"), BuildLogPath);
 	Result->SetStringField(TEXT("build_status_path"), BuildStatusPath);
-	Result->SetStringField(TEXT("worker_started_path"), WorkerStartedPath);
+	Result->SetStringField(TEXT("startup_marker_path"), StartupMarkerPath);
+	Result->SetStringField(TEXT("worker_started_path"), StartupMarkerPath);
 	Result->SetStringField(TEXT("progress_status_path"), BuildStatusPath);
+	Result->SetNumberField(TEXT("startup_marker_timeout"), StartupMarkerTimeoutSeconds);
 	Result->SetStringField(TEXT("message"), FString::Printf(TEXT("Build and relaunch workflow initiated for this editor instance (PID: %d). Editor will close momentarily."), CurrentPID));
 
 	// Request editor shutdown

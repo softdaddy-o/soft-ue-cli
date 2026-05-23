@@ -16,7 +16,7 @@
 #include "ThumbnailRendering/ThumbnailManager.h"
 
 // Note: This tool is manually registered in SoftUEBridgeEditorModule.cpp
-// REGISTER_BRIDGE_TOOL macro removed to avoid static initialization issues
+// Static registration removed to avoid initialization-order issues.
 
 TMap<FString, FBridgeSchemaProperty> UGetAssetPreviewTool::GetInputSchema() const
 {

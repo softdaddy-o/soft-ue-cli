@@ -62,6 +62,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -443,6 +444,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
              {"class_filter": "StaticMeshActor", "limit": 5}, has("actors"))
     run_test("query-level include_components", "query-level",
              {"limit": 5, "include_components": True}, has("actors"))
+    run_test("query-level world=editor", "query-level",
+             {"world": "editor", "limit": 5}, has("actors"))
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 4: Actor Lifecycle
@@ -462,6 +465,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
              {"search": a1, "limit": 5}, actors_include(a1))
     run_test("get-property Tags", "get-property",
              {"actor_name": a1, "property_name": "Tags"}, has("value"))
+    run_test("get-property Tags world=editor", "get-property",
+             {"actor_name": a1, "property_name": "Tags", "world": "editor"}, has("value"))
     run_test("set-property bHidden=true", "set-property",
              {"actor_name": a1, "property_name": "bHidden", "value": True}, has("success"))
     run_test("call-function GetActorLabel", "call-function",
@@ -500,12 +505,119 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
 
     bp_path = f"{TEST_NS}/BP_SoftUETest"
     bpi_path = f"{TEST_NS}/BPI_SoftUETest"
+    wbp_path = f"{TEST_NS}/WBP_SoftUETest"
     reg_teardown("delete-asset", {"asset_path": bp_path})
     reg_teardown("delete-asset", {"asset_path": bpi_path})
+    reg_teardown("delete-asset", {"asset_path": wbp_path})
 
     run_test("create-asset Blueprint", "create-asset",
              {"asset_path": bp_path, "asset_class": "/Script/Engine.Blueprint",
               "parent_class": "/Script/Engine.Actor"}, has("asset_path"))
+
+    run_test("create-asset WidgetBlueprint", "create-asset",
+             {"asset_path": wbp_path, "asset_class": "WidgetBlueprint"}, has("asset_path"))
+    run_test("apply-widget-tree UMG designer spec", "apply-widget-tree", {
+        "asset_path": wbp_path,
+        "compile": True,
+        "save": True,
+        "spec": {
+            "root": {
+                "class": "CanvasPanel",
+                "name": "RootCanvas",
+                "children": [
+                    {
+                        "class": "TextBlock",
+                        "name": "TitleText",
+                        "text": "SoftUE",
+                        "font_size": 32,
+                        "slot": {
+                            "position": [32, 32],
+                            "size": [320, 64],
+                            "z_order": 1,
+                        },
+                    },
+                    {
+                        "class": "Button",
+                        "name": "StartButton",
+                        "slot": {
+                            "position": [32, 120],
+                            "size": [220, 56],
+                            "z_order": 2,
+                        },
+                        "children": [
+                            {
+                                "class": "TextBlock",
+                                "name": "StartButtonLabel",
+                                "text": "Start",
+                                "justification": "center",
+                            }
+                        ],
+                    },
+                    {
+                        "class": "WidgetSwitcher",
+                        "name": "ScreenSwitcher",
+                        "slot": {
+                            "position": [32, 200],
+                            "size": [420, 180],
+                            "z_order": 3,
+                        },
+                        "children": [
+                            {
+                                "class": "CanvasPanel",
+                                "name": "HomePanel",
+                                "children": [
+                                    {
+                                        "class": "TextBlock",
+                                        "name": "HomePanelText",
+                                        "text": "Home",
+                                    }
+                                ],
+                            },
+                            {
+                                "class": "CanvasPanel",
+                                "name": "DetailsPanel",
+                                "children": [
+                                    {
+                                        "class": "TextBlock",
+                                        "name": "DetailsPanelText",
+                                        "text": "Details",
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }
+        },
+    }, lambda r: r.get("success") is True and r.get("widget_count", 0) >= 9)
+    run_test("inspect-widget-blueprint applied tree", "inspect-widget-blueprint",
+             {"asset_path": wbp_path, "depth_limit": 8},
+             lambda r: "RootCanvas" in r.get("all_widgets", []) and "StartButtonLabel" in r.get("all_widgets", []))
+    _umg_layout_tmp = tempfile.mkdtemp(prefix="soft_ue_umg_layout_")
+    _umg_expected_layout = os.path.join(_umg_layout_tmp, "umg_expected_layout.json")
+    run_cli(
+        "extract-umg-layout designer",
+        "extract-umg-layout",
+        "designer",
+        "--asset-path",
+        wbp_path,
+        "--output-file",
+        _umg_expected_layout,
+        check_stdout=lambda s: json.loads(s).get("widgets") and os.path.exists(_umg_expected_layout),
+    )
+    run_test("wire-widget-navigation UMG nav contract", "wire-widget-navigation", {
+        "asset_path": wbp_path,
+        "bindings": [
+            {
+                "button": "StartButton",
+                "mode": "switcher",
+                "switcher": "ScreenSwitcher",
+                "target_widget": "DetailsPanel",
+            }
+        ],
+        "compile": True,
+        "save": True,
+    }, lambda r: r.get("success") is True and r.get("binding_count") == 1 and "parent_binding_contract" in r)
 
     # BlueprintInterface — skip gracefully if plugin doesn't support it yet
     _bpi_created = False
@@ -555,6 +667,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_test("query-blueprint", "query-blueprint", {"asset_path": bp_path}, has("path"))
     run_test("query-blueprint-graph EventGraph", "query-blueprint-graph",
              {"asset_path": bp_path, "graph": "EventGraph"}, nonempty("graphs"))
+    run_test("query-blueprint-graph recursive node-class", "query-blueprint-graph",
+             {"asset_path": bp_path, "recursive": True, "node_class": "K2Node_Event"}, nonempty("graphs"))
     run_test("save-asset blueprint (pre-inspect)", "save-asset", {"asset_path": bp_path}, has("success"))
     _inspect_uasset_path = None
     _inspect_uexp_path = None
@@ -762,7 +876,83 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         run_test(f"set-viewport-camera preset={preset}", "set-viewport-camera",
                  {"preset": preset}, has("success"))
     run_test("capture-viewport", "capture-viewport", {}, has("file_path"))
+    run_test("capture-viewport scaled grayscale", "capture-viewport",
+             {"scale": 50, "color_mode": "grayscale"}, has("file_path", "width", "height"))
     run_test("capture-screenshot", "capture-screenshot", {}, has("file_path"))
+    run_test("capture-screenshot scaled monochrome", "capture-screenshot",
+             {"scale": 50, "color_mode": "monochrome"}, has("file_path", "width", "height"))
+    _visual_tmp = tempfile.mkdtemp(prefix="soft_ue_visual_")
+    _ref_ppm = os.path.join(_visual_tmp, "reference.ppm")
+    _cap_ppm = os.path.join(_visual_tmp, "captured.ppm")
+    _diff_png = os.path.join(_visual_tmp, "diff.png")
+    _ppm = "P3\n4 4\n255\n" + "\n".join(["20 40 80"] * 16) + "\n"
+    with open(_ref_ppm, "w", encoding="ascii") as _fp:
+        _fp.write(_ppm)
+    with open(_cap_ppm, "w", encoding="ascii") as _fp:
+        _fp.write(_ppm)
+    _layout_expected = os.path.join(_visual_tmp, "expected_layout.json")
+    _layout_actual = os.path.join(_visual_tmp, "actual_layout.json")
+    _layout_report = os.path.join(_visual_tmp, "layout_report.json")
+    _layout = {
+        "canvas_size": [1920, 1080],
+        "widgets": [
+            {"name": "RootCanvas", "normalized_bounds": [0, 0, 1, 1], "z_order": 0, "opacity": 1.0}
+        ],
+    }
+    with open(_layout_expected, "w", encoding="utf-8") as _fp:
+        json.dump(_layout, _fp)
+    with open(_layout_actual, "w", encoding="utf-8") as _fp:
+        json.dump(_layout, _fp)
+    run_cli(
+        "compare-umg-layout offline",
+        "compare-umg-layout",
+        _layout_expected,
+        _layout_actual,
+        "--output-file",
+        _layout_report,
+        check_stdout=lambda s: json.loads(s).get("success") is True and os.path.exists(_layout_report),
+    )
+    _layout_unified_report = os.path.join(_layout_tmp, "layout_unified_report.json")
+    run_cli(
+        "umg-layout compare geometry offline",
+        "umg-layout",
+        "compare",
+        "--mode",
+        "geometry",
+        "--subset",
+        _layout_expected,
+        _layout_actual,
+        "--output",
+        _layout_unified_report,
+        check_stdout=lambda s: json.loads(s).get("success") is True and os.path.exists(_layout_unified_report),
+    )
+    _layout_corrected_spec = os.path.join(_layout_tmp, "corrected_widget_tree.json")
+    _layout_spec = os.path.join(_layout_tmp, "widget_tree.json")
+    with open(_layout_spec, "w", encoding="utf-8") as _fp:
+        json.dump({"root": {"class": "CanvasPanel", "name": "RootCanvas", "slot": {"position": [0, 0], "size": [1920, 1080]}}}, _fp)
+    run_cli(
+        "umg-layout fit offline",
+        "umg-layout",
+        "fit",
+        "--concept",
+        _layout_expected,
+        "--actual",
+        _layout_actual,
+        "--spec",
+        _layout_spec,
+        "--output",
+        _layout_corrected_spec,
+        check_stdout=lambda s: json.loads(s).get("success") is True and os.path.exists(_layout_corrected_spec),
+    )
+    run_cli(
+        "compare-umg-screenshot offline",
+        "compare-umg-screenshot",
+        _ref_ppm,
+        _cap_ppm,
+        "--annotated-output",
+        _diff_png,
+        check_stdout=lambda s: json.loads(s).get("success") is True and os.path.exists(_diff_png),
+    )
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 13: PIE
@@ -783,13 +973,27 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     reg_teardown("pie-session", {"action": "stop", "timeout": PIE_TIMEOUT})
 
     run_test("pie-session start", "pie-session",
-             {"action": "start", "timeout": PIE_TIMEOUT}, has("success"), timeout=PIE_TIMEOUT)
+             {"action": "start", "timeout": PIE_TIMEOUT, "blueprint_error_action": "report"},
+             lambda r: "blueprint_compile_errors" in r or r.get("success") is False,
+             timeout=PIE_TIMEOUT)
     time.sleep(4)
     run_test("pie-session status", "pie-session", {"action": "status"}, has("state"), timeout=PIE_TIMEOUT)
+    run_test("capture-screenshot pie-window composited", "capture-screenshot",
+             {"mode": "pie-window", "scale": 70, "color_mode": "color"},
+             lambda r: "file_path" in r or r.get("capture_mode") == "pie-window",
+             timeout=PIE_TIMEOUT)
     run_test("exec-console-command stat fps", "exec-console-command",
              {"command": "stat fps", "world": "pie"}, has("success"), timeout=PIE_TIMEOUT)
     run_test("inspect-pawn-possession", "inspect-pawn-possession",
              {"world": "pie"}, has("pawns"), timeout=PIE_TIMEOUT)
+    run_test("verify-umg-workflow preview widget", "verify-umg-workflow", {
+        "widget_class": wbp_path,
+        "expected_widgets": ["RootCanvas", "StartButton", "ScreenSwitcher", "DetailsPanel"],
+        "expected_text": ["SoftUE"],
+        "click_sequence": [{"button": "StartButton"}],
+        "capture_after": True,
+        "remove_preview": True,
+    }, lambda r: r.get("success") is True and r.get("created_preview_widget") is True, timeout=PIE_TIMEOUT)
     run_test("get-logs during PIE", "get-logs", {"limit": 5}, has("lines"), timeout=PIE_TIMEOUT)
     run_test("pie-session stop", "pie-session", {"action": "stop", "timeout": PIE_TIMEOUT}, has("success"), timeout=PIE_TIMEOUT)
 
@@ -940,6 +1144,15 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     else:
         _record("inspect-anim-instance smoke", "inspect-anim-instance", {},
                 True, 0, "skipped: no skeletal actor found in current level")
+
+    run_cli("inspect-sync-markers help", "inspect-sync-markers", "--help",
+            check_stdout=lambda s: "inspect-sync-markers" in s and "asset_path" in s)
+    run_cli("compare-sync-markers help", "compare-sync-markers", "--help",
+            check_stdout=lambda s: "compare-sync-markers" in s and "asset_paths" in s)
+    run_cli("add-sync-marker help", "add-sync-marker", "--help",
+            check_stdout=lambda s: "add-sync-marker" in s and "time" in s)
+    run_cli("remove-sync-marker help", "remove-sync-marker", "--help",
+            check_stdout=lambda s: "remove-sync-marker" in s and "tolerance" in s)
 
     run_test("call-function transient native", "call-function", {
         "class_path": "/Script/Engine.Actor",

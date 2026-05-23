@@ -39,4 +39,9 @@ private:
 	bool WaitForPIEReady(float TimeoutSeconds) const;
 	TSharedPtr<FJsonObject> GetWorldInfo(UWorld* PIEWorld) const;
 	TArray<TSharedPtr<FJsonValue>> GetPlayersInfo(UWorld* PIEWorld) const;
+	TArray<TSharedPtr<FJsonValue>> FindBlueprintCompileErrors(bool bSuppressWarnings) const;
+	FBridgeToolResult BuildBlueprintCompileErrorResult(
+		const FString& BlueprintErrorAction,
+		bool bPreflightBlueprints,
+		const TArray<TSharedPtr<FJsonValue>>& BlueprintCompileErrors) const;
 };

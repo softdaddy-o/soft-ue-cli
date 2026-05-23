@@ -8,6 +8,10 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerInput.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedPlayerInput.h"
+#include "InputAction.h"
+#include "InputActionValue.h"
 #include "InputCoreTypes.h"
 #include "EngineUtils.h"
 #include "NavigationSystem.h"
@@ -143,26 +147,23 @@ FBridgeToolResult UTriggerInputTool::ExecuteKey(const TSharedPtr<FJsonObject>& A
 		}
 	}
 
-	UPlayerInput* PlayerInput = PC->PlayerInput;
-	if (!PlayerInput)
-	{
-		return FBridgeToolResult::Error(TEXT("Player input not available"));
-	}
-
+	bool bHandled = false;
 PRAGMA_DISABLE_DEPRECATION_WARNINGS
 	if (!bReleaseOnly)
 	{
-		PlayerInput->InputKey(FInputKeyParams(Key, IE_Pressed, 1.0, false));
+		bHandled = PC->InputKey(FInputKeyParams(Key, IE_Pressed, 1.0, false)) || bHandled;
 	}
 	if (!bPressOnly)
 	{
-		PlayerInput->InputKey(FInputKeyParams(Key, IE_Released, 0.0, false));
+		bHandled = PC->InputKey(FInputKeyParams(Key, IE_Released, 0.0, false)) || bHandled;
 	}
 PRAGMA_ENABLE_DEPRECATION_WARNINGS
 
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("key"), KeyName);
+	Result->SetBoolField(TEXT("handled"), bHandled);
+	Result->SetStringField(TEXT("route"), TEXT("player_controller"));
 	Result->SetStringField(TEXT("event"),
 		bPressOnly ? TEXT("pressed") : (bReleaseOnly ? TEXT("released") : TEXT("pressed_and_released")));
 
@@ -199,6 +200,56 @@ FBridgeToolResult UTriggerInputTool::ExecuteAction(const TSharedPtr<FJsonObject>
 	}
 
 	bool bTriggered = false;
+	UEnhancedPlayerInput* EnhancedPlayerInput = Cast<UEnhancedPlayerInput>(PC->PlayerInput);
+	const bool bEnhancedInputAvailable = EnhancedPlayerInput != nullptr;
+	int32 MappedKeyCount = 0;
+
+	if (EnhancedPlayerInput)
+	{
+		if (const UInputAction* EnhancedAction = FindEnhancedInputAction(PC, ActionName, MappedKeyCount))
+		{
+			bool bPressOnly = false;
+			bool bReleaseOnly = false;
+			if (Args->HasField(TEXT("pressed")))
+			{
+				if (GetBoolArgOrDefault(Args, TEXT("pressed"), true))
+				{
+					bPressOnly = true;
+				}
+				else
+				{
+					bReleaseOnly = true;
+				}
+			}
+
+			if (!bReleaseOnly)
+			{
+				EnhancedPlayerInput->InjectInputForAction(EnhancedAction, MakeEnhancedActionValue(EnhancedAction, true));
+			}
+			if (!bPressOnly)
+			{
+				EnhancedPlayerInput->InjectInputForAction(EnhancedAction, MakeEnhancedActionValue(EnhancedAction, false));
+			}
+
+			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+			Result->SetBoolField(TEXT("success"), true);
+			Result->SetStringField(TEXT("action_name"), ActionName);
+			Result->SetBoolField(TEXT("triggered"), true);
+			Result->SetBoolField(TEXT("enhanced_input"), true);
+			Result->SetBoolField(TEXT("injected"), true);
+			Result->SetStringField(TEXT("route"), TEXT("enhanced_input"));
+			Result->SetStringField(TEXT("matched_action"), EnhancedAction->GetName());
+			Result->SetNumberField(TEXT("mapped_key_count"), MappedKeyCount);
+			Result->SetStringField(TEXT("event"),
+				bPressOnly ? TEXT("pressed") : (bReleaseOnly ? TEXT("released") : TEXT("pressed_and_released")));
+
+			UE_LOG(LogSoftUEBridge, Log, TEXT("trigger-input: Enhanced action %s injected as %s"),
+				*ActionName,
+				bPressOnly ? TEXT("pressed") : (bReleaseOnly ? TEXT("released") : TEXT("pressed+released")));
+			return FBridgeToolResult::Json(Result);
+		}
+	}
+
 	if (ActionName.Equals(TEXT("Jump"), ESearchCase::IgnoreCase))
 	{
 		if (ACharacter* Character = Cast<ACharacter>(Pawn))
@@ -212,11 +263,13 @@ FBridgeToolResult UTriggerInputTool::ExecuteAction(const TSharedPtr<FJsonObject>
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("action_name"), ActionName);
 	Result->SetBoolField(TEXT("triggered"), bTriggered);
+	Result->SetBoolField(TEXT("enhanced_input"), bEnhancedInputAvailable);
+	Result->SetNumberField(TEXT("mapped_key_count"), MappedKeyCount);
 
 	if (!bTriggered)
 	{
 		Result->SetStringField(TEXT("message"),
-			TEXT("Action not directly mapped. Consider using call-function instead."));
+			TEXT("Action not found in active Enhanced Input mappings and no direct fallback matched. Check that PIE is running and the mapping context is applied."));
 	}
 
 	UE_LOG(LogSoftUEBridge, Log, TEXT("trigger-input: Action %s triggered=%d"), *ActionName, bTriggered);
@@ -379,4 +432,105 @@ APlayerController* UTriggerInputTool::GetPlayerController(UWorld* World, int32 P
 		Idx++;
 	}
 	return nullptr;
+}
+
+const UInputAction* UTriggerInputTool::FindEnhancedInputAction(
+	APlayerController* PlayerController,
+	const FString& ActionName,
+	int32& OutMappedKeyCount)
+{
+	OutMappedKeyCount = 0;
+	if (!PlayerController || ActionName.IsEmpty())
+	{
+		return nullptr;
+	}
+
+	UEnhancedPlayerInput* EnhancedPlayerInput = Cast<UEnhancedPlayerInput>(PlayerController->PlayerInput);
+	if (!EnhancedPlayerInput)
+	{
+		return nullptr;
+	}
+
+	auto MatchesActionName = [&ActionName](const UInputAction* Candidate)
+	{
+		if (!Candidate)
+		{
+			return false;
+		}
+
+		const FString ObjectName = Candidate->GetName();
+		const FString PathName = Candidate->GetPathName();
+		const FString DotActionName = FString(TEXT(".")) + ActionName;
+		FString TrimmedName = ObjectName;
+		TrimmedName.RemoveFromStart(TEXT("IA_"), ESearchCase::IgnoreCase);
+
+		return ObjectName.Equals(ActionName, ESearchCase::IgnoreCase)
+			|| PathName.Equals(ActionName, ESearchCase::IgnoreCase)
+			|| PathName.EndsWith(DotActionName, ESearchCase::IgnoreCase)
+			|| TrimmedName.Equals(ActionName, ESearchCase::IgnoreCase);
+	};
+
+	auto ScanInputComponent = [&MatchesActionName, &OutMappedKeyCount](UInputComponent* InputComponent) -> const UInputAction*
+	{
+		UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent);
+		if (!EnhancedInputComponent)
+		{
+			return nullptr;
+		}
+
+		const UInputAction* FirstMatch = nullptr;
+		for (const TUniquePtr<FEnhancedInputActionEventBinding>& Binding : EnhancedInputComponent->GetActionEventBindings())
+		{
+			const UInputAction* Candidate = Binding.IsValid() ? Binding->GetAction() : nullptr;
+			if (!MatchesActionName(Candidate))
+			{
+				continue;
+			}
+
+			++OutMappedKeyCount;
+			if (!FirstMatch)
+			{
+				FirstMatch = Candidate;
+			}
+		}
+
+		for (const FEnhancedInputActionValueBinding& Binding : EnhancedInputComponent->GetActionValueBindings())
+		{
+			const UInputAction* Candidate = Binding.GetAction();
+			if (!MatchesActionName(Candidate))
+			{
+				continue;
+			}
+
+			++OutMappedKeyCount;
+			if (!FirstMatch)
+			{
+				FirstMatch = Candidate;
+			}
+		}
+
+		return FirstMatch;
+	};
+
+	if (const UInputAction* ControllerAction = ScanInputComponent(PlayerController->InputComponent))
+	{
+		return ControllerAction;
+	}
+
+	if (APawn* Pawn = PlayerController->GetPawn())
+	{
+		if (const UInputAction* PawnAction = ScanInputComponent(Pawn->InputComponent))
+		{
+			return PawnAction;
+		}
+	}
+
+	return nullptr;
+}
+
+FInputActionValue UTriggerInputTool::MakeEnhancedActionValue(const UInputAction* Action, bool bPressed)
+{
+	const EInputActionValueType ValueType = Action ? Action->ValueType : EInputActionValueType::Boolean;
+	const FVector RawValue = bPressed ? FVector(1.0f, 0.0f, 0.0f) : FVector::ZeroVector;
+	return FInputActionValue(ValueType, RawValue);
 }

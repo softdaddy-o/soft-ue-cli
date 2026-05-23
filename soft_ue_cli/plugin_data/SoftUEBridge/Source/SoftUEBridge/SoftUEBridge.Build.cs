@@ -32,6 +32,7 @@ public class SoftUEBridge : ModuleRules
 
 			// Input simulation
 			"InputCore",
+			"EnhancedInput",
 
 			// Project info
 			"Projects",

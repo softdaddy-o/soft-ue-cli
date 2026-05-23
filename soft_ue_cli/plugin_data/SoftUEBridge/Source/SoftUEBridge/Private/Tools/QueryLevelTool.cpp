@@ -1,7 +1,6 @@
 // Copyright soft-ue-expert. All Rights Reserved.
 
 #include "Tools/QueryLevelTool.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "SoftUEBridgeModule.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -14,10 +13,6 @@
 #include "FoliageType.h"
 #include "LandscapeProxy.h"
 #include "LandscapeComponent.h"
-#endif
-
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(UQueryLevelTool)
 #endif
 
 FString UQueryLevelTool::GetToolDescription() const

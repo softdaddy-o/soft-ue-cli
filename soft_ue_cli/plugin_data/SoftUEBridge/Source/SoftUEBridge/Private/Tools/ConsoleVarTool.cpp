@@ -1,15 +1,10 @@
 // Copyright soft-ue-expert. All Rights Reserved.
 
 #include "Tools/ConsoleVarTool.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "SoftUEBridgeModule.h"
 #include "HAL/IConsoleManager.h"
 
 // ── get-console-var ───────────────────────────────────────────────────────────
-
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(UGetConsoleVarTool)
-#endif
 
 FString UGetConsoleVarTool::GetToolDescription() const
 {
@@ -49,10 +44,6 @@ FBridgeToolResult UGetConsoleVarTool::Execute(const TSharedPtr<FJsonObject>& Arg
 }
 
 // ── set-console-var ───────────────────────────────────────────────────────────
-
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(USetConsoleVarTool)
-#endif
 
 FString USetConsoleVarTool::GetToolDescription() const
 {

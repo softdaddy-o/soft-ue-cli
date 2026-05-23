@@ -6,6 +6,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNode_StateMachine.h"
+#include "Engine/Blueprint.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -14,7 +15,7 @@
 
 FString UInspectAnimInstanceTool::GetToolDescription() const
 {
-	return TEXT("One-shot snapshot of a target actor's UAnimInstance (state machines, montages, slots, notifies, blend weights).");
+	return TEXT("Inspect runtime UAnimInstance state or static AnimBlueprint topology by asset_path.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UInspectAnimInstanceTool::GetInputSchema() const
@@ -24,8 +25,12 @@ TMap<FString, FBridgeSchemaProperty> UInspectAnimInstanceTool::GetInputSchema() 
 	FBridgeSchemaProperty ActorTag;
 	ActorTag.Type = TEXT("string");
 	ActorTag.Description = TEXT("Actor tag to search for in the PIE or game world");
-	ActorTag.bRequired = true;
 	Schema.Add(TEXT("actor_tag"), ActorTag);
+
+	FBridgeSchemaProperty AssetPath;
+	AssetPath.Type = TEXT("string");
+	AssetPath.Description = TEXT("AnimBlueprint asset path for static topology inspection");
+	Schema.Add(TEXT("asset_path"), AssetPath);
 
 	FBridgeSchemaProperty MeshComponent;
 	MeshComponent.Type = TEXT("string");
@@ -34,7 +39,7 @@ TMap<FString, FBridgeSchemaProperty> UInspectAnimInstanceTool::GetInputSchema() 
 
 	FBridgeSchemaProperty Include;
 	Include.Type = TEXT("array");
-	Include.Description = TEXT("Sections to include: state_machines, montages, notifies, blend_weights");
+	Include.Description = TEXT("Sections to include: topology, sync_groups, state_machines, montages, notifies, blend_weights");
 	Schema.Add(TEXT("include"), Include);
 
 	FBridgeSchemaProperty BlendWeights;
@@ -50,14 +55,18 @@ FBridgeToolResult UInspectAnimInstanceTool::Execute(
 	const FBridgeToolContext& Context)
 {
 	FString ActorTag;
-	if (!GetStringArg(Arguments, TEXT("actor_tag"), ActorTag) || ActorTag.IsEmpty())
+	GetStringArg(Arguments, TEXT("actor_tag"), ActorTag);
+	const FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
+	if (ActorTag.IsEmpty() && AssetPath.IsEmpty())
 	{
-		return FBridgeToolResult::Error(TEXT("inspect-anim-instance: 'actor_tag' is required"));
+		return FBridgeToolResult::Error(TEXT("inspect-anim-instance: provide actor_tag or asset_path"));
 	}
 
 	const FString MeshComponentName = GetStringArgOrDefault(Arguments, TEXT("mesh_component"));
 
 	TSet<FString> IncludeSet = {
+		TEXT("topology"),
+		TEXT("sync_groups"),
 		TEXT("state_machines"),
 		TEXT("montages"),
 		TEXT("notifies"),
@@ -74,6 +83,11 @@ FBridgeToolResult UInspectAnimInstanceTool::Execute(
 				IncludeSet.Add(Value->AsString());
 			}
 		}
+	}
+
+	if (!AssetPath.IsEmpty())
+	{
+		return InspectAnimBlueprintAsset(AssetPath, IncludeSet);
 	}
 
 	TArray<FString> BlendWeightProps;
@@ -118,6 +132,72 @@ FBridgeToolResult UInspectAnimInstanceTool::Execute(
 	}
 
 	Response->SetArrayField(TEXT("slots"), ReadSlots(AnimInstance));
+	return FBridgeToolResult::Json(Response);
+}
+
+FBridgeToolResult UInspectAnimInstanceTool::InspectAnimBlueprintAsset(const FString& AssetPath, const TSet<FString>& IncludeSet)
+{
+	UObject* Loaded = LoadObject<UObject>(nullptr, *AssetPath);
+	if (!Loaded)
+	{
+		return FBridgeToolResult::Error(FString::Printf(TEXT("inspect-anim-instance: failed to load asset_path '%s'"), *AssetPath));
+	}
+
+	UClass* GeneratedClass = nullptr;
+	if (UBlueprint* Blueprint = Cast<UBlueprint>(Loaded))
+	{
+		GeneratedClass = Blueprint->GeneratedClass;
+	}
+	else if (UClass* ClassObject = Cast<UClass>(Loaded))
+	{
+		GeneratedClass = ClassObject;
+	}
+
+	UAnimBlueprintGeneratedClass* AnimClass = Cast<UAnimBlueprintGeneratedClass>(GeneratedClass);
+	if (!AnimClass)
+	{
+		return FBridgeToolResult::Error(FString::Printf(TEXT("inspect-anim-instance: asset_path '%s' is not an AnimBlueprint"), *AssetPath));
+	}
+
+	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
+	Response->SetStringField(TEXT("mode"), TEXT("asset"));
+	Response->SetStringField(TEXT("asset_path"), AssetPath);
+	Response->SetStringField(TEXT("anim_instance_class"), AnimClass->GetPathName());
+
+	if (IncludeSet.Contains(TEXT("topology")))
+	{
+		Response->SetArrayField(TEXT("topology"), ReadAnimNodeTopology(AnimClass));
+	}
+	if (IncludeSet.Contains(TEXT("state_machines")))
+	{
+		Response->SetArrayField(TEXT("state_machines"), ReadBakedStateMachines(AnimClass));
+	}
+	if (IncludeSet.Contains(TEXT("sync_groups")))
+	{
+		TArray<TSharedPtr<FJsonValue>> SyncGroups;
+		TSet<FName> SeenGroups;
+		for (FStructProperty* NodeProperty : AnimClass->AnimNodeProperties)
+		{
+			if (!NodeProperty)
+			{
+				continue;
+			}
+			for (TFieldIterator<FProperty> It(NodeProperty->Struct); It; ++It)
+			{
+				if (It->GetName().Contains(TEXT("SyncGroup"), ESearchCase::IgnoreCase))
+				{
+					TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+					Entry->SetStringField(TEXT("node_property"), NodeProperty->GetName());
+					Entry->SetStringField(TEXT("property"), It->GetName());
+					SyncGroups.Add(MakeShared<FJsonValueObject>(Entry));
+					SeenGroups.Add(It->GetFName());
+				}
+			}
+		}
+		Response->SetArrayField(TEXT("sync_groups"), SyncGroups);
+		Response->SetNumberField(TEXT("sync_group_hint_count"), SeenGroups.Num());
+	}
+
 	return FBridgeToolResult::Json(Response);
 }
 
@@ -239,6 +319,62 @@ TArray<TSharedPtr<FJsonValue>> UInspectAnimInstanceTool::ReadStateMachines(UAnim
 			Entry->SetNumberField(TEXT("time_in_state"), TimeInState);
 			Out.Add(MakeShared<FJsonValueObject>(Entry));
 		}
+	}
+
+	return Out;
+}
+
+TArray<TSharedPtr<FJsonValue>> UInspectAnimInstanceTool::ReadBakedStateMachines(UAnimBlueprintGeneratedClass* AnimClass)
+{
+	TArray<TSharedPtr<FJsonValue>> Out;
+	if (!AnimClass)
+	{
+		return Out;
+	}
+
+	for (int32 MachineIndex = 0; MachineIndex < AnimClass->BakedStateMachines.Num(); ++MachineIndex)
+	{
+		const FBakedAnimationStateMachine& Machine = AnimClass->BakedStateMachines[MachineIndex];
+		TSharedPtr<FJsonObject> MachineJson = MakeShared<FJsonObject>();
+		MachineJson->SetNumberField(TEXT("index"), MachineIndex);
+		MachineJson->SetStringField(TEXT("name"), Machine.MachineName.ToString());
+		MachineJson->SetNumberField(TEXT("state_count"), Machine.States.Num());
+
+		TArray<TSharedPtr<FJsonValue>> States;
+		for (int32 StateIndex = 0; StateIndex < Machine.States.Num(); ++StateIndex)
+		{
+			TSharedPtr<FJsonObject> StateJson = MakeShared<FJsonObject>();
+			StateJson->SetNumberField(TEXT("index"), StateIndex);
+			StateJson->SetStringField(TEXT("name"), Machine.States[StateIndex].StateName.ToString());
+			States.Add(MakeShared<FJsonValueObject>(StateJson));
+		}
+		MachineJson->SetArrayField(TEXT("states"), States);
+		Out.Add(MakeShared<FJsonValueObject>(MachineJson));
+	}
+
+	return Out;
+}
+
+TArray<TSharedPtr<FJsonValue>> UInspectAnimInstanceTool::ReadAnimNodeTopology(UAnimBlueprintGeneratedClass* AnimClass)
+{
+	TArray<TSharedPtr<FJsonValue>> Out;
+	if (!AnimClass)
+	{
+		return Out;
+	}
+
+	for (FStructProperty* NodeProperty : AnimClass->AnimNodeProperties)
+	{
+		if (!NodeProperty)
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> NodeJson = MakeShared<FJsonObject>();
+		NodeJson->SetStringField(TEXT("property"), NodeProperty->GetName());
+		NodeJson->SetStringField(TEXT("struct"), NodeProperty->Struct ? NodeProperty->Struct->GetName() : TEXT(""));
+		NodeJson->SetStringField(TEXT("category"), TEXT("anim_node"));
+		Out.Add(MakeShared<FJsonValueObject>(NodeJson));
 	}
 
 	return Out;

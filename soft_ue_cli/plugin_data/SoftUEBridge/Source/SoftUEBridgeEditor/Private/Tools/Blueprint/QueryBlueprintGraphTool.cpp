@@ -190,6 +190,18 @@ TMap<FString, FBridgeSchemaProperty> UQueryBlueprintGraphTool::GetInputSchema() 
 	IncludeAnimNodeProps.bRequired = false;
 	Schema.Add(TEXT("include_anim_node_properties"), IncludeAnimNodeProps);
 
+	FBridgeSchemaProperty Recursive;
+	Recursive.Type = TEXT("boolean");
+	Recursive.Description = TEXT("Include nested AnimBlueprint graphs and annotate nodes with graph_path (default: false)");
+	Recursive.bRequired = false;
+	Schema.Add(TEXT("recursive"), Recursive);
+
+	FBridgeSchemaProperty NodeClass;
+	NodeClass.Type = TEXT("string");
+	NodeClass.Description = TEXT("Comma-separated node class filters, e.g. AnimGraphNode_StateMachine,*BlendStack*");
+	NodeClass.bRequired = false;
+	Schema.Add(TEXT("node_class"), NodeClass);
+
 	return Schema;
 }
 
@@ -228,6 +240,20 @@ FBridgeToolResult UQueryBlueprintGraphTool::Execute(
 	FGraphSerializeOptions SerializeOptions;
 	SerializeOptions.bIncludePositions = GetBoolArgOrDefault(Arguments, TEXT("include_positions"), false);
 	SerializeOptions.bIncludeAnimNodeProperties = GetBoolArgOrDefault(Arguments, TEXT("include_anim_node_properties"), false);
+	SerializeOptions.bRecursive = GetBoolArgOrDefault(Arguments, TEXT("recursive"), false);
+	const FString NodeClassFilter = GetStringArgOrDefault(Arguments, TEXT("node_class"), TEXT(""));
+	if (!NodeClassFilter.IsEmpty())
+	{
+		NodeClassFilter.ParseIntoArray(SerializeOptions.NodeClassFilters, TEXT(","), true);
+		for (FString& Filter : SerializeOptions.NodeClassFilters)
+		{
+			Filter.TrimStartAndEndInline();
+		}
+		SerializeOptions.NodeClassFilters.RemoveAll([](const FString& Filter)
+		{
+			return Filter.IsEmpty();
+		});
+	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("query-blueprint-graph: path='%s', search='%s'"), *AssetPath, *SearchFilter);
 
@@ -246,6 +272,7 @@ FBridgeToolResult UQueryBlueprintGraphTool::Execute(
 	Result->SetStringField(TEXT("blueprint"), AssetPath);
 	Result->SetStringField(TEXT("parent_class"), Blueprint->ParentClass ? Blueprint->ParentClass->GetName() : TEXT("None"));
 	Result->SetBoolField(TEXT("is_anim_blueprint"), bIsAnimBlueprint);
+	Result->SetBoolField(TEXT("recursive"), SerializeOptions.bRecursive);
 
 	if (bIsAnimBlueprint && AnimBP->TargetSkeleton)
 	{
@@ -277,7 +304,8 @@ FBridgeToolResult UQueryBlueprintGraphTool::Execute(
 
 		Result->SetStringField(TEXT("graph_name"), GraphName);
 		Result->SetStringField(TEXT("graph_type"), GraphType);
-		Result->SetObjectField(TEXT("node"), NodeToJson(Node, SerializeOptions));
+		Result->SetStringField(TEXT("graph_path"), BuildGraphPath(Node->GetGraph()));
+		Result->SetObjectField(TEXT("node"), NodeToJson(Node, SerializeOptions, BuildGraphPath(Node->GetGraph())));
 
 		return FBridgeToolResult::Json(Result);
 	}
@@ -418,21 +446,29 @@ FBridgeToolResult UQueryBlueprintGraphTool::Execute(
 
 // === Graph conversion ===
 
-TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::GraphToJson(UEdGraph* Graph, const FString& GraphType, const FGraphSerializeOptions& Options, const FString& SearchFilter) const
+TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::GraphToJson(
+	UEdGraph* Graph,
+	const FString& GraphType,
+	const FGraphSerializeOptions& Options,
+	const FString& SearchFilter,
+	const FString& GraphPath) const
 {
 	if (!Graph)
 	{
 		return nullptr;
 	}
 
+	const FString ResolvedGraphPath = GraphPath.IsEmpty() ? BuildGraphPath(Graph) : GraphPath;
 	TSharedPtr<FJsonObject> GraphJson = MakeShareable(new FJsonObject);
 	GraphJson->SetStringField(TEXT("name"), Graph->GetName());
 	GraphJson->SetStringField(TEXT("type"), GraphType);
+	GraphJson->SetStringField(TEXT("graph_path"), ResolvedGraphPath);
 
 	TArray<TSharedPtr<FJsonValue>> NodesArray;
 	for (UEdGraphNode* Node : Graph->Nodes)
 	{
 		if (!Node) continue;
+		if (!MatchesNodeClassFilter(Node, Options)) continue;
 
 		// Apply search filter on node title and class
 		if (!SearchFilter.IsEmpty())
@@ -445,7 +481,7 @@ TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::GraphToJson(UEdGraph* Graph, c
 			}
 		}
 
-		TSharedPtr<FJsonObject> NodeJson = NodeToJson(Node, Options);
+		TSharedPtr<FJsonObject> NodeJson = NodeToJson(Node, Options, ResolvedGraphPath);
 		if (NodeJson.IsValid())
 		{
 			NodesArray.Add(MakeShareable(new FJsonValueObject(NodeJson)));
@@ -458,7 +494,10 @@ TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::GraphToJson(UEdGraph* Graph, c
 	return GraphJson;
 }
 
-TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::NodeToJson(UEdGraphNode* Node, const FGraphSerializeOptions& Options) const
+TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::NodeToJson(
+	UEdGraphNode* Node,
+	const FGraphSerializeOptions& Options,
+	const FString& GraphPath) const
 {
 	if (!Node)
 	{
@@ -470,6 +509,7 @@ TSharedPtr<FJsonObject> UQueryBlueprintGraphTool::NodeToJson(UEdGraphNode* Node,
 	NodeJson->SetStringField(TEXT("guid"), Node->NodeGuid.ToString(EGuidFormats::DigitsWithHyphens));
 	NodeJson->SetStringField(TEXT("class"), Node->GetClass()->GetName());
 	NodeJson->SetStringField(TEXT("title"), Node->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+	NodeJson->SetStringField(TEXT("graph_path"), GraphPath.IsEmpty() ? BuildGraphPath(Node->GetGraph()) : GraphPath);
 
 	if (!Node->NodeComment.IsEmpty())
 	{
@@ -811,6 +851,56 @@ FString UQueryBlueprintGraphTool::GetPinCategoryString(FName Category) const
 FString UQueryBlueprintGraphTool::GetPinDirectionString(EEdGraphPinDirection Direction) const
 {
 	return Direction == EGPD_Input ? TEXT("input") : TEXT("output");
+}
+
+FString UQueryBlueprintGraphTool::BuildGraphPath(UEdGraph* Graph) const
+{
+	if (!Graph)
+	{
+		return FString();
+	}
+
+	TArray<FString> Segments;
+	for (UObject* Current = Graph; Current; Current = Current->GetOuter())
+	{
+		if (UEdGraph* CurrentGraph = Cast<UEdGraph>(Current))
+		{
+			Segments.Insert(CurrentGraph->GetName(), 0);
+		}
+		else if (UEdGraphNode* CurrentNode = Cast<UEdGraphNode>(Current))
+		{
+			Segments.Insert(CurrentNode->GetNodeTitle(ENodeTitleType::ListView).ToString(), 0);
+		}
+	}
+
+	if (Segments.Num() == 0)
+	{
+		return Graph->GetName();
+	}
+	return FString::Join(Segments, TEXT("/"));
+}
+
+bool UQueryBlueprintGraphTool::MatchesNodeClassFilter(UEdGraphNode* Node, const FGraphSerializeOptions& Options) const
+{
+	if (!Node || Options.NodeClassFilters.Num() == 0)
+	{
+		return true;
+	}
+
+	const FString ClassName = Node->GetClass()->GetName();
+	const FString ClassPath = Node->GetClass()->GetPathName();
+	for (const FString& Filter : Options.NodeClassFilters)
+	{
+		if (MatchesWildcard(ClassName, Filter) || MatchesWildcard(ClassPath, Filter))
+		{
+			return true;
+		}
+		if (!Filter.Contains(TEXT("*")) && ClassName.Contains(Filter, ESearchCase::IgnoreCase))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 // === Animation Blueprint support ===

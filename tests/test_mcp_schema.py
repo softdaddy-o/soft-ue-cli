@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
+"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
@@ -44,8 +44,20 @@ def test_extract_tools_contains_known_command():
     assert "reload-bridge-module" in tool_names
     assert "inspect-uasset" in tool_names
     assert "diff-uasset" in tool_names
+    assert "apply-widget-tree" in tool_names
+    assert "wire-widget-navigation" in tool_names
+    assert "verify-umg-workflow" in tool_names
+    assert "capture-pie-screenshot" in tool_names
+    assert "compare-umg-screenshot" in tool_names
+    assert "extract-umg-layout" in tool_names
+    assert "compare-umg-layout" in tool_names
+    assert "umg-layout" in tool_names
     assert "status" in tool_names
     assert "wait-for-ready" in tool_names
+    assert "inspect-sync-markers" in tool_names
+    assert "compare-sync-markers" in tool_names
+    assert "add-sync-marker" in tool_names
+    assert "remove-sync-marker" in tool_names
 
 
 def test_tool_has_required_fields():
@@ -77,6 +89,15 @@ def test_int_type_maps_to_integer():
     tool = next(t for t in tools if t["name"] == "query-level")
     params = tool["parameters"]
     assert params["properties"]["limit"]["type"] == "integer"
+
+
+def test_world_options_are_exposed_for_level_actor_property_queries():
+    tools = extract_tools()
+    query_level = next(t for t in tools if t["name"] == "query-level")
+    get_property = next(t for t in tools if t["name"] == "get-property")
+
+    assert query_level["parameters"]["properties"]["world"]["enum"] == ["editor", "pie", "game"]
+    assert get_property["parameters"]["properties"]["world"]["enum"] == ["editor", "pie", "game"]
 
 
 def test_store_true_maps_to_boolean():
@@ -116,6 +137,95 @@ def test_customizable_object_edit_schema_uses_native_json_types():
     assert slot_params["node_position"]["type"] == "array"
 
 
+def test_apply_widget_tree_schema_uses_native_json_types():
+    tools = extract_tools()
+    tool = next(t for t in tools if t["name"] == "apply-widget-tree")
+    params = tool["parameters"]
+
+    assert params["properties"]["spec"]["type"] == "object"
+    assert params["properties"]["spec_file"]["type"] == "string"
+    assert params["properties"]["append"]["type"] == "boolean"
+    assert params["properties"]["compile"]["type"] == "boolean"
+    assert params["properties"]["save"]["type"] == "boolean"
+    assert params["properties"]["checkout"]["type"] == "boolean"
+    assert "asset_path" in params.get("required", [])
+
+
+def test_umg_workflow_schema_uses_native_json_types():
+    tools = extract_tools()
+
+    wire = next(t for t in tools if t["name"] == "wire-widget-navigation")
+    wire_params = wire["parameters"]
+    assert wire_params["properties"]["bindings"]["type"] == "array"
+    assert wire_params["properties"]["bindings_file"]["type"] == "string"
+    assert wire_params["properties"]["compile"]["type"] == "boolean"
+    assert wire_params["properties"]["save"]["type"] == "boolean"
+    assert wire_params["properties"]["allow_pie"]["type"] == "boolean"
+    assert wire_params["properties"]["allow_busy"]["type"] == "boolean"
+    assert "asset_path" in wire_params.get("required", [])
+
+    verify = next(t for t in tools if t["name"] == "verify-umg-workflow")
+    verify_params = verify["parameters"]
+    assert verify_params["properties"]["expected_widgets"]["type"] == "array"
+    assert verify_params["properties"]["expected_text"]["type"] == "array"
+    assert verify_params["properties"]["click_sequence"]["type"] == "array"
+    assert verify_params["properties"]["preview_lifecycle"]["type"] == "string"
+    assert verify_params["properties"]["capture_after"]["type"] == "boolean"
+
+
+def test_visual_capture_schema_exposes_safe_pie_and_compare_options():
+    tools = extract_tools()
+
+    capture = next(t for t in tools if t["name"] == "capture-screenshot")
+    capture_props = capture["parameters"]["properties"]
+    assert "pie-window" in capture_props["mode"]["enum"]
+    assert capture_props["unsafe_slate_window_capture"]["type"] == "boolean"
+
+    pie_capture = next(t for t in tools if t["name"] == "capture-pie-screenshot")
+    pie_capture_props = pie_capture["parameters"]["properties"]
+    assert pie_capture_props["format"]["type"] == "string"
+    assert pie_capture_props["cleanup_previous"]["type"] == "boolean"
+
+    compare = next(t for t in tools if t["name"] == "compare-umg-screenshot")
+    compare_params = compare["parameters"]
+    assert compare_params["properties"]["crop"]["type"] == "array"
+    assert compare_params["properties"]["annotated_output"]["type"] == "string"
+    assert compare_params["properties"]["threshold"]["type"] == "number"
+    assert "reference_image" in compare_params.get("required", [])
+    assert "captured_image" in compare_params.get("required", [])
+
+
+def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
+    tools = extract_tools()
+
+    query_graph = next(t for t in tools if t["name"] == "query-blueprint-graph")
+    query_props = query_graph["parameters"]["properties"]
+    assert query_props["recursive"]["type"] == "boolean"
+    assert query_props["node_class"]["type"] == "string"
+
+    inspect_anim = next(t for t in tools if t["name"] == "inspect-anim-instance")
+    inspect_params = inspect_anim["parameters"]
+    assert "actor_tag" not in inspect_params.get("required", [])
+    assert inspect_params["properties"]["asset_path"]["type"] == "string"
+
+    compare_markers = next(t for t in tools if t["name"] == "compare-sync-markers")
+    assert compare_markers["parameters"]["properties"]["asset_paths"]["type"] == "array"
+
+    add_marker = next(t for t in tools if t["name"] == "add-sync-marker")
+    assert add_marker["parameters"]["properties"]["time"]["type"] == "number"
+
+
+def test_pie_session_schema_exposes_blueprint_compile_error_policy():
+    tools = extract_tools()
+    tool = next(t for t in tools if t["name"] == "pie-session")
+    params = tool["parameters"]
+
+    action = params["properties"]["blueprint_error_action"]
+    assert action["enum"] == ["modal", "report", "cancel", "continue"]
+    assert params["properties"]["preflight_blueprints"]["type"] == "boolean"
+    assert params["properties"]["continue_on_blueprint_compile_errors"]["type"] == "boolean"
+
+
 def test_customizable_object_convenience_commands_run_client_side_for_mcp():
     for command in {
         "add-co-node",
@@ -131,6 +241,14 @@ def test_customizable_object_convenience_commands_run_client_side_for_mcp():
         "wait-for-ready",
     }:
         assert command in CLIENT_SIDE_COMMANDS
+
+
+def test_visual_compare_command_runs_client_side_for_mcp():
+    assert "capture-pie-screenshot" in CLIENT_SIDE_COMMANDS
+    assert "compare-umg-screenshot" in CLIENT_SIDE_COMMANDS
+    assert "extract-umg-layout" in CLIENT_SIDE_COMMANDS
+    assert "compare-umg-layout" in CLIENT_SIDE_COMMANDS
+    assert "umg-layout" in CLIENT_SIDE_COMMANDS
 
 
 def test_choices_map_to_enum():
@@ -171,7 +289,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 110
+    assert len(tools) <= 130
 
 
 def test_skills_excluded():

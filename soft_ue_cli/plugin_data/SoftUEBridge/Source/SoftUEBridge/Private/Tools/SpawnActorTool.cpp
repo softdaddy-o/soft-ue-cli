@@ -1,16 +1,11 @@
 // Copyright soft-ue-expert. All Rights Reserved.
 
 #include "Tools/SpawnActorTool.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "SoftUEBridgeModule.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Engine/StaticMeshActor.h"
 #include "Camera/CameraActor.h"
-
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(USpawnActorTool)
-#endif
 
 FString USpawnActorTool::GetToolDescription() const
 {

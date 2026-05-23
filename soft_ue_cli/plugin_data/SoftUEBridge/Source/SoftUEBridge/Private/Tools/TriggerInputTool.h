@@ -28,4 +28,9 @@ private:
 	/** Find the best game world — prefers Game, falls back to PIE. */
 	static UWorld* FindGameWorld();
 	static APlayerController* GetPlayerController(UWorld* World, int32 PlayerIndex);
+	static const class UInputAction* FindEnhancedInputAction(
+		APlayerController* PlayerController,
+		const FString& ActionName,
+		int32& OutMappedKeyCount);
+	static struct FInputActionValue MakeEnhancedActionValue(const class UInputAction* Action, bool bPressed);
 };

@@ -20,6 +20,11 @@ _ACTOR_HINT_FIELDS = frozenset({
     "bIsSpatiallyLoaded",
 })
 
+_GENERIC_TAGGED_PROPERTY_ASSET_CLASSES = frozenset({
+    "Skeleton",
+    "SkeletalMesh",
+})
+
 
 def extract_external_actor_summary(
     package: UAssetPackage,
@@ -85,6 +90,63 @@ def extract_external_actor_summary(
     }
 
     return summary
+
+
+def extract_generic_asset_properties(
+    package: UAssetPackage,
+    reader: UAssetReader,
+    *,
+    offset_adjust: int = 0,
+) -> dict | None:
+    """Return tagged property payloads for supported non-Blueprint asset exports."""
+    best: tuple[int, Any, dict[str, Any], str] | None = None
+
+    for export in package.exports:
+        payload_offset = export.serial_offset - offset_adjust
+        if payload_offset < 0 or export.serial_size <= 0:
+            continue
+
+        class_name = package.resolve_import_class(export.class_index)
+        if class_name.startswith("<"):
+            class_path = package.resolve_class_path(export.class_index)
+            class_name = class_path.rsplit(".", 1)[-1] if class_path and not class_path.startswith("<") else "Unknown"
+
+        if class_name not in _GENERIC_TAGGED_PROPERTY_ASSET_CLASSES:
+            continue
+
+        parsed = _read_export_properties(
+            package,
+            reader,
+            payload_offset,
+            serial_size=export.serial_size,
+        )
+        property_items = parsed["items"]
+        if not property_items:
+            continue
+
+        score = len(property_items)
+        if any(item.get("name") in {"BoneTree", "VirtualBones", "Sockets", "Materials"} for item in property_items):
+            score += 10
+
+        candidate = (score, export, parsed, class_name)
+        if best is None or candidate[0] > best[0]:
+            best = candidate
+
+    if best is None:
+        return None
+
+    _, export, parsed, class_name = best
+    property_items = parsed["items"]
+    return {
+        "property_count": len(property_items),
+        "properties": {
+            "count": len(property_items),
+            "items": property_items,
+            "fidelity": parsed["fidelity"],
+            "source_export": export.object_name,
+            "source_class": class_name,
+        },
+    }
 
 
 def _find_actor_export(

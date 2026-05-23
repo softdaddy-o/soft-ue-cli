@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/skills ??skill discovery and retrieval."""
+"""Tests for cli/soft_ue_cli/skills — skill discovery and retrieval."""
 
 from __future__ import annotations
 
@@ -37,6 +37,8 @@ def test_list_skills_contains_blueprint_to_cpp():
     assert "author-anim-state-test" in names
     assert "author-bp-parity-test" in names
     assert "author-invariant-test" in names
+    assert "author-umg-designer" in names
+    assert "author-umg-workflow" in names
 
 
 # -- get_skill -----------------------------------------------------------------
@@ -69,6 +71,10 @@ def test_test_tools_contains_idempotent_teardown_and_insights_stop():
     assert "diff-uasset properties" in content
     assert "save-asset blueprint" in content
     assert "shutil.copy2" in content
+    assert "apply-widget-tree UMG designer spec" in content
+    assert "inspect-widget-blueprint applied tree" in content
+    assert "wire-widget-navigation UMG nav contract" in content
+    assert "verify-umg-workflow preview widget" in content
 
 
 def test_test_tools_contains_config_suite():
@@ -155,12 +161,40 @@ def test_authoring_subskills_target_cpp_committed_tests():
     assert "Source/<Project>Tests/Private/Invariants/TEST_<Slug>.cpp" in invariant
 
 
+def test_author_umg_designer_skill_targets_apply_widget_tree():
+    content = get_skill("author-umg-designer")
+    assert content is not None
+    assert "soft-ue-cli apply-widget-tree" in content
+    assert "CanvasPanel" in content
+    assert "WidgetSwitcher" in content
+    assert "inspect-widget-blueprint" in content
+    assert "region/bounding-box table" in content
+    assert "visual-fidelity checklist" in content
+    assert "1920x1080" in content
+    assert "umg-layout compare --mode pixel" in content
+    assert "umg_expected_layout.json" in content
+    assert "placeholder asset manifest" in content
+    assert "umg-layout compare" in content
+
+
+def test_author_umg_workflow_skill_targets_navigation_and_runtime_verification():
+    content = get_skill("author-umg-workflow")
+    assert content is not None
+    assert "soft-ue-cli apply-widget-tree" in content
+    assert "soft-ue-cli wire-widget-navigation" in content
+    assert "soft-ue-cli verify-umg-workflow" in content
+    assert "stable widget-name contract" in content
+    assert "click_sequence" in content
+
+
 # -- skill file validation -----------------------------------------------------
 
 
 def test_all_skills_have_required_frontmatter():
     """Every .md skill file must have name, description, and version in frontmatter."""
-    skills_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
+    monorepo_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
+    exported_dir = Path(__file__).parents[1] / "soft_ue_cli" / "skills"
+    skills_dir = monorepo_dir if monorepo_dir.exists() else exported_dir
     for md_file in skills_dir.glob("*.md"):
         text = md_file.read_text(encoding="utf-8")
         assert text.startswith("---"), f"{md_file.name} missing frontmatter"

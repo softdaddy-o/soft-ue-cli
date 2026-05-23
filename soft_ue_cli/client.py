@@ -10,9 +10,17 @@ from typing import Any
 
 import httpx
 
-from .discovery import get_server_url
+from .discovery import get_forced_port_fallback_url, get_server_url
 
 _id_counter = itertools.count(1)
+
+
+def _forced_port_fallback_warning(original_url: str, fallback_url: str) -> str:
+    return (
+        "SOFT_UE_BRIDGE_PORT appears stale: "
+        f"{original_url} is unreachable or not a SoftUEBridge server, "
+        f"using live bridge from .soft-ue-bridge/instance.json at {fallback_url}."
+    )
 
 
 def _handle_startup_recovery_for_connection() -> str | None:
@@ -50,10 +58,19 @@ def call_tool(tool_name: str, arguments: dict[str, Any], timeout: float | None =
         "params": {"name": tool_name, "arguments": arguments},
     }
 
-    def post_once() -> httpx.Response:
-        response = httpx.post(endpoint, json=payload, timeout=timeout)
+    def post_once(target_endpoint: str) -> httpx.Response:
+        response = httpx.post(target_endpoint, json=payload, timeout=timeout)
         response.raise_for_status()
         return response
+
+    def bridge_error_from_http(exc: httpx.HTTPStatusError) -> BridgeError:
+        kind = ErrorKind.UNEXPECTED if exc.response.status_code >= 500 else ErrorKind.EXPECTED
+        return BridgeError(
+            kind=kind,
+            message=f"HTTP {exc.response.status_code}",
+            tool_name=tool_name,
+            arguments=arguments,
+        )
 
     def connection_message(exc: httpx.ConnectError | httpx.TimeoutException, note: str | None = None) -> str:
         if isinstance(exc, httpx.ConnectError):
@@ -72,9 +89,7 @@ def call_tool(tool_name: str, arguments: dict[str, Any], timeout: float | None =
             message += f"\n{note}"
         return message
 
-    try:
-        response = post_once()
-    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+    def recover_or_raise(exc: httpx.ConnectError | httpx.TimeoutException) -> httpx.Response:
         recovery_note = None
         try:
             recovery_note = _handle_startup_recovery_for_connection()
@@ -83,7 +98,7 @@ def call_tool(tool_name: str, arguments: dict[str, Any], timeout: float | None =
 
         if recovery_note and recovery_note.startswith("handled "):
             try:
-                response = post_once()
+                return post_once(endpoint)
             except (httpx.ConnectError, httpx.TimeoutException) as retry_exc:
                 raise BridgeError(
                     kind=ErrorKind.EXPECTED,
@@ -92,28 +107,44 @@ def call_tool(tool_name: str, arguments: dict[str, Any], timeout: float | None =
                     arguments=arguments,
                 )
             except httpx.HTTPStatusError as retry_exc:
-                kind = ErrorKind.UNEXPECTED if retry_exc.response.status_code >= 500 else ErrorKind.EXPECTED
-                raise BridgeError(
-                    kind=kind,
-                    message=f"HTTP {retry_exc.response.status_code}",
-                    tool_name=tool_name,
-                    arguments=arguments,
-                )
-        else:
-            raise BridgeError(
-                kind=ErrorKind.EXPECTED,
-                message=connection_message(exc, recovery_note),
-                tool_name=tool_name,
-                arguments=arguments,
-            )
-    except httpx.HTTPStatusError as exc:
-        kind = ErrorKind.UNEXPECTED if exc.response.status_code >= 500 else ErrorKind.EXPECTED
+                raise bridge_error_from_http(retry_exc)
+
         raise BridgeError(
-            kind=kind,
-            message=f"HTTP {exc.response.status_code}",
+            kind=ErrorKind.EXPECTED,
+            message=connection_message(exc, recovery_note),
             tool_name=tool_name,
             arguments=arguments,
         )
+
+    def forced_port_fallback_response() -> httpx.Response | None:
+        fallback_url = get_forced_port_fallback_url(url)
+        if not fallback_url:
+            return None
+        fallback_endpoint = f"{fallback_url}/bridge"
+        response = post_once(fallback_endpoint)
+        print(_forced_port_fallback_warning(url, fallback_url), file=sys.stderr)
+        return response
+
+    try:
+        response = post_once(endpoint)
+    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        try:
+            response = forced_port_fallback_response()
+        except (httpx.ConnectError, httpx.TimeoutException):
+            response = None
+        except httpx.HTTPStatusError as fallback_http_exc:
+            raise bridge_error_from_http(fallback_http_exc)
+        if response is None:
+            response = recover_or_raise(exc)
+    except httpx.HTTPStatusError as exc:
+        try:
+            response = forced_port_fallback_response()
+        except (httpx.ConnectError, httpx.TimeoutException):
+            response = None
+        except httpx.HTTPStatusError as fallback_http_exc:
+            raise bridge_error_from_http(fallback_http_exc)
+        if response is None:
+            raise bridge_error_from_http(exc)
 
     try:
         data = response.json()
@@ -160,9 +191,35 @@ def call_tool(tool_name: str, arguments: dict[str, Any], timeout: float | None =
 def health_check(timeout: float = 5.0) -> dict[str, Any]:
     """GET /bridge health check."""
     url = get_server_url()
+
+    def fallback_health_result() -> dict[str, Any] | None:
+        fallback_url = get_forced_port_fallback_url(url)
+        if not fallback_url:
+            return None
+        response = httpx.get(f"{fallback_url}/bridge", timeout=5.0)
+        response.raise_for_status()
+        result = response.json()
+        result["warning"] = _forced_port_fallback_warning(url, fallback_url)
+        result["bridge_url"] = fallback_url
+        return result
+
     try:
         response = httpx.get(f"{url}/bridge", timeout=timeout)
         response.raise_for_status()
         return response.json()
+    except (httpx.ConnectError, httpx.TimeoutException) as exc:
+        try:
+            if result := fallback_health_result():
+                return result
+        except Exception:
+            pass
+        return {"error": str(exc)}
+    except httpx.HTTPStatusError as exc:
+        try:
+            if result := fallback_health_result():
+                return result
+        except Exception:
+            pass
+        return {"error": str(exc)}
     except Exception as exc:
         return {"error": str(exc)}

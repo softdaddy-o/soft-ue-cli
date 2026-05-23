@@ -203,6 +203,25 @@ def test_bridge_reload_tool_is_runtime_registered_and_cleans_editor_tools():
     assert "LoadModuleWithFailureReason" in reload_source
 
 
+def test_bridge_registry_remove_tools_avoids_instance_shadow():
+    registry_source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/BridgeToolRegistry.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "TObjectPtr<UBridgeToolBase>* FoundInstance" in registry_source
+    assert "FoundInstance->Get()->RemoveFromRoot()" in registry_source
+    assert "TObjectPtr<UBridgeToolBase>* Instance = ToolInstances.Find" not in registry_source
+
+
+def test_customizable_object_graph_tool_uses_unique_token_helper_name():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/EditCustomizableObjectGraphTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "MatchesAnyToken" in source
+    assert "static bool ContainsToken" not in source
+
+
 def test_runtime_config_tools_are_explicitly_registered_in_startup():
     module = _plugin_source_path(
         "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
@@ -349,6 +368,26 @@ def test_set_node_property_syncs_anim_graph_cache_wrapper_name():
     assert "FPropertyChangedEvent" in source
 
 
+def test_runtime_tools_do_not_use_static_registration_macro():
+    runtime_source_root = _plugin_source_path("Source/SoftUEBridge")
+    registry_header = _plugin_source_path(
+        "Source/SoftUEBridge/Public/Tools/BridgeToolRegistry.h"
+    ).read_text(encoding="utf-8")
+    module = _plugin_source_path(
+        "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
+    ).read_text(encoding="utf-8")
+
+    macro_users = [
+        str(path.relative_to(runtime_source_root)).replace("\\", "/")
+        for path in runtime_source_root.rglob("*.cpp")
+        if "REGISTER_BRIDGE_TOOL(" in path.read_text(encoding="utf-8")
+    ]
+
+    assert "REGISTER_BRIDGE_TOOL" not in registry_header
+    assert macro_users == []
+    assert "Registry.RegisterToolClass<UCaptureViewportTool>()" in module
+
+
 def test_customizable_object_remove_tool_is_registered():
     header = _plugin_source_path(
         "Source/SoftUEBridgeEditor/Public/Tools/Asset/EditCustomizableObjectGraphTool.h"
@@ -389,6 +428,45 @@ def test_customizable_object_slot_wiring_macro_is_registered_and_wires_expected_
     assert "Material_Input_Pin" in source
     assert "Mesh Section_Output_Pin" in source
     assert "created_edges" in source
+
+
+def test_pie_screenshot_capture_uses_composited_game_viewport_and_safe_window_fallback():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Editor/CaptureScreenshotTool.cpp"
+    ).read_text(encoding="utf-8")
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Editor/CaptureScreenshotTool.h"
+    ).read_text(encoding="utf-8")
+
+    assert "pie-window" in source
+    assert "CapturePIEWindow" in source
+    assert "FindPIEGameViewportWidget" in source
+    assert "GetGameViewportWidget" in source
+    assert "safe_mode" in source
+    assert "unsafe_slate_window_capture" in source
+    assert "unsafe_window_capture" in source
+    assert "fallback_reason" in source
+    assert "requested_mode" in source
+    assert "native_window_handle" in source
+    assert "CapturePIEWindow" in header
+
+
+def test_pie_session_blueprint_compile_error_policy_is_non_modal_when_requested():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/PIE/PieSessionTool.cpp"
+    ).read_text(encoding="utf-8")
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/PIE/PieSessionTool.h"
+    ).read_text(encoding="utf-8")
+
+    assert "blueprint_error_action" in source
+    assert "preflight_blueprints" in source
+    assert "bDisplayCompilePIEWarning" in source
+    assert "BS_Error" in source
+    assert "blueprint_compile_errors" in source
+    assert "blocked_by_blueprint_compile_errors" in source
+    assert "pie_started" in source
+    assert "FindBlueprintCompileErrors" in header
 
 
 def test_create_customizable_object_from_spec_tool_is_registered_and_uses_graph_helpers():
@@ -456,6 +534,48 @@ def test_editor_screenshot_compression_validates_dimensions_and_pixel_count():
     assert "ExpectedPixelCount * 4" in source
 
 
+def test_viewport_capture_supports_resize_and_color_transform_options():
+    source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/CaptureViewportTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    for field in ("scale", "width", "height", "color_mode", "cleanup_previous"):
+        assert f'Schema.Add(TEXT("{field}")' in source
+
+    assert "ApplyImageTransform" in source
+    assert "ResizeImage" in source
+    assert "ApplyColorMode" in source
+    assert 'SetNumberField(TEXT("width")' in source
+    assert 'SetNumberField(TEXT("original_width")' in source
+    assert 'SetStringField(TEXT("color_mode")' in source
+
+
+def test_viewport_capture_file_output_does_not_cleanup_by_default():
+    source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/CaptureViewportTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "if (bCleanupPrevious)" in source
+    assert "CleanupPreviousCaptures(TempDir);" not in source.replace(
+        "if (bCleanupPrevious)\n\t{\n\t\tCleanupPreviousCaptures(TempDir);\n\t}", ""
+    )
+
+
+def test_editor_screenshot_forwards_viewport_transform_options():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Editor/CaptureScreenshotTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    for field in ("scale", "width", "height", "color_mode", "cleanup_previous"):
+        assert f'Schema.Add(TEXT("{field}")' in source
+
+    assert 'Args->SetNumberField(TEXT("scale")' in source
+    assert 'Args->SetNumberField(TEXT("width")' in source
+    assert 'Args->SetNumberField(TEXT("height")' in source
+    assert 'Args->SetStringField(TEXT("color_mode")' in source
+    assert 'Args->SetBoolField(TEXT("cleanup_previous")' in source
+
+
 def test_window_screenshot_avoids_unsafe_pie_world_rendering_path():
     source = _plugin_source_path(
         "Source/SoftUEBridgeEditor/Private/Tools/Editor/CaptureScreenshotTool.cpp"
@@ -464,8 +584,219 @@ def test_window_screenshot_avoids_unsafe_pie_world_rendering_path():
     assert "IsUnsafeWindowScreenshotDuringPIE" in source
     assert "bDisableWorldRendering" in source
     assert "falling back to viewport capture" in source
-    assert "return CaptureViewport(Format, OutputMode)" in source
+    assert "return CaptureViewport(Format, OutputMode, ScalePercent, TargetWidth, TargetHeight, ColorMode, bCleanupPrevious)" in source
 
+
+def test_apply_widget_tree_tool_is_explicitly_registered_and_supports_designer_spec():
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Widget/ApplyWidgetTreeTool.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Widget/ApplyWidgetTreeTool.cpp"
+    ).read_text(encoding="utf-8")
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "apply-widget-tree" in header
+    assert "UApplyWidgetTreeTool" in module
+    assert "Registry.RegisterToolClass<UApplyWidgetTreeTool>()" in module
+    assert "REGISTER_BRIDGE_TOOL(UApplyWidgetTreeTool)" not in source
+
+    for widget_class in (
+        "CanvasPanel",
+        "Overlay",
+        "Border",
+        "SizeBox",
+        "ScaleBox",
+        "Image",
+        "TextBlock",
+        "Button",
+        "HorizontalBox",
+        "VerticalBox",
+        "UniformGridPanel",
+        "GridPanel",
+        "ScrollBox",
+        "Spacer",
+        "WidgetSwitcher",
+    ):
+        assert widget_class in source
+
+    for schema_field in ("spec", "replace", "compile", "save", "checkout"):
+        assert f'Schema.Add(TEXT("{schema_field}")' in source
+
+    assert "ConstructWidget" in source
+    assert "DetachDesignerTree" in source
+    assert "RemoveWidget" in source
+    assert "REN_DontCreateRedirectors" in source
+    assert "ApplyWidgetProperties" in source
+    assert "ApplySlotProperties" in source
+    assert "SetText(FText::FromString" in source
+    assert "SetBrushFromTexture" in source
+    assert "SetBrushFromMaterial" in source
+    assert "SetRenderOpacity" in source
+    assert "SetVisibility" in source
+    assert "SetZOrder" in source
+    assert "SetOffsets" in source
+    assert 'SetNumberField(TEXT("removed_widget_count")' in source
+    assert "CompileBlueprint" in source
+    assert "SaveAsset" in source
+
+
+def test_umg_workflow_tools_are_explicitly_registered_and_support_runtime_contracts():
+    wire_header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Widget/WireWidgetNavigationTool.h"
+    ).read_text(encoding="utf-8")
+    wire_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Widget/WireWidgetNavigationTool.cpp"
+    ).read_text(encoding="utf-8")
+    verify_header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Widget/VerifyUMGWorkflowTool.h"
+    ).read_text(encoding="utf-8")
+    verify_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Widget/VerifyUMGWorkflowTool.cpp"
+    ).read_text(encoding="utf-8")
+    preview_registry_header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Widget/WidgetPreviewRegistry.h"
+    ).read_text(encoding="utf-8")
+    preview_registry_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Widget/WidgetPreviewRegistry.cpp"
+    ).read_text(encoding="utf-8")
+    pie_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/PIE/PieSessionTool.cpp"
+    ).read_text(encoding="utf-8")
+    inspect_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Widget/InspectRuntimeWidgetsTool.cpp"
+    ).read_text(encoding="utf-8")
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "wire-widget-navigation" in wire_header
+    assert "verify-umg-workflow" in verify_header
+    assert "Registry.RegisterToolClass<UWireWidgetNavigationTool>()" in module
+    assert "Registry.RegisterToolClass<UVerifyUMGWorkflowTool>()" in module
+    assert "REGISTER_BRIDGE_TOOL(UWireWidgetNavigationTool)" not in wire_source
+    assert "REGISTER_BRIDGE_TOOL(UVerifyUMGWorkflowTool)" not in verify_source
+
+    for token in (
+        "bindings",
+        "allow_pie",
+        "allow_busy",
+        "GIsSavingPackage",
+        "IsGarbageCollecting",
+        "IsPlaySessionInProgress",
+        "editor_state",
+        "blocked_active_pie",
+        "button",
+        "WidgetSwitcher",
+        "bIsVariable",
+        "CompileBlueprint",
+        "SaveAsset",
+        "parent_binding_contract",
+    ):
+        assert token in wire_source
+
+    for token in (
+        "CreateWidget",
+        "AddToViewport",
+        "expected_widgets",
+        "expected_text",
+        "click_sequence",
+        "OnClicked.Broadcast",
+        "GetActiveWidgetIndex",
+        "capture_after",
+        "preview_lifecycle",
+        "FWidgetPreviewRegistry::RemovePreviewsForWorld",
+        "FWidgetPreviewRegistry::RegisterPreview",
+        "RemoveFromParent",
+    ):
+        assert token in verify_source
+
+    assert "RemovePreviewsForWorld" in preview_registry_header
+    assert "TWeakObjectPtr<UUserWidget>" in preview_registry_source
+    assert "FWidgetPreviewRegistry::RemovePreviewsForWorld" in pie_source
+    assert "cleanup_tool_previews" in pie_source
+
+    assert "UUserWidget" in inspect_source
+    assert "WidgetTree->RootWidget" in inspect_source
+
+
+def test_capture_screenshot_tool_returns_structured_pie_fallback_diagnostics():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Editor/CaptureScreenshotTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    for token in (
+        "structured_exception",
+        "capture_failure_kind",
+        "fallback_command",
+        "safe_mode",
+        "capture-screenshot viewport",
+    ):
+        assert token in source
+
+
+def test_build_and_relaunch_uses_absolute_paths_and_startup_marker():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Build/BuildAndRelaunchTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "ConvertRelativePathToFull(FPaths::EngineDir())" in source
+    assert "BuildAndRelaunch.started" in source
+    assert "$StartupMarkerPath" in source
+    assert "worker_failed_to_start" in source
+    assert 'Schema.Add(TEXT("startup_marker_timeout")' in source
+    assert "StartupMarkerTimeoutSeconds" in source
+    assert "within %.0fs" in source
+    assert "-File" in source
+    assert "Start-Process -WindowStyle Hidden -FilePath powershell.exe" not in source
+
+
+def test_query_blueprint_graph_exposes_recursive_anim_filters_and_paths():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Blueprint/QueryBlueprintGraphTool.cpp"
+    ).read_text(encoding="utf-8")
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Blueprint/QueryBlueprintGraphTool.h"
+    ).read_text(encoding="utf-8")
+
+    for token in (
+        'Schema.Add(TEXT("recursive")',
+        'Schema.Add(TEXT("node_class")',
+        "graph_path",
+        "NodeClassFilters",
+        "BuildGraphPath",
+        "MatchesNodeClassFilter",
+    ):
+        assert token in source or token in header
+
+
+def test_animation_sync_marker_tools_are_registered_and_mutate_authored_markers():
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Animation/AnimSyncMarkerTools.cpp"
+    ).read_text(encoding="utf-8")
+
+    for token in (
+        "UInspectSyncMarkersTool",
+        "UCompareSyncMarkersTool",
+        "UAddSyncMarkerTool",
+        "URemoveSyncMarkerTool",
+    ):
+        assert token in module
+        assert token in source
+
+    for token in (
+        "AuthoredSyncMarkers",
+        "MarkerName",
+        "Time",
+        "BridgeAssetModifier",
+        "MarkPackageDirty",
+    ):
+        assert token in source
 
 def test_add_widget_supports_single_child_content_parents():
     source = _plugin_source_path(
@@ -477,3 +808,19 @@ def test_add_widget_supports_single_child_content_parents():
     assert "AddChild(NewWidget)" in source
     assert "GetContent()" in source
     assert "already contains a child" in source
+
+
+def test_trigger_input_routes_keys_through_player_controller_and_enhanced_input():
+    source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/TriggerInputTool.cpp"
+    ).read_text(encoding="utf-8")
+    build_cs = _plugin_source_path("Source/SoftUEBridge/SoftUEBridge.Build.cs").read_text(encoding="utf-8")
+    descriptor = _plugin_source_path("SoftUEBridge.uplugin").read_text(encoding="utf-8")
+
+    assert "PC->InputKey" in source
+    assert "PlayerInput->InputKey" not in source
+    assert "UEnhancedPlayerInput" in source
+    assert "InjectInputForAction" in source
+    assert "FindEnhancedInputAction" in source
+    assert '"EnhancedInput"' in build_cs
+    assert '"Name": "EnhancedInput"' in descriptor

@@ -1,17 +1,12 @@
 // Copyright soft-ue-expert. All Rights Reserved.
 
 #include "Tools/SetPropertyTool.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "SoftUEBridgeModule.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Components/ActorComponent.h"
 #include "EngineUtils.h"
 #include "UObject/UnrealType.h"
-
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(USetPropertyTool)
-#endif
 
 FString USetPropertyTool::GetToolDescription() const
 {

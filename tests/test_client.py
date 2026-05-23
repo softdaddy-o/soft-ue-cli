@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/client.py ??uses httpx mock transport."""
+"""Tests for cli/soft_ue_cli/client.py — uses httpx mock transport."""
 
 from __future__ import annotations
 
@@ -93,6 +93,62 @@ def test_call_tool_connect_error(monkeypatch):
     assert "cannot connect to SoftUEBridge" in str(exc.value)
 
 
+def test_call_tool_falls_back_when_forced_port_is_stale(monkeypatch, capsys):
+    calls: list[str] = []
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "1",
+        "result": {"content": [{"type": "text", "text": '{"status": "ok"}'}]},
+    }
+
+    def post_with_stale_port(url, **kw):
+        calls.append(url)
+        if url == "http://127.0.0.1:8081/bridge":
+            raise httpx.ConnectError("refused")
+        assert url == "http://127.0.0.1:8080/bridge"
+        return _resp(200, payload)
+
+    monkeypatch.setattr(httpx, "post", post_with_stale_port)
+    monkeypatch.setattr(client_mod, "get_forced_port_fallback_url", lambda current: "http://127.0.0.1:8080")
+    monkeypatch.setattr(
+        client_mod,
+        "_handle_startup_recovery_for_connection",
+        lambda: pytest.fail("startup recovery should not run when registry fallback is live"),
+    )
+    with _patch_url("http://127.0.0.1:8081"):
+        result = call_tool("status", {})
+
+    assert result == {"status": "ok"}
+    assert calls == ["http://127.0.0.1:8081/bridge", "http://127.0.0.1:8080/bridge"]
+    assert "SOFT_UE_BRIDGE_PORT appears stale" in capsys.readouterr().err
+
+
+def test_call_tool_falls_back_when_forced_port_hits_non_bridge_service(monkeypatch, capsys):
+    calls: list[str] = []
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "1",
+        "result": {"content": [{"type": "text", "text": '{"status": "ok"}'}]},
+    }
+
+    def post_with_non_bridge(url, **kw):
+        calls.append(url)
+        if url == "http://127.0.0.1:8081/bridge":
+            response = httpx.Response(404, request=httpx.Request("POST", url))
+            raise httpx.HTTPStatusError("404", request=response.request, response=response)
+        assert url == "http://127.0.0.1:8080/bridge"
+        return _resp(200, payload)
+
+    monkeypatch.setattr(httpx, "post", post_with_non_bridge)
+    monkeypatch.setattr(client_mod, "get_forced_port_fallback_url", lambda current: "http://127.0.0.1:8080")
+    with _patch_url("http://127.0.0.1:8081"):
+        result = call_tool("status", {})
+
+    assert result == {"status": "ok"}
+    assert calls == ["http://127.0.0.1:8081/bridge", "http://127.0.0.1:8080/bridge"]
+    assert "SOFT_UE_BRIDGE_PORT appears stale" in capsys.readouterr().err
+
+
 def test_call_tool_handles_remembered_startup_recovery_and_retries(monkeypatch):
     calls = 0
 
@@ -183,6 +239,48 @@ def test_health_check_connection_error(monkeypatch):
     with _patch_url():
         result = health_check()
     assert "error" in result
+
+
+def test_health_check_falls_back_when_forced_port_is_stale(monkeypatch):
+    req = httpx.Request("GET", "http://127.0.0.1:8080/bridge")
+    calls: list[str] = []
+
+    def get_with_stale_port(url, **kw):
+        calls.append(url)
+        if url == "http://127.0.0.1:8081/bridge":
+            raise httpx.ConnectError("refused")
+        assert url == "http://127.0.0.1:8080/bridge"
+        return httpx.Response(200, json={"status": "ok"}, request=req)
+
+    monkeypatch.setattr(httpx, "get", get_with_stale_port)
+    monkeypatch.setattr(client_mod, "get_forced_port_fallback_url", lambda current: "http://127.0.0.1:8080")
+    with _patch_url("http://127.0.0.1:8081"):
+        result = health_check()
+
+    assert result["status"] == "ok"
+    assert "SOFT_UE_BRIDGE_PORT appears stale" in result["warning"]
+    assert result["bridge_url"] == "http://127.0.0.1:8080"
+    assert calls == ["http://127.0.0.1:8081/bridge", "http://127.0.0.1:8080/bridge"]
+
+
+def test_health_check_falls_back_when_forced_port_hits_non_bridge_service(monkeypatch):
+    calls: list[str] = []
+
+    def get_with_non_bridge(url, **kw):
+        calls.append(url)
+        if url == "http://127.0.0.1:8081/bridge":
+            response = httpx.Response(404, request=httpx.Request("GET", url))
+            raise httpx.HTTPStatusError("404", request=response.request, response=response)
+        return httpx.Response(200, json={"status": "ok"}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", get_with_non_bridge)
+    monkeypatch.setattr(client_mod, "get_forced_port_fallback_url", lambda current: "http://127.0.0.1:8080")
+    with _patch_url("http://127.0.0.1:8081"):
+        result = health_check()
+
+    assert result["status"] == "ok"
+    assert "SOFT_UE_BRIDGE_PORT appears stale" in result["warning"]
+    assert calls == ["http://127.0.0.1:8081/bridge", "http://127.0.0.1:8080/bridge"]
 
 
 def test_health_check_timeout(monkeypatch):

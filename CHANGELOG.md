@@ -2,6 +2,42 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## Unreleased
+
+## [1.32.0] - 2026-05-24
+
+### Added
+- New `apply-widget-tree` command and bridge tool build or replace a WidgetBlueprint Designer tree from a declarative JSON spec, with common UMG widgets, slot layout, styling primitives, optional compile/save, and an `author-umg-designer` skill for drafting editable specs from UI concepts.
+- New `wire-widget-navigation` command and bridge tool validate named Widget Blueprint buttons, switchers, and target widgets while returning a parent-class binding contract for C++ or Blueprint parent implementation.
+- New `verify-umg-workflow` command and bridge tool validate UMG screens in PIE by creating or finding widgets, checking expected names/text, broadcasting button clicks, and asserting switcher or visibility outcomes.
+- New `author-umg-workflow` skill chains UMG Designer authoring, stable widget-name navigation contracts, PIE interaction verification, and optional screenshot capture into one LLM workflow.
+- `capture-viewport` and `capture-screenshot` now support output resizing with `--scale`, `--width`, and `--height`, plus `--color-mode color|grayscale|monochrome`.
+- File capture cleanup is now opt-in with `--cleanup-previous`, so sequential viewport captures are preserved by default.
+- `author-umg-designer` now requires a concept geometry and visual-fidelity pass with bounding boxes, opacity/z-order notes, and screenshot comparison guidance.
+- `query-level` and `get-property` now accept `--world editor|pie|game` so PIE-world actors can be inspected directly.
+- `build-and-relaunch` now accepts `--startup-marker-timeout` and defaults the detached worker startup wait to 30 seconds on Windows.
+- `inspect-uasset --sections properties` and `diff-uasset --sections properties` now expose tagged property payloads for Skeleton and SkeletalMesh assets.
+- New `extract-umg-layout` and `compare-umg-layout` commands normalize designer/runtime UMG geometry and compare layout artifacts offline.
+- New `umg-layout` command family standardizes concept-image, Figma/Stitch, designer, and runtime layout extraction, geometry/pixel comparison, subset matching, ignore masks, and apply-widget-tree spec fitting.
+- `query-blueprint-graph` can now recursively inspect nested AnimBlueprint graphs with `--recursive`/`--all-graphs`, include `graph_path` on serialized nodes, and filter node classes with `--node-class`.
+- `inspect-anim-instance` now supports static AnimBlueprint topology inspection with `--asset-path`, including topology and sync-group sections without requiring a live actor.
+- New `inspect-sync-markers`, `compare-sync-markers`, `add-sync-marker`, and `remove-sync-marker` commands and bridge tools inspect and edit AuthoredSyncMarkers on AnimSequence assets.
+- `build-and-relaunch` can now run an offline fallback build path when the editor bridge is unavailable, with explicit `--project`, `--editor-exe`, `--build-bat`, and `--no-offline-fallback` controls.
+
+### Fixed
+- `inspect-runtime-widgets` now descends through `UUserWidget` widget trees and content widgets, so named runtime children can be found for UMG verification workflows.
+- `build-and-relaunch --wait` now reads UTF-8 BOM status JSON explicitly, avoiding Windows ANSI locale decode crashes after successful builds.
+- `trigger-input move-to --target -X,Y,Z` now accepts negative coordinates without requiring the `--target=-X,Y,Z` form.
+- `build-and-relaunch` now resolves engine build paths to absolute paths and verifies the detached worker creates a startup marker before closing the editor.
+- `wire-widget-navigation` now fails fast while PIE is active by default; use `--allow-pie` only when mutating WidgetBlueprint assets during PIE is intentional.
+- `trigger-input key` now routes key events through the PlayerController input path, and `trigger-input action` can inject active Enhanced Input actions by `UInputAction` name.
+- `verify-umg-workflow` tracks tool-created preview widgets with a lifecycle policy so repeated checks can replace or remove prior previews safely, and `pie-session stop` removes those previews before shutdown by default.
+- `wire-widget-navigation` now also fails fast while the editor is saving or garbage collecting; use `--allow-busy` only when the mutation is intentional.
+- PIE screenshot capture now returns structured fallback diagnostics, including `capture_failure_kind`, `safe_mode`, and `fallback_command`, instead of opaque failed capture results.
+- CLI bridge calls now fall back from a stale `SOFT_UE_BRIDGE_PORT` even when the endpoint responds but is not a SoftUEBridge server.
+- UMG layout comparison can now operate as a key-region subset diff so decorative actual widgets do not fail concept-matching reports.
+- `build-and-relaunch --wait` can now complete recovery builds after the editor is already closed by discovering build tools from the project file and EngineAssociation.
+
 ## [1.31.0] - 2026-05-17
 
 ### Fixed

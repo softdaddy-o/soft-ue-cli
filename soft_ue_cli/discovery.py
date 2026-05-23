@@ -28,6 +28,29 @@ def _find_project_instance() -> str | None:
     return None
 
 
+def get_forced_port_fallback_url(current_url: str) -> str | None:
+    """Return a project registry URL to try when SOFT_UE_BRIDGE_PORT is stale.
+
+    A full SOFT_UE_BRIDGE_URL remains authoritative. This fallback only applies
+    to the weaker port-only override, where the project-local bridge registry can
+    point at the editor's current live port after a restart or module reload.
+    """
+    if os.environ.get("SOFT_UE_BRIDGE_URL"):
+        return None
+    if not os.environ.get("SOFT_UE_BRIDGE_PORT"):
+        return None
+
+    instance_url = _find_project_instance()
+    if not instance_url:
+        return None
+
+    normalized_current = current_url.rstrip("/")
+    normalized_instance = instance_url.rstrip("/")
+    if normalized_current == normalized_instance:
+        return None
+    return normalized_instance
+
+
 def get_server_url() -> str:
     """Return the base URL of the running SoftUEBridge server.
 

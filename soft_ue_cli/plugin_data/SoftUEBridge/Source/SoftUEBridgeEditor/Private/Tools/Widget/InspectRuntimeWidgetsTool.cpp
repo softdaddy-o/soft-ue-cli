@@ -7,10 +7,13 @@
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Widget.h"
+#include "Components/ContentWidget.h"
 #include "Components/PanelWidget.h"
 #include "Components/PanelSlot.h"
+#include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
+#include "UObject/UObjectIterator.h"
 #include "Widgets/SWidget.h"
 #include "Layout/Geometry.h"
 
@@ -283,6 +286,25 @@ UWidget* UInspectRuntimeWidgetsTool::FindWidgetByName(UWidget* Root, const FStri
 		return Root;
 	}
 
+	if (UUserWidget* UserWidget = Cast<UUserWidget>(Root))
+	{
+		if (UserWidget->WidgetTree && UserWidget->WidgetTree->RootWidget)
+		{
+			if (UWidget* Found = FindWidgetByName(UserWidget->WidgetTree->RootWidget, Name))
+			{
+				return Found;
+			}
+		}
+	}
+
+	if (UContentWidget* ContentWidget = Cast<UContentWidget>(Root))
+	{
+		if (UWidget* Found = FindWidgetByName(ContentWidget->GetContent(), Name))
+		{
+			return Found;
+		}
+	}
+
 	if (UPanelWidget* PanelWidget = Cast<UPanelWidget>(Root))
 	{
 		for (int32 i = 0; i < PanelWidget->GetChildrenCount(); i++)
@@ -381,6 +403,46 @@ TSharedPtr<FJsonObject> UInspectRuntimeWidgetsTool::BuildWidgetNode(
 	TArray<TSharedPtr<FJsonValue>> ChildrenArray;
 	if (CurrentDepth < MaxDepth)
 	{
+		if (UUserWidget* UserWidget = Cast<UUserWidget>(Widget))
+		{
+			if (UserWidget->WidgetTree && UserWidget->WidgetTree->RootWidget)
+			{
+				bool bChildHasMatch = false;
+				TSharedPtr<FJsonObject> ChildNode = BuildWidgetNode(
+					UserWidget->WidgetTree->RootWidget, CurrentDepth + 1, MaxDepth,
+					bIncludeGeometry, bIncludeProperties, bIncludeSlate,
+					Filter, ClassFilter, bChildHasMatch);
+				if (ChildNode.IsValid() && (!bHasFilter || bChildHasMatch))
+				{
+					ChildrenArray.Add(MakeShareable(new FJsonValueObject(ChildNode)));
+				}
+				if (bChildHasMatch)
+				{
+					bSubtreeHasMatch = true;
+				}
+			}
+		}
+		else if (UContentWidget* ContentWidget = Cast<UContentWidget>(Widget))
+		{
+			if (UWidget* Child = ContentWidget->GetContent())
+			{
+				bool bChildHasMatch = false;
+				TSharedPtr<FJsonObject> ChildNode = BuildWidgetNode(
+					Child, CurrentDepth + 1, MaxDepth, bIncludeGeometry,
+					bIncludeProperties, bIncludeSlate, Filter, ClassFilter,
+					bChildHasMatch);
+
+				if (ChildNode.IsValid() && (!bHasFilter || bChildHasMatch))
+				{
+					ChildrenArray.Add(MakeShareable(new FJsonValueObject(ChildNode)));
+				}
+
+				if (bChildHasMatch)
+				{
+					bSubtreeHasMatch = true;
+				}
+			}
+		}
 		if (UPanelWidget* PanelWidget = Cast<UPanelWidget>(Widget))
 		{
 			for (int32 i = 0; i < PanelWidget->GetChildrenCount(); i++)

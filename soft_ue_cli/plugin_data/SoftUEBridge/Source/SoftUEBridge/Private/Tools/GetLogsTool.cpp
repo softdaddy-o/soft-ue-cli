@@ -1,7 +1,6 @@
 // Copyright soft-ue-expert. All Rights Reserved.
 
 #include "Tools/GetLogsTool.h"
-#include "Tools/BridgeToolRegistry.h"
 #include "SoftUEBridgeModule.h"
 #include "Misc/OutputDeviceRedirector.h"
 #include "Misc/DateTime.h"
@@ -114,10 +113,6 @@ FString FBridgeLogCapture::GetLatestTimestamp() const
 }
 
 // ── UGetLogsTool ──────────────────────────────────────────────────────────────
-
-#if !WITH_EDITOR
-REGISTER_BRIDGE_TOOL(UGetLogsTool)
-#endif
 
 FString UGetLogsTool::GetToolDescription() const
 {

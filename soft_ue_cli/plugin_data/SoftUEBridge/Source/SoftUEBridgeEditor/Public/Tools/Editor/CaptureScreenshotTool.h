@@ -9,11 +9,12 @@
 /**
  * Tool to capture screenshots of editor windows, tabs, regions, or the game viewport.
  *
- * Supports four capture modes:
+ * Supports five capture modes:
  * 1. Window Mode: Captures the entire editor window
  * 2. Tab Mode: Captures a specific editor tab/panel (Blueprint Editor, Material Editor, etc.)
  * 3. Region Mode: Captures a specific rectangular region by coordinates
  * 4. Viewport Mode: Captures the PIE game screen (delegates to runtime capture-viewport tool)
+ * 5. PIE Window Mode: Captures the composited PIE game viewport, including UMG
  *
  * Output can be saved to a file or returned as base64-encoded image data.
  */
@@ -30,7 +31,7 @@ public:
 		return TEXT("Capture screenshots of editor windows, tabs, regions, or the game viewport. "
 				   "Use 'mode' to specify capture type: 'window' (entire editor), "
 				   "'tab' (specific editor panel), 'region' (rectangular area), "
-				   "or 'viewport' (PIE game screen). "
+				   "'viewport' (PIE render target), or 'pie-window' (composited PIE viewport). "
 				   "Output as file or base64-encoded image data.");
 	}
 
@@ -48,7 +49,14 @@ private:
 	 * @param OutputMode - Output mode ("file" or "base64")
 	 * @return Tool result with image data or file path
 	 */
-	FBridgeToolResult CaptureViewport(const FString& Format, const FString& OutputMode);
+	FBridgeToolResult CaptureViewport(
+		const FString& Format,
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious);
 
 	/**
 	 * Capture the entire editor window.
@@ -56,7 +64,29 @@ private:
 	 * @param OutputMode - Output mode ("file" or "base64")
 	 * @return Tool result with image data or file path
 	 */
-	FBridgeToolResult CaptureWindow(const FString& Format, const FString& OutputMode);
+	FBridgeToolResult CaptureWindow(
+		const FString& Format,
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious,
+		bool bSafeMode);
+
+	/**
+	 * Capture the composited PIE game viewport Slate widget, including UMG.
+	 */
+	FBridgeToolResult CapturePIEWindow(
+		const FString& Format,
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious,
+		const FString& RequestedMode,
+		const FString& FallbackReason);
 
 	/**
 	 * Capture a specific editor tab/panel.
@@ -65,7 +95,15 @@ private:
 	 * @param OutputMode - Output mode ("file" or "base64")
 	 * @return Tool result with image data or file path
 	 */
-	FBridgeToolResult CaptureTab(const FString& TabName, const FString& Format, const FString& OutputMode);
+	FBridgeToolResult CaptureTab(
+		const FString& TabName,
+		const FString& Format,
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious);
 
 	/**
 	 * Capture a specific rectangular region.
@@ -74,7 +112,15 @@ private:
 	 * @param OutputMode - Output mode ("file" or "base64")
 	 * @return Tool result with image data or file path
 	 */
-	FBridgeToolResult CaptureRegion(const FIntRect& Region, const FString& Format, const FString& OutputMode);
+	FBridgeToolResult CaptureRegion(
+		const FIntRect& Region,
+		const FString& Format,
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious);
 
 	/**
 	 * Capture screenshot from a specific window.
@@ -86,7 +132,13 @@ private:
 	FBridgeToolResult CaptureFromWindow(
 		TSharedPtr<SWindow> Window,
 		const FString& Format,
-		const FString& OutputMode);
+		const FString& OutputMode,
+		float ScalePercent,
+		int32 TargetWidth,
+		int32 TargetHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious,
+		TSharedPtr<FJsonObject> ExtraFields = nullptr);
 
 	/**
 	 * Take a screenshot of a widget and return raw RGBA data.
@@ -101,6 +153,8 @@ private:
 		TArray<FColor>& OutImageData,
 		int32& OutWidth,
 		int32& OutHeight);
+
+	TSharedPtr<SWidget> FindPIEGameViewportWidget() const;
 
 	/**
 	 * Compress raw RGBA image data to PNG or JPEG.
@@ -128,7 +182,14 @@ private:
 		const TArray<uint8>& ImageData,
 		const FString& Format,
 		const FString& OutputMode,
-		const FString& CaptureMode);
+		const FString& CaptureMode,
+		int32 Width,
+		int32 Height,
+		int32 OriginalWidth,
+		int32 OriginalHeight,
+		const FString& ColorMode,
+		bool bCleanupPrevious,
+		TSharedPtr<FJsonObject> ExtraFields = nullptr);
 
 	/**
 	 * Delete previous screenshot files.

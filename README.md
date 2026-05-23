@@ -4,7 +4,7 @@
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![AI agents](https://img.shields.io/badge/AI_agents-ready-7c3aed)](#why-soft-ue-cli)
-[![skills](https://img.shields.io/badge/skills-11-84cc16)](#skills-llm-workflow-prompts)
+[![skills](https://img.shields.io/badge/skills-12-84cc16)](#skills-llm-workflow-prompts)
 [![tools](https://img.shields.io/badge/tools-60%2B-f97316)](#complete-command-reference)
 [![MCP](https://img.shields.io/badge/MCP-server-0ea5e9)](#mcp-server-mode)
 [![AI built for coding agents](https://img.shields.io/badge/AI_built_for-coding_agents-6b7280)](#why-soft-ue-cli)
@@ -215,7 +215,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | Command | Description |
 |---------|-------------|
 | `query-blueprint` | Inspect a Blueprint asset -- components, variables, functions, interfaces, event dispatchers |
-| `query-blueprint-graph` | Inspect event graphs, function graphs, and node connections |
+| `query-blueprint-graph` | Inspect event graphs, function graphs, nested AnimBlueprint graphs, node connections, positions, and class-filtered nodes |
 | `inspect-uasset` | Inspect a local `.uasset` file offline by parsed metadata, with best support for Blueprint and External Actor assets |
 | `diff-uasset` | Diff two local `.uasset` files offline by parsed metadata, with best support for Blueprint and External Actor assets |
 | `add-graph-node` | Add a node to a Blueprint or Material graph (supports `AnimLayerFunction` for ALIs) |
@@ -283,7 +283,11 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `exec-console-command` | Execute arbitrary UE console commands directly in editor, PIE, or game worlds |
 | `pie-session` | Start, stop, pause, resume PIE -- also query actor state during play |
 | `pie-tick` | Start PIE if needed and advance the world deterministically by frame count |
-| `inspect-anim-instance` | Snapshot a target actor's live `UAnimInstance` state, montages, slot activity, and blend weights |
+| `inspect-anim-instance` | Snapshot a target actor's live `UAnimInstance` state or inspect static AnimBlueprint topology with `--asset-path` |
+| `inspect-sync-markers` | List AuthoredSyncMarkers on an AnimSequence asset |
+| `compare-sync-markers` | Compare sync marker names and timing across AnimSequence assets |
+| `add-sync-marker` | Add an AuthoredSyncMarker to an AnimSequence asset |
+| `remove-sync-marker` | Remove AuthoredSyncMarkers from an AnimSequence asset |
 | `inspect-pawn-possession` | Inspect controller/pawn links, AI auto-possession, and hidden state in a running world |
 | `trigger-input` | Send input events to a running game (PIE or packaged build) |
 
@@ -335,6 +339,12 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 |---------|-------------|
 | `inspect-widget-blueprint` | Inspect UMG Widget Blueprint hierarchy, bindings, properties, and input mapping key bindings |
 | `inspect-runtime-widgets` | Inspect live UMG widget geometry during PIE sessions |
+| `apply-widget-tree` | Build or replace a Widget Blueprint Designer hierarchy from a declarative JSON spec |
+| `wire-widget-navigation` | Validate named Widget Blueprint buttons, switchers, and target widgets while exposing parent-class navigation binding contracts |
+| `verify-umg-workflow` | Create or inspect UMG widgets in PIE, validate expected names/text, broadcast button clicks, and assert switcher or visibility outcomes |
+| `umg-layout` | Unified concept-to-runtime layout pipeline for extraction, geometry/pixel comparison, subset matching, ignore masks, and spec fitting |
+| `extract-umg-layout` | Normalize designer or runtime UMG geometry into a layout JSON artifact |
+| `compare-umg-layout` | Compare expected and actual UMG layout artifacts offline |
 | `add-widget` | Add a widget to a Widget Blueprint |
 
 ### DataTable Editing
@@ -369,7 +379,7 @@ Requires the **Animation Insights (GameplayInsights)** plugin enabled in Edit > 
 
 | Command | Description |
 |---------|-------------|
-| `build-and-relaunch` | Trigger a full C++ rebuild and optionally relaunch the editor (`--wait` monitors staged progress and reports timeout diagnostics) |
+| `build-and-relaunch` | Trigger a full C++ rebuild and optionally relaunch the editor; `--wait` monitors staged progress, and offline fallback can build from `--project` when the bridge is unavailable |
 | `trigger-live-coding` | Trigger a Live Coding compile (hot reload); warns on risky reflected header changes and returns full-build guidance when Unreal cancels unsupported changes |
 | `reload-bridge-module` | Reload the bridge editor module from disk without a full editor restart |
 
@@ -387,6 +397,8 @@ Skills are markdown prompts that teach an LLM client how to perform complex mult
 | Skill | Description |
 |-------|-------------|
 | `blueprint-to-cpp` | Generate C++ `.h`/`.cpp` from a Blueprint asset -- Layer 1 (class scaffolding) + Layer 2 (graph logic translation) |
+| `author-umg-designer` | Convert a UI concept image plus text requirements into an editable UMG Designer tree JSON draft for `apply-widget-tree` |
+| `author-umg-workflow` | Turn a UI concept into an editable UMG Designer tree, stable widget-name navigation contract, and PIE interaction verification plan |
 | `level-from-image` | Populate a UE level from a reference image -- analyzes the image, maps scene elements to project assets, batch-places actors, then iterates with visual feedback (viewport screenshots) |
 | `replay-changes` | Walk the binary-asset conflict recovery flow for Git or Perforce: extract base/local/remote revisions, inspect offline diffs, sync the incoming binary, and replay the wanted local edits manually |
 | `test-tools` | Run the exhaustive live integration test script across CLI and MCP modes, including offline `.uasset` smoke checks against a generated Blueprint |
@@ -417,6 +429,8 @@ soft-ue-cli spawn-actor BP_Enemy --location 100,200,50 --rotation 0,90,0
 
 ```bash
 soft-ue-cli query-level --class-filter StaticMeshActor --limit 50
+soft-ue-cli query-level --world pie --search "BP_Player*"
+soft-ue-cli get-property BP_Player_C_0 Health --world pie
 ```
 
 ### Call a BlueprintCallable function
@@ -474,12 +488,31 @@ soft-ue-cli inspect-pawn-possession --class-filter Character
 soft-ue-cli query-blueprint /Game/Blueprints/BP_Player --include components,variables
 ```
 
+### Build an editable UMG Designer tree
+
+```bash
+soft-ue-cli apply-widget-tree /Game/UI/WBP_MainMenu --spec-file menu_tree.json --compile --save
+soft-ue-cli wire-widget-navigation /Game/UI/WBP_MainMenu --bindings-file navigation.json --compile --save
+soft-ue-cli verify-umg-workflow --widget-class /Game/UI/WBP_MainMenu.WBP_MainMenu_C --expected-widgets-file expected_widgets.json --click-sequence-file clicks.json --capture-after
+soft-ue-cli umg-layout extract --source concept-image --input concept.png --output concept_layout.json
+soft-ue-cli umg-layout extract --source designer --asset-path /Game/UI/WBP_MainMenu --output umg_expected_layout.json
+soft-ue-cli umg-layout extract --source runtime --root-widget WBP_MainMenu_C_0 --full-geometry --output umg_runtime_layout.json
+soft-ue-cli umg-layout compare --mode geometry --subset concept_layout.json umg_runtime_layout.json --output umg_layout_report.json
+soft-ue-cli umg-layout fit --concept concept_layout.json --actual umg_runtime_layout.json --spec menu_tree.json --output corrected_menu_tree.json
+soft-ue-cli inspect-widget-blueprint /Game/UI/WBP_MainMenu --include-defaults --depth-limit 8
+soft-ue-cli skills get author-umg-workflow
+```
+
+`wire-widget-navigation` fails fast while PIE is active or the editor is saving/garbage collecting because it mutates WidgetBlueprint assets. Stop PIE first, wait until the editor is idle, or pass `--allow-pie` / `--allow-busy` when you intentionally accept that risk.
+
 ### Inspect and diff local `.uasset` files offline
 
 ```bash
 soft-ue-cli inspect-uasset D:/Project/Content/Blueprints/BP_Player.uasset --sections all
+soft-ue-cli inspect-uasset D:/Project/Content/Characters/SK_Mannequin_Skeleton.uasset --sections properties
 soft-ue-cli inspect-uasset D:/Project/Content/__ExternalActors__/Maps/OpenWorld/5/TQ/ABC123.uasset --sections summary,properties
 soft-ue-cli diff-uasset D:/snapshots/BP_Player_before.uasset D:/Project/Content/Blueprints/BP_Player.uasset --sections variables,functions
+soft-ue-cli diff-uasset D:/snapshots/SK_before.uasset D:/Project/Content/Characters/SK_Mannequin_Skeleton.uasset --sections properties
 soft-ue-cli diff-uasset D:/snapshots/Actor_before.uasset D:/Project/Content/__ExternalActors__/Maps/OpenWorld/5/TQ/ABC123.uasset --sections summary,properties
 ```
 
@@ -515,6 +548,7 @@ soft-ue-cli remove-co-node /Game/Characters/CO_Hero.CO_Hero <node-guid>
 ```bash
 soft-ue-cli pie-session start --mode SelectedViewport
 soft-ue-cli trigger-input key --key SpaceBar
+soft-ue-cli trigger-input action --action-name IA_SwitchCharacter
 soft-ue-cli pie-session stop
 ```
 
@@ -608,6 +642,7 @@ soft-ue-cli skills get level-from-image
 # then enters a visual feedback loop:
 #   soft-ue-cli set-viewport-camera --preset top --ortho-width 8000
 #   soft-ue-cli capture-viewport --source editor --output file
+#   soft-ue-cli capture-viewport --source editor --scale 50 --color-mode grayscale
 # Compares screenshot to reference, auto-corrects, then asks for human feedback
 ```
 

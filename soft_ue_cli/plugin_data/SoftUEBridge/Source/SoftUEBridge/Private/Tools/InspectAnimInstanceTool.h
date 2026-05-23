@@ -20,14 +20,17 @@ public:
 	virtual FString GetToolName() const override { return TEXT("inspect-anim-instance"); }
 	virtual FString GetToolDescription() const override;
 	virtual TMap<FString, FBridgeSchemaProperty> GetInputSchema() const override;
-	virtual TArray<FString> GetRequiredParams() const override { return {TEXT("actor_tag")}; }
+	virtual TArray<FString> GetRequiredParams() const override { return {}; }
 	virtual FBridgeToolResult Execute(
 		const TSharedPtr<FJsonObject>& Arguments,
 		const FBridgeToolContext& Context) override;
 
 private:
 	UAnimInstance* ResolveAnimInstance(const FString& ActorTag, const FString& MeshComponentName, FString& OutError);
+	FBridgeToolResult InspectAnimBlueprintAsset(const FString& AssetPath, const TSet<FString>& IncludeSet);
 	TArray<TSharedPtr<FJsonValue>> ReadStateMachines(UAnimInstance* AnimInstance);
+	TArray<TSharedPtr<FJsonValue>> ReadBakedStateMachines(class UAnimBlueprintGeneratedClass* AnimClass);
+	TArray<TSharedPtr<FJsonValue>> ReadAnimNodeTopology(class UAnimBlueprintGeneratedClass* AnimClass);
 	TArray<TSharedPtr<FJsonValue>> ReadActiveMontages(UAnimInstance* AnimInstance);
 	TArray<TSharedPtr<FJsonValue>> ReadSlots(UAnimInstance* AnimInstance);
 	TArray<TSharedPtr<FJsonValue>> ReadNotifies(UAnimInstance* AnimInstance);

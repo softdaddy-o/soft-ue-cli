@@ -34,6 +34,11 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "regenerate-co-node-pins",
     "compile-co",
     "remove-co-node",
+    "capture-pie-screenshot",
+    "compare-umg-screenshot",
+    "extract-umg-layout",
+    "compare-umg-layout",
+    "umg-layout",
 })
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.
@@ -144,6 +149,33 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "row_data": {"type": "object", "description": "Row data keyed by row struct property name"},
         },
     },
+    "apply-widget-tree": {
+        "properties": {
+            "spec": {"type": "object", "description": "Widget tree spec object"},
+        },
+    },
+    "wire-widget-navigation": {
+        "properties": {
+            "bindings": {"type": "array", "description": "Array of UMG navigation binding specs"},
+            "allow_pie": {"type": "boolean", "description": "Allow mutation while PIE is active; default is fail-fast"},
+            "allow_busy": {
+                "type": "boolean",
+                "description": "Allow mutation while the editor is saving or garbage collecting; default is fail-fast",
+            },
+        },
+    },
+    "verify-umg-workflow": {
+        "properties": {
+            "expected_widgets": {"type": "array", "description": "Array of expected widget names"},
+            "expected_text": {"type": "array", "description": "Array of expected TextBlock strings"},
+            "click_sequence": {"type": "array", "description": "Array of named button click validation steps"},
+            "preview_lifecycle": {
+                "type": "string",
+                "enum": ["replace", "keep", "remove"],
+                "description": "Tool-owned preview lifecycle policy before verification",
+            },
+        },
+    },
     # set-node-position: positions is a JSON array of {guid, x, y} objects
     "set-node-position": {
         "properties": {
@@ -156,6 +188,21 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "mode": {"type": "string", "default": "viewport"},
         },
         "required_remove": ["mode"],
+    },
+    "compare-umg-screenshot": {
+        "properties": {
+            "crop": {"type": "array", "description": "[X, Y, W, H] captured-image crop rectangle"},
+        },
+    },
+    "umg-layout": {
+        "properties": {
+            "ignore_mask": {"type": "array", "description": "Ignore mask names, JSON objects, or JSON file paths"},
+        },
+    },
+    "compare-sync-markers": {
+        "properties": {
+            "asset_paths": {"type": "array", "description": "Array of AnimSequence asset paths to compare"},
+        },
     },
 }
 

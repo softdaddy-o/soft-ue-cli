@@ -2,10 +2,12 @@
 
 #include "Tools/PIE/PieSessionTool.h"
 #include "SoftUEBridgeEditorModule.h"
+#include "Tools/Widget/WidgetPreviewRegistry.h"
 #include "Editor.h"
 #include "LevelEditor.h"
 #include "LevelEditorSubsystem.h"
 #include "Engine/World.h"
+#include "Engine/Blueprint.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/Pawn.h"
@@ -13,6 +15,7 @@
 #include "GameFramework/WorldSettings.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/Guid.h"
+#include "UObject/UObjectIterator.h"
 #include "EngineUtils.h"
 
 namespace
@@ -86,6 +89,25 @@ TMap<FString, FBridgeSchemaProperty> UPieSessionTool::GetInputSchema() const
 	TimeoutSeconds.Description = TEXT("[start] Timeout in seconds to wait for PIE ready (default: 30)");
 	TimeoutSeconds.bRequired = false;
 	Schema.Add(TEXT("timeout"), TimeoutSeconds);
+
+	FBridgeSchemaProperty BlueprintErrorAction;
+	BlueprintErrorAction.Type = TEXT("string");
+	BlueprintErrorAction.Description = TEXT("[start] Blueprint compile-error handling: modal (default), report, cancel, or continue");
+	BlueprintErrorAction.bRequired = false;
+	BlueprintErrorAction.Enum = {TEXT("modal"), TEXT("report"), TEXT("cancel"), TEXT("continue")};
+	Schema.Add(TEXT("blueprint_error_action"), BlueprintErrorAction);
+
+	FBridgeSchemaProperty PreflightBlueprints;
+	PreflightBlueprints.Type = TEXT("boolean");
+	PreflightBlueprints.Description = TEXT("[start] Report loaded Blueprint compile errors before starting PIE");
+	PreflightBlueprints.bRequired = false;
+	Schema.Add(TEXT("preflight_blueprints"), PreflightBlueprints);
+
+	FBridgeSchemaProperty CleanupToolPreviews;
+	CleanupToolPreviews.Type = TEXT("boolean");
+	CleanupToolPreviews.Description = TEXT("[stop] Remove tool-owned UMG previews before stopping PIE (default: true)");
+	CleanupToolPreviews.bRequired = false;
+	Schema.Add(TEXT("cleanup_tool_previews"), CleanupToolPreviews);
 
 	FBridgeSchemaProperty Include;
 	Include.Type = TEXT("array");
@@ -176,6 +198,18 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 {
 	FString Mode = GetStringArgOrDefault(Arguments, TEXT("mode"), TEXT("viewport"));
 	FString MapPath = GetStringArgOrDefault(Arguments, TEXT("map"));
+	FString BlueprintErrorAction = GetStringArgOrDefault(Arguments, TEXT("blueprint_error_action"), TEXT("modal")).ToLower();
+	const bool bPreflightBlueprints = GetBoolArgOrDefault(Arguments, TEXT("preflight_blueprints"), false);
+
+	if (BlueprintErrorAction != TEXT("modal") &&
+		BlueprintErrorAction != TEXT("report") &&
+		BlueprintErrorAction != TEXT("cancel") &&
+		BlueprintErrorAction != TEXT("continue"))
+	{
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("Invalid blueprint_error_action '%s'. Valid values: modal, report, cancel, continue"),
+			*BlueprintErrorAction));
+	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Starting PIE (mode=%s, map=%s)"),
 		*Mode, MapPath.IsEmpty() ? TEXT("current") : *MapPath);
@@ -196,8 +230,23 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 			Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
 			Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
 			Result->SetStringField(TEXT("state"), TEXT("already_running"));
+			Result->SetBoolField(TEXT("pie_started"), true);
+			Result->SetStringField(TEXT("blueprint_error_action"), BlueprintErrorAction);
 			return FBridgeToolResult::Json(Result);
 		}
+	}
+
+	const bool bSuppressBlueprintWarnings = BlueprintErrorAction == TEXT("continue");
+	TArray<TSharedPtr<FJsonValue>> BlueprintCompileErrors = FindBlueprintCompileErrors(bSuppressBlueprintWarnings);
+	if (BlueprintCompileErrors.Num() > 0 &&
+		(BlueprintErrorAction == TEXT("report") ||
+		 BlueprintErrorAction == TEXT("cancel") ||
+		 (bPreflightBlueprints && BlueprintErrorAction != TEXT("continue"))))
+	{
+		return BuildBlueprintCompileErrorResult(
+			BlueprintErrorAction,
+			bPreflightBlueprints,
+			BlueprintCompileErrors);
 	}
 
 	// Load specific map if requested
@@ -250,6 +299,10 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
 	Result->SetStringField(TEXT("state"), IsPIEReadyState(PIEWorld) ? TEXT("running") : TEXT("starting"));
+	Result->SetBoolField(TEXT("pie_started"), IsPIEReadyState(PIEWorld));
+	Result->SetStringField(TEXT("blueprint_error_action"), BlueprintErrorAction);
+	Result->SetBoolField(TEXT("preflight_blueprints"), bPreflightBlueprints);
+	Result->SetArrayField(TEXT("blueprint_compile_errors"), BlueprintCompileErrors);
 	if (PIEWorld)
 	{
 		Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
@@ -262,17 +315,28 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Arguments)
 {
 	const bool bRunning = GEditor->IsPlaySessionInProgress();
+	const bool bCleanupToolPreviews = GetBoolArgOrDefault(Arguments, TEXT("cleanup_tool_previews"), true);
+	int32 RemovedToolPreviews = 0;
 	if (!bRunning && GBridgePIETransition != EBridgePIETransition::Starting)
 	{
 		ClearPIETransition();
 		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 		Result->SetBoolField(TEXT("success"), true);
 		Result->SetStringField(TEXT("state"), TEXT("not_running"));
+		Result->SetBoolField(TEXT("cleanup_tool_previews"), bCleanupToolPreviews);
+		Result->SetNumberField(TEXT("removed_tool_previews"), RemovedToolPreviews);
 		return FBridgeToolResult::Json(Result);
 	}
 
 	if (bRunning)
 	{
+		if (bCleanupToolPreviews)
+		{
+			if (UWorld* PIEWorld = GetPIEWorld())
+			{
+				RemovedToolPreviews = FWidgetPreviewRegistry::RemovePreviewsForWorld(PIEWorld);
+			}
+		}
 		GEditor->RequestEndPlayMap();
 	}
 
@@ -289,6 +353,9 @@ FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Ar
 	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("state"), GEditor->IsPlaySessionInProgress() ? TEXT("stopping") : TEXT("stopped"));
+	Result->SetBoolField(TEXT("cleanup_tool_previews"), bCleanupToolPreviews);
+	Result->SetNumberField(TEXT("removed_tool_previews"), RemovedToolPreviews);
+	Result->SetStringField(TEXT("stop_diagnostics"), TEXT("tool previews are removed before PIE shutdown by default"));
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Stop requested"));
 	return FBridgeToolResult::Json(Result);
@@ -532,6 +599,55 @@ TArray<TSharedPtr<FJsonValue>> UPieSessionTool::GetPlayersInfo(UWorld* PIEWorld)
 	}
 
 	return PlayersArray;
+}
+
+TArray<TSharedPtr<FJsonValue>> UPieSessionTool::FindBlueprintCompileErrors(bool bSuppressWarnings) const
+{
+	TArray<TSharedPtr<FJsonValue>> BlueprintCompileErrors;
+
+	for (TObjectIterator<UBlueprint> It; It; ++It)
+	{
+		UBlueprint* Blueprint = *It;
+		if (!IsValid(Blueprint))
+		{
+			continue;
+		}
+
+		if (Blueprint->Status != BS_Error || !Blueprint->bDisplayCompilePIEWarning)
+		{
+			continue;
+		}
+
+		TSharedPtr<FJsonObject> ErrorInfo = MakeShareable(new FJsonObject);
+		ErrorInfo->SetStringField(TEXT("name"), Blueprint->GetName());
+		ErrorInfo->SetStringField(TEXT("path"), Blueprint->GetPathName());
+		ErrorInfo->SetStringField(TEXT("status"), TEXT("BS_Error"));
+		ErrorInfo->SetBoolField(TEXT("display_compile_pie_warning"), Blueprint->bDisplayCompilePIEWarning);
+		BlueprintCompileErrors.Add(MakeShareable(new FJsonValueObject(ErrorInfo)));
+
+		if (bSuppressWarnings)
+		{
+			Blueprint->bDisplayCompilePIEWarning = false;
+		}
+	}
+
+	return BlueprintCompileErrors;
+}
+
+FBridgeToolResult UPieSessionTool::BuildBlueprintCompileErrorResult(
+	const FString& BlueprintErrorAction,
+	bool bPreflightBlueprints,
+	const TArray<TSharedPtr<FJsonValue>>& BlueprintCompileErrors) const
+{
+	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+	Result->SetBoolField(TEXT("success"), false);
+	Result->SetStringField(TEXT("state"), TEXT("blocked_by_blueprint_compile_errors"));
+	Result->SetBoolField(TEXT("pie_started"), false);
+	Result->SetStringField(TEXT("blueprint_error_action"), BlueprintErrorAction);
+	Result->SetBoolField(TEXT("preflight_blueprints"), bPreflightBlueprints);
+	Result->SetArrayField(TEXT("blueprint_compile_errors"), BlueprintCompileErrors);
+	Result->SetStringField(TEXT("message"), TEXT("PIE start was not requested because loaded Blueprints have compile errors"));
+	return FBridgeToolResult::Json(Result);
 }
 
 FBridgeToolResult UPieSessionTool::ExecuteWaitFor(const TSharedPtr<FJsonObject>& Arguments)

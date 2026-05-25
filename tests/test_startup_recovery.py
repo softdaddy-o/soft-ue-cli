@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli.startup_recovery import (
     StartupRecoveryBlocked,

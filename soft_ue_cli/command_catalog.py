@@ -5,12 +5,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from .command_aliases import CANONICAL_COMMAND_FOR_LEGACY
+from .command_aliases import REMOVED_COMMAND_MIGRATIONS
 
 
 SCHEMA = "soft-ue.commands.v1"
 
-LAYERS = {"offline", "bridge", "compatibility", "workflow", "skill", "support"}
+LAYERS = {"offline", "bridge", "removed", "workflow", "skill", "support"}
 CATEGORIES = {
     "animation",
     "asset",
@@ -28,7 +28,7 @@ CATEGORIES = {
     "verify",
     "workflow",
 }
-STATUSES = {"canonical", "compatibility", "deprecated"}
+STATUSES = {"canonical", "removed", "deprecated"}
 
 
 def _plugin(name: str, module: str = "", note: str = "") -> dict[str, Any]:
@@ -103,6 +103,33 @@ _EXPLICIT_ENTRIES: dict[str, dict[str, Any]] = {
         requires_editor=False,
         examples=["soft-ue-cli umg layout compare --mode geometry expected.json actual.json"],
     ),
+    "umg layout extract": _entry(
+        "umg layout extract",
+        "Extract normalized UMG layout JSON from designer, runtime, concept-image, or Figma input.",
+        layer="bridge",
+        category="umg",
+        requires_bridge=True,
+        requires_editor=True,
+        examples=["soft-ue-cli umg layout extract --source designer --asset-path /Game/UI/WBP_Menu --output expected.json"],
+    ),
+    "umg layout compare": _entry(
+        "umg layout compare",
+        "Compare UMG geometry JSON or screenshot pixels offline.",
+        layer="offline",
+        category="compare",
+        requires_bridge=False,
+        requires_editor=False,
+        examples=["soft-ue-cli umg layout compare --mode pixel reference.png captured.png"],
+    ),
+    "umg layout fit": _entry(
+        "umg layout fit",
+        "Emit a corrected UMG designer spec from concept-vs-runtime layout deltas.",
+        layer="offline",
+        category="compare",
+        requires_bridge=False,
+        requires_editor=False,
+        examples=["soft-ue-cli umg layout fit --concept concept.json --actual runtime.json --spec widget_tree.json"],
+    ),
     "umg designer": _entry(
         "umg designer",
         "Canonical UMG designer inspection and authoring family.",
@@ -111,6 +138,15 @@ _EXPLICIT_ENTRIES: dict[str, dict[str, Any]] = {
         requires_bridge=True,
         requires_editor=True,
         examples=["soft-ue-cli umg designer apply /Game/UI/WBP_Menu --spec-file menu.json"],
+    ),
+    "umg designer inspect": _entry(
+        "umg designer inspect",
+        "Inspect a Widget Blueprint designer tree.",
+        layer="bridge",
+        category="umg",
+        requires_bridge=True,
+        requires_editor=True,
+        examples=["soft-ue-cli umg designer inspect /Game/UI/WBP_Menu --include-defaults"],
     ),
     "umg navigation": _entry(
         "umg navigation",
@@ -181,6 +217,46 @@ _EXPLICIT_ENTRIES: dict[str, dict[str, Any]] = {
         requires_pie=True,
         examples=["soft-ue-cli umg verify widgets --expected-widgets '[\"StartButton\"]'"],
     ),
+    "umg verify widgets": _entry(
+        "umg verify widgets",
+        "Verify expected runtime widget names in PIE.",
+        layer="bridge",
+        category="verify",
+        requires_bridge=True,
+        requires_editor=True,
+        requires_pie=True,
+        examples=["soft-ue-cli umg verify widgets --root-widget WBP_Menu_C_0 --expected-widgets '[\"StartButton\"]'"],
+    ),
+    "umg verify text": _entry(
+        "umg verify text",
+        "Verify expected runtime TextBlock strings in PIE.",
+        layer="bridge",
+        category="verify",
+        requires_bridge=True,
+        requires_editor=True,
+        requires_pie=True,
+        examples=["soft-ue-cli umg verify text --root-widget WBP_Menu_C_0 --expected-text '[\"Start\"]'"],
+    ),
+    "umg verify navigation": _entry(
+        "umg verify navigation",
+        "Verify a runtime UMG click sequence in PIE.",
+        layer="bridge",
+        category="verify",
+        requires_bridge=True,
+        requires_editor=True,
+        requires_pie=True,
+        examples=["soft-ue-cli umg verify navigation --root-widget WBP_Menu_C_0 --click-sequence-file clicks.json"],
+    ),
+    "umg verify runtime-layout": _entry(
+        "umg verify runtime-layout",
+        "Verify runtime UMG layout against an expected layout artifact.",
+        layer="bridge",
+        category="verify",
+        requires_bridge=True,
+        requires_editor=True,
+        requires_pie=True,
+        examples=["soft-ue-cli umg verify runtime-layout expected.json runtime.json --subset"],
+    ),
     "umg workflow": _entry(
         "umg workflow",
         "Canonical UMG workflow orchestration family.",
@@ -192,73 +268,73 @@ _EXPLICIT_ENTRIES: dict[str, dict[str, Any]] = {
     ),
     "apply-widget-tree": _entry(
         "apply-widget-tree",
-        "Compatibility wrapper for applying a UMG designer tree spec.",
-        layer="compatibility",
+        "Removed flat command for applying a UMG designer tree spec.",
+        layer="removed",
         category="umg",
         requires_bridge=True,
         requires_editor=True,
-        status="compatibility",
+        status="removed",
         canonical_command="umg designer apply",
     ),
     "inspect-widget-blueprint": _entry(
         "inspect-widget-blueprint",
-        "Compatibility wrapper for UMG designer inspection.",
-        layer="compatibility",
+        "Removed flat command for UMG designer inspection.",
+        layer="removed",
         category="inspect",
         requires_bridge=True,
         requires_editor=True,
-        status="compatibility",
+        status="removed",
         canonical_command="umg designer inspect",
     ),
     "wire-widget-navigation": _entry(
         "wire-widget-navigation",
-        "Compatibility wrapper for UMG navigation wiring.",
-        layer="compatibility",
+        "Removed flat command for UMG navigation wiring.",
+        layer="removed",
         category="umg",
         requires_bridge=True,
         requires_editor=True,
-        status="compatibility",
+        status="removed",
         canonical_command="umg navigation wire",
     ),
     "verify-umg-workflow": _entry(
         "verify-umg-workflow",
-        "Compatibility wrapper for bundled UMG preview and workflow verification.",
-        layer="compatibility",
+        "Removed flat command for bundled UMG preview and workflow verification.",
+        layer="removed",
         category="workflow",
         requires_bridge=True,
         requires_editor=True,
         requires_pie=True,
-        status="compatibility",
+        status="removed",
         canonical_command="umg workflow run",
     ),
     "extract-umg-layout": _entry(
         "extract-umg-layout",
-        "Compatibility wrapper for UMG layout extraction.",
-        layer="compatibility",
+        "Removed flat command for UMG layout extraction.",
+        layer="removed",
         category="compare",
         requires_bridge=False,
         requires_editor=False,
-        status="compatibility",
+        status="removed",
         canonical_command="umg layout extract",
     ),
     "compare-umg-layout": _entry(
         "compare-umg-layout",
-        "Compatibility wrapper for UMG geometry layout comparison.",
-        layer="compatibility",
+        "Removed flat command for UMG geometry layout comparison.",
+        layer="removed",
         category="compare",
         requires_bridge=False,
         requires_editor=False,
-        status="compatibility",
+        status="removed",
         canonical_command="umg layout compare --mode geometry",
     ),
     "compare-umg-screenshot": _entry(
         "compare-umg-screenshot",
-        "Compatibility wrapper for UMG screenshot comparison.",
-        layer="compatibility",
+        "Removed flat command for UMG screenshot comparison.",
+        layer="removed",
         category="compare",
         requires_bridge=False,
         requires_editor=False,
-        status="compatibility",
+        status="removed",
         canonical_command="umg layout compare --mode pixel",
     ),
     "capture": _entry(
@@ -290,33 +366,33 @@ _EXPLICIT_ENTRIES: dict[str, dict[str, Any]] = {
     ),
     "capture-viewport": _entry(
         "capture-viewport",
-        "Compatibility wrapper for viewport capture.",
-        layer="compatibility",
+        "Removed flat command for viewport capture.",
+        layer="removed",
         category="capture",
         requires_bridge=True,
         requires_editor=False,
-        status="compatibility",
+        status="removed",
         canonical_command="capture viewport",
     ),
     "capture-screenshot": _entry(
         "capture-screenshot",
-        "Compatibility wrapper for screenshot capture.",
-        layer="compatibility",
+        "Removed flat command for screenshot capture.",
+        layer="removed",
         category="capture",
         requires_bridge=True,
         requires_editor=True,
-        status="compatibility",
+        status="removed",
         canonical_command="capture screenshot --source <mode>",
     ),
     "capture-pie-screenshot": _entry(
         "capture-pie-screenshot",
-        "Compatibility wrapper for PIE screenshot capture.",
-        layer="compatibility",
+        "Removed flat command for PIE screenshot capture.",
+        layer="removed",
         category="capture",
         requires_bridge=True,
         requires_editor=True,
         requires_pie=True,
-        status="compatibility",
+        status="removed",
         canonical_command="capture screenshot --source pie-window",
     ),
     "mutable": _entry(
@@ -713,44 +789,118 @@ def _argparse_command_summaries() -> dict[str, str]:
         return {}
 
     parser = build_parser()
+    summaries: dict[str, str] = {}
+
+    def walk(current_parser: Any, path: tuple[str, ...], help_text: str = "") -> None:
+        if path:
+            summaries[" ".join(path)] = (
+                help_text
+                or current_parser.description
+                or current_parser.prog
+            )
+        subparsers_action = None
+        for action in current_parser._actions:
+            if isinstance(action, getattr(__import__("argparse"), "_SubParsersAction")):
+                subparsers_action = action
+                break
+        if subparsers_action is None:
+            return
+
+        choice_help = {
+            choice.dest: choice.help or ""
+            for choice in subparsers_action._choices_actions
+        }
+        for choice, sub_parser in subparsers_action.choices.items():
+            walk(sub_parser, (*path, choice), choice_help.get(choice, ""))
+
     for action in parser._actions:
         if isinstance(action, getattr(__import__("argparse"), "_SubParsersAction")):
-            return {
-                choice.dest: choice.help or choice.dest
-                for choice in action._choices_actions
-            }
+            for choice, sub_parser in action.choices.items():
+                help_text = ""
+                for choice_action in action._choices_actions:
+                    if choice_action.dest == choice:
+                        help_text = choice_action.help or ""
+                        break
+                walk(sub_parser, (choice,), help_text)
+            return summaries
     return {}
 
 
-def _build_catalog() -> dict[str, dict[str, Any]]:
+def _canonical_name_from_migration(canonical_command: str) -> str:
+    return canonical_command.split(" --", 1)[0]
+
+
+def _apply_canonical_family_metadata(entry: dict[str, Any], canonical_command: str) -> None:
+    canonical_root = canonical_command.split()[0]
+    if canonical_root == "mutable":
+        entry["category"] = "mutable"
+    elif canonical_root == "statetree":
+        entry["category"] = "statetree"
+    elif canonical_root == "anim":
+        entry["category"] = "animation"
+    elif canonical_root in {"asset", "blueprint", "capture", "umg"}:
+        entry["category"] = canonical_root
+    if canonical_root in {"asset", "blueprint", "mutable", "statetree", "anim", "umg"}:
+        if not canonical_command.startswith(("asset inspect-file", "asset diff-file", "umg layout")):
+            entry["requires_editor"] = entry["requires_bridge"]
+
+
+def _canonical_entry_from_removed(removed_name: str, canonical_command: str, summary: str) -> dict[str, Any]:
+    entry = _default_entry(removed_name, summary)
+    entry["name"] = _canonical_name_from_migration(canonical_command)
+    entry["status"] = "canonical"
+    entry["canonical_command"] = ""
+    _apply_canonical_family_metadata(entry, canonical_command)
+    return entry
+
+
+def _removed_entry(name: str, canonical_command: str) -> dict[str, Any]:
+    if name in _EXPLICIT_ENTRIES:
+        entry = deepcopy(_EXPLICIT_ENTRIES[name])
+    else:
+        entry = _default_entry(name)
+    entry["summary"] = f"Removed flat command. Use `{canonical_command}` instead."
+    entry["layer"] = "removed"
+    entry["status"] = "removed"
+    entry["canonical_command"] = canonical_command
+    _apply_canonical_family_metadata(entry, canonical_command)
+    return entry
+
+
+def _build_catalog(*, include_removed: bool = False) -> dict[str, dict[str, Any]]:
     catalog: dict[str, dict[str, Any]] = {}
     for name, summary in _argparse_command_summaries().items():
         catalog[name] = _default_entry(name, summary)
-    for legacy_name, canonical_command in CANONICAL_COMMAND_FOR_LEGACY.items():
-        if legacy_name not in catalog:
-            continue
-        canonical_root = canonical_command.split()[0]
-        if canonical_root == "mutable":
-            catalog[legacy_name]["category"] = "mutable"
-        elif canonical_root == "statetree":
-            catalog[legacy_name]["category"] = "statetree"
-        elif canonical_root == "anim":
-            catalog[legacy_name]["category"] = "animation"
-        elif canonical_root in {"asset", "blueprint"}:
-            catalog[legacy_name]["category"] = canonical_root
-            if not canonical_command.startswith(("asset inspect-file", "asset diff-file")):
-                catalog[legacy_name]["requires_editor"] = True
-        catalog[legacy_name]["layer"] = "compatibility"
-        catalog[legacy_name]["status"] = "compatibility"
-        catalog[legacy_name]["canonical_command"] = canonical_command
+    for removed_name, canonical_command in REMOVED_COMMAND_MIGRATIONS.items():
+        canonical_name = _canonical_name_from_migration(canonical_command)
+        if canonical_name in catalog and canonical_name not in _EXPLICIT_ENTRIES:
+            catalog[canonical_name] = _canonical_entry_from_removed(
+                removed_name,
+                canonical_command,
+                catalog[canonical_name]["summary"],
+            )
     for name, entry in _EXPLICIT_ENTRIES.items():
+        if name in REMOVED_COMMAND_MIGRATIONS:
+            continue
         catalog[name] = deepcopy(entry)
+    if include_removed:
+        for name, canonical_command in REMOVED_COMMAND_MIGRATIONS.items():
+            catalog[name] = _removed_entry(name, canonical_command)
     return catalog
 
 
 def iter_command_metadata() -> list[dict[str, Any]]:
     """Return all command metadata entries sorted by command name."""
     return [deepcopy(entry) for _, entry in sorted(_build_catalog().items())]
+
+
+def iter_removed_command_metadata() -> list[dict[str, Any]]:
+    """Return removed flat command metadata entries sorted by command name."""
+    return [
+        deepcopy(entry)
+        for _, entry in sorted(_build_catalog(include_removed=True).items())
+        if entry["status"] == "removed"
+    ]
 
 
 def get_command_metadata(name: str) -> dict[str, Any]:
@@ -761,9 +911,12 @@ def get_command_metadata(name: str) -> dict[str, Any]:
     return deepcopy(catalog[name])
 
 
-def command_metadata_as_json(*, probe: bool = False) -> dict[str, Any]:
+def command_metadata_as_json(*, probe: bool = False, include_removed: bool = False) -> dict[str, Any]:
     """Return command metadata payload for JSON discovery."""
-    commands = iter_command_metadata()
+    commands = [
+        deepcopy(entry)
+        for _, entry in sorted(_build_catalog(include_removed=include_removed).items())
+    ]
     if probe:
         for entry in commands:
             entry["available"] = "unknown"
@@ -778,17 +931,18 @@ def filter_command_metadata(
     *,
     category: str | None = None,
     requires_bridge: bool | None = None,
-    compatibility: bool = False,
+    include_removed: bool = False,
     plugin: str | None = None,
 ) -> list[dict[str, Any]]:
     """Filter command metadata entries for human-readable listings."""
-    entries = iter_command_metadata()
+    entries = [
+        deepcopy(entry)
+        for _, entry in sorted(_build_catalog(include_removed=include_removed).items())
+    ]
     if category:
         entries = [entry for entry in entries if entry["category"] == category or category in entry["name"].split()]
     if requires_bridge is not None:
         entries = [entry for entry in entries if entry["requires_bridge"] is requires_bridge]
-    if compatibility:
-        entries = [entry for entry in entries if entry["status"] in {"compatibility", "deprecated"}]
     if plugin:
         plugin_lower = plugin.lower()
         entries = [

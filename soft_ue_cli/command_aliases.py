@@ -1,4 +1,4 @@
-"""Canonical command-family aliases for legacy flat CLI commands."""
+"""Canonical command-family migrations for removed flat CLI commands."""
 
 from __future__ import annotations
 
@@ -36,7 +36,6 @@ COMMAND_ALIAS_PREFIXES: dict[tuple[str, ...], str] = {
     ("anim", "rewind", "stop"): "rewind-stop",
     ("anim", "rewind", "status"): "rewind-status",
     ("anim", "rewind", "list-tracks"): "rewind-list-tracks",
-    ("anim", "rewind", "tracks"): "rewind-list-tracks",
     ("anim", "rewind", "overview"): "rewind-overview",
     ("anim", "rewind", "snapshot"): "rewind-snapshot",
     ("anim", "rewind", "save"): "rewind-save",
@@ -64,43 +63,22 @@ COMMAND_ALIAS_PREFIXES: dict[tuple[str, ...], str] = {
 }
 
 
-CANONICAL_COMMAND_FOR_LEGACY: dict[str, str] = {}
+CANONICAL_COMMAND_FOR_REMOVED: dict[str, str] = {}
 for _prefix, _legacy_command in COMMAND_ALIAS_PREFIXES.items():
-    CANONICAL_COMMAND_FOR_LEGACY.setdefault(_legacy_command, " ".join(_prefix))
+    CANONICAL_COMMAND_FOR_REMOVED.setdefault(_legacy_command, " ".join(_prefix))
 
 
-_ALIASES_BY_LENGTH = sorted(COMMAND_ALIAS_PREFIXES.items(), key=lambda item: len(item[0]), reverse=True)
-_ROOT_OPTIONS_WITH_VALUES = {"--server", "--timeout"}
-
-
-def _command_start_index(args: list[str]) -> int | None:
-    index = 0
-    while index < len(args):
-        current = args[index]
-        if current in {"-h", "--help"}:
-            return None
-        if current in _ROOT_OPTIONS_WITH_VALUES:
-            index += 2
-            continue
-        if any(current.startswith(f"{option}=") for option in _ROOT_OPTIONS_WITH_VALUES):
-            index += 1
-            continue
-        return index
-    return None
-
-
-def normalize_command_aliases(args: list[str] | None) -> list[str] | None:
-    """Rewrite canonical nested command prefixes to their legacy flat parser command."""
-    if args is None:
-        return None
-
-    normalized = list(args)
-    command_index = _command_start_index(normalized)
-    if command_index is None:
-        return normalized
-
-    command_tail = normalized[command_index:]
-    for prefix, legacy_command in _ALIASES_BY_LENGTH:
-        if tuple(command_tail[: len(prefix)]) == prefix:
-            return normalized[:command_index] + [legacy_command] + command_tail[len(prefix):]
-    return normalized
+REMOVED_COMMAND_MIGRATIONS: dict[str, str] = {
+    **CANONICAL_COMMAND_FOR_REMOVED,
+    "apply-widget-tree": "umg designer apply",
+    "inspect-widget-blueprint": "umg designer inspect",
+    "wire-widget-navigation": "umg navigation wire",
+    "verify-umg-workflow": "umg workflow run",
+    "extract-umg-layout": "umg layout extract",
+    "compare-umg-layout": "umg layout compare --mode geometry",
+    "compare-umg-screenshot": "umg layout compare --mode pixel",
+    "umg-layout": "umg layout",
+    "capture-viewport": "capture viewport",
+    "capture-screenshot": "capture screenshot --source <mode>",
+    "capture-pie-screenshot": "capture screenshot --source pie-window",
+}

@@ -35,19 +35,19 @@ def _plugin_source_path(relative: str) -> Path:
     return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / relative
 
 
+def _agent_guide_text() -> str:
+    path = _repo_root() / "AGENTS.md"
+    if not path.exists():
+        pytest.skip("AGENTS.md is monorepo-only guidance")
+    return path.read_text(encoding="utf-8")
+
+
 def _skill_path(relative: str) -> Path:
     root = _repo_root()
     monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / relative
     if monorepo_path.exists():
         return monorepo_path
     return root / "soft_ue_cli" / "skills" / relative
-
-
-def _agent_guide_text() -> str:
-    guide = _repo_root() / "AGENTS.md"
-    if not guide.exists():
-        pytest.skip("AGENTS.md is not exported in the public package")
-    return guide.read_text(encoding="utf-8")
 
 
 def test_editor_dependency_plugins_are_editor_target_only():

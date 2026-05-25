@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 # Skip all tests if mcp is not installed
 mcp = pytest.importorskip("mcp")
@@ -41,9 +42,9 @@ def test_server_has_prompts():
 def test_anim_state_machine_tools_have_native_mcp_types():
     tools = {tool["name"]: tool for tool in extract_tools()}
 
-    assert tools["add-anim-state-machine"]["parameters"]["properties"]["position"]["type"] == "array"
-    assert tools["add-anim-state"]["parameters"]["properties"]["position"]["type"] == "array"
-    assert tools["add-anim-transition"]["parameters"]["properties"]["rule"]["type"] == "boolean"
+    assert tools["anim state-machine add"]["parameters"]["properties"]["position"]["type"] == "array"
+    assert tools["anim state add"]["parameters"]["properties"]["position"]["type"] == "array"
+    assert tools["anim transition add"]["parameters"]["properties"]["rule"]["type"] == "boolean"
 
 
 @patch("soft_ue_cli.client.call_tool")
@@ -65,14 +66,14 @@ def test_tool_call_forwards_to_bridge(mock_call_tool):
     assert "limit" in call_args[0][1]
 
 
-@patch("soft_ue_cli.client.call_tool")
+@patch("soft_ue_cli.__main__.call_tool")
 def test_tool_call_maps_no_auto_position(mock_call_tool):
     mock_call_tool.return_value = {"status": "ok"}
     server = create_server()
 
     tool_fn = None
     for tool in server._tool_manager._tools.values():
-        if tool.name == "add-graph-node":
+        if tool.name == "blueprint node add":
             tool_fn = tool.fn
             break
 
@@ -81,7 +82,7 @@ def test_tool_call_maps_no_auto_position(mock_call_tool):
     mock_call_tool.assert_called_once()
     call_args = mock_call_tool.call_args
     assert call_args[0][0] == "add-graph-node"
-    assert call_args.kwargs == {"timeout": None}
+    assert call_args.kwargs == {}
     arguments = call_args[0][1]
     assert arguments["auto_position"] is False
     assert "no_auto_position" not in arguments
@@ -110,7 +111,7 @@ def test_tool_call_forwards_pie_timeout_to_http_timeout(mock_call_tool):
     assert arguments["timeout"] == 42.5
 
 
-@patch("soft_ue_cli.client.call_tool")
+@patch("soft_ue_cli.__main__.call_tool")
 def test_tool_call_normalizes_add_graph_node_created_nodes(mock_call_tool):
     mock_call_tool.return_value = {
         "status": True,
@@ -123,7 +124,7 @@ def test_tool_call_normalizes_add_graph_node_created_nodes(mock_call_tool):
 
     tool_fn = None
     for tool in server._tool_manager._tools.values():
-        if tool.name == "add-graph-node":
+        if tool.name == "blueprint node add":
             tool_fn = tool.fn
             break
 
@@ -140,7 +141,7 @@ def test_mcp_add_co_parameter_uses_cli_transform(mock_call_tool):
 
     tool_fn = None
     for tool in server._tool_manager._tools.values():
-        if tool.name == "add-co-parameter":
+        if tool.name == "mutable graph add-parameter":
             tool_fn = tool.fn
             break
 

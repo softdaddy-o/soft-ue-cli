@@ -10,6 +10,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli.__main__ import build_parser
 from soft_ue_cli.github import _resolve_token, create_issue

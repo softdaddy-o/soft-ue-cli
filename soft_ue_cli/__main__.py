@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from .client import call_tool, health_check
-from .command_aliases import normalize_command_aliases
+from .command_aliases import COMMAND_ALIAS_PREFIXES, REMOVED_COMMAND_MIGRATIONS
 from .discovery import get_server_url
 
 
@@ -45,9 +45,141 @@ def _normalize_negative_vector_options(args: list[str] | None) -> list[str] | No
 
 class SoftUEArgumentParser(argparse.ArgumentParser):
     def parse_known_args(self, args=None, namespace=None):
-        alias_args = normalize_command_aliases(list(sys.argv[1:]) if args is None else list(args))
-        normalized_args = _normalize_negative_vector_options(alias_args)
+        normalized_args = _normalize_negative_vector_options(list(sys.argv[1:]) if args is None else list(args))
         return super().parse_known_args(normalized_args, namespace)
+
+
+def _first_subparsers_action(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _add_copied_action(target: argparse.ArgumentParser, action: argparse.Action) -> None:
+    if isinstance(action, argparse._HelpAction | argparse._SubParsersAction):
+        return
+
+    kwargs: dict[str, object] = {}
+    for attr in ("nargs", "const", "default", "type", "choices", "help", "metavar"):
+        value = getattr(action, attr, None)
+        if value is not None and value != argparse.SUPPRESS:
+            kwargs[attr] = value
+    if action.option_strings:
+        kwargs["dest"] = action.dest
+        if action.required:
+            kwargs["required"] = True
+    if isinstance(action, argparse._StoreTrueAction):
+        kwargs["action"] = "store_true"
+        for attr in ("nargs", "const", "type", "choices", "metavar"):
+            kwargs.pop(attr, None)
+    elif isinstance(action, argparse._StoreFalseAction):
+        kwargs["action"] = "store_false"
+        for attr in ("nargs", "const", "type", "choices", "metavar"):
+            kwargs.pop(attr, None)
+    elif isinstance(action, argparse._AppendAction):
+        kwargs["action"] = "append"
+
+    if action.option_strings:
+        target.add_argument(*action.option_strings, **kwargs)
+    else:
+        target.add_argument(action.dest, **kwargs)
+
+
+def _copy_parser_surface(source: argparse.ArgumentParser, target: argparse.ArgumentParser) -> None:
+    for action in source._actions:
+        _add_copied_action(target, action)
+    target.set_defaults(**source._defaults)
+
+
+def _subparser_choice_help(subparsers_action: argparse._SubParsersAction, name: str) -> str:
+    for choice_action in subparsers_action._choices_actions:
+        if choice_action.dest == name:
+            return choice_action.help or name
+    return name
+
+
+def _canonicalize_removed_command_text(text: str | None) -> str | None:
+    if not text:
+        return text
+
+    result = text
+    for removed_name, canonical_command in sorted(
+        REMOVED_COMMAND_MIGRATIONS.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        result = result.replace(f"soft-ue-cli {removed_name}", f"soft-ue-cli {canonical_command}")
+        result = result.replace(f"`{removed_name}`", f"`{canonical_command}`")
+        result = re.sub(rf"\b{re.escape(removed_name)}\b", canonical_command, result)
+    return result
+
+
+def _ensure_nested_subparser(
+    parent: argparse.ArgumentParser,
+    path: tuple[str, ...],
+    part: str,
+) -> argparse.ArgumentParser:
+    subparsers_action = _first_subparsers_action(parent)
+    if subparsers_action is None:
+        dest = "_".join(path) + "_action"
+        subparsers_action = parent.add_subparsers(dest=dest, required=True)
+    if part in subparsers_action.choices:
+        return subparsers_action.choices[part]
+
+    command_path = " ".join((*path, part))
+    return subparsers_action.add_parser(
+        part,
+        help=f"Canonical {command_path} command family.",
+        description=f"Canonical {command_path} command family.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+
+def _add_canonical_command_families(subparsers_action: argparse._SubParsersAction) -> None:
+    legacy_parsers = dict(subparsers_action.choices)
+    for prefix, removed_command in sorted(COMMAND_ALIAS_PREFIXES.items()):
+        source = legacy_parsers.get(removed_command)
+        if source is None:
+            continue
+
+        current: argparse.ArgumentParser
+        if prefix[0] in subparsers_action.choices:
+            current = subparsers_action.choices[prefix[0]]
+        else:
+            current = subparsers_action.add_parser(
+                prefix[0],
+                help=f"Canonical {prefix[0]} command family.",
+                description=f"Canonical {prefix[0]} command family.",
+                formatter_class=argparse.RawDescriptionHelpFormatter,
+            )
+
+        for depth, part in enumerate(prefix[1:-1], start=1):
+            current = _ensure_nested_subparser(current, prefix[:depth], part)
+
+        leaf_subparsers = _first_subparsers_action(current)
+        if leaf_subparsers is None:
+            leaf_subparsers = current.add_subparsers(dest="_".join(prefix[:-1]) + "_action", required=True)
+        leaf_name = prefix[-1]
+        if leaf_name in leaf_subparsers.choices:
+            continue
+        leaf = leaf_subparsers.add_parser(
+            leaf_name,
+            help=_canonicalize_removed_command_text(_subparser_choice_help(subparsers_action, removed_command)),
+            description=_canonicalize_removed_command_text(source.description),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        _copy_parser_surface(source, leaf)
+
+
+def _remove_top_level_commands(subparsers_action: argparse._SubParsersAction, names: set[str]) -> None:
+    for name in names:
+        subparsers_action.choices.pop(name, None)
+    subparsers_action._choices_actions = [
+        choice_action
+        for choice_action in subparsers_action._choices_actions
+        if choice_action.dest not in names
+    ]
 
 
 def _fix_msys_asset_path(path: str) -> str:
@@ -76,14 +208,12 @@ def cmd_commands(args: argparse.Namespace) -> None:
     from .command_catalog import command_metadata_as_json, filter_command_metadata
 
     if args.json:
-        payload = command_metadata_as_json(probe=args.probe)
+        payload = command_metadata_as_json(probe=args.probe, include_removed=args.include_removed)
         entries = payload["commands"]
         if args.category:
             entries = [entry for entry in entries if entry["category"] == args.category or args.category in entry["name"].split()]
         if args.requires_bridge:
             entries = [entry for entry in entries if entry["requires_bridge"]]
-        if args.compatibility:
-            entries = [entry for entry in entries if entry["status"] in {"compatibility", "deprecated"}]
         if args.plugin:
             plugin = args.plugin.lower()
             entries = [
@@ -98,7 +228,7 @@ def cmd_commands(args: argparse.Namespace) -> None:
     entries = filter_command_metadata(
         category=args.category,
         requires_bridge=True if args.requires_bridge else None,
-        compatibility=args.compatibility,
+        include_removed=args.include_removed,
         plugin=args.plugin,
     )
     print(f"{'Command':<38} {'Layer':<14} {'Category':<12} {'Bridge':<6} {'Status':<14} Canonical")
@@ -411,7 +541,7 @@ def cmd_batch_call(args: argparse.Namespace) -> None:
             print("error: --calls-file must contain valid JSON", file=sys.stderr)
             sys.exit(1)
     elif args.calls:
-        calls = _parse_json_arg(args.calls, "--calls")
+        calls = _parse_json_array_arg(args.calls, "--calls")
     else:
         print("error: --calls or --calls-file required", file=sys.stderr)
         sys.exit(1)
@@ -452,16 +582,19 @@ def cmd_query_level(args: argparse.Namespace) -> None:
 
 
 def cmd_call_function(args: argparse.Namespace) -> None:
-    if not args.function_name:
+    actor_name = getattr(args, "actor_name", None) or getattr(args, "legacy_actor_name", None)
+    function_name = getattr(args, "function_name", None) or getattr(args, "legacy_function_name", None)
+
+    if not function_name:
         print("error: function name is required", file=sys.stderr)
         sys.exit(1)
-    if not args.actor_name and not args.class_path:
+    if not actor_name and not args.class_path:
         print("error: provide an actor target or --class-path", file=sys.stderr)
         sys.exit(1)
 
-    arguments: dict = {"function_name": args.function_name}
-    if args.actor_name:
-        arguments["actor_name"] = args.actor_name
+    arguments: dict = {"function_name": function_name}
+    if actor_name:
+        arguments["actor_name"] = actor_name
     if args.class_path:
         arguments["class_path"] = args.class_path
     if args.args:
@@ -3485,7 +3618,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  soft-ue-cli commands\n"
             "  soft-ue-cli commands --json\n"
             "  soft-ue-cli commands --category umg\n"
-            "  soft-ue-cli commands --compatibility"
+            "  soft-ue-cli commands --include-removed"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -3493,7 +3626,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_commands.add_argument("--probe", action="store_true", help="Augment JSON output with live bridge availability when available")
     p_commands.add_argument("--category", help="Filter by category or command family token")
     p_commands.add_argument("--requires-bridge", action="store_true", help="Only show commands that require the bridge")
-    p_commands.add_argument("--compatibility", action="store_true", help="Only show compatibility or deprecated wrappers")
+    p_commands.add_argument("--include-removed", action="store_true", help="Include removed flat commands and their canonical migrations")
     p_commands.add_argument("--plugin", help="Only show commands that require the named Unreal plugin")
     p_commands.set_defaults(func=cmd_commands)
 
@@ -3746,8 +3879,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p_cf.add_argument("actor_name", nargs="?", help="Legacy positional actor name or label")
-    p_cf.add_argument("function_name", nargs="?", help="Legacy positional function name")
+    p_cf.add_argument("legacy_actor_name", nargs="?", help="Legacy positional actor name or label")
+    p_cf.add_argument("legacy_function_name", nargs="?", help="Legacy positional function name")
     p_cf.add_argument("--actor-name", dest="actor_name", metavar="NAME", help="Actor name or label (supports wildcards)")
     p_cf.add_argument("--class-path", metavar="PATH", help="Blueprint/class path for --use-cdo or --spawn-transient")
     p_cf.add_argument("--function-name", dest="function_name", metavar="NAME", help="Exact function name (case-sensitive)")
@@ -4735,13 +4868,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the normalized UMG layout pipeline.",
         description=(
             "Unified UMG layout pipeline for extraction, comparison, and fitting.\n"
-            "Compatibility wrappers remain available as extract-umg-layout,\n"
-            "compare-umg-layout, and compare-umg-screenshot.\n\n"
+            "This flat command has been removed from the public CLI; use the\n"
+            "canonical `umg layout` command family.\n\n"
             "EXAMPLES:\n"
-            "  soft-ue-cli umg-layout extract --source concept-image --input concept.png --output concept_layout.json\n"
-            "  soft-ue-cli umg-layout extract --source runtime --root-widget WBP_Menu_C_0 --full-geometry --output runtime_layout.json\n"
-            "  soft-ue-cli umg-layout compare --mode geometry --subset concept_layout.json runtime_layout.json\n"
-            "  soft-ue-cli umg-layout fit --concept concept_layout.json --actual runtime_layout.json --spec generated_spec.json --output corrected_spec.json"
+            "  soft-ue-cli umg layout extract --source concept-image --input concept.png --output concept_layout.json\n"
+            "  soft-ue-cli umg layout extract --source runtime --root-widget WBP_Menu_C_0 --full-geometry --output runtime_layout.json\n"
+            "  soft-ue-cli umg layout compare --mode geometry --subset concept_layout.json runtime_layout.json\n"
+            "  soft-ue-cli umg layout fit --concept concept_layout.json --actual runtime_layout.json --spec generated_spec.json --output corrected_spec.json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -6434,6 +6567,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output file path (default: auto-generated in Saved/Traces/)",
     )
     p_rw_save.set_defaults(func=cmd_rewind_save)
+
+    _add_canonical_command_families(sub)
+    _remove_top_level_commands(sub, set(REMOVED_COMMAND_MIGRATIONS))
 
     return parser
 

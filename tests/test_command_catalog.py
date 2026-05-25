@@ -7,12 +7,14 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli.command_catalog import (  # noqa: E402
     command_metadata_as_json,
     filter_command_metadata,
     get_command_metadata,
     iter_command_metadata,
+    iter_removed_command_metadata,
 )
 
 
@@ -27,32 +29,29 @@ def test_catalog_marks_umg_layout_as_canonical_offline_command():
     assert meta["requires_pie"] is False
 
 
-def test_catalog_marks_legacy_umg_layout_wrappers_as_compatibility():
-    meta = get_command_metadata("compare-umg-layout")
+def test_catalog_hides_removed_umg_layout_wrappers_by_default():
+    payload = command_metadata_as_json()
+    names = {entry["name"] for entry in payload["commands"]}
 
-    assert meta["status"] == "compatibility"
-    assert meta["canonical_command"] == "umg layout compare --mode geometry"
-    assert meta["requires_bridge"] is False
+    assert "umg layout compare" in names
+    assert "compare-umg-layout" not in names
 
 
-def test_catalog_marks_capture_family_as_canonical_and_old_commands_as_compatibility():
+def test_catalog_marks_capture_family_as_canonical_and_tracks_removed_migrations():
     capture = get_command_metadata("capture")
     viewport = get_command_metadata("capture viewport")
     screenshot = get_command_metadata("capture screenshot")
-    legacy_viewport = get_command_metadata("capture-viewport")
-    legacy_screenshot = get_command_metadata("capture-screenshot")
-    legacy_pie = get_command_metadata("capture-pie-screenshot")
+    removed = {entry["name"]: entry for entry in iter_removed_command_metadata()}
 
     assert capture["status"] == "canonical"
     assert viewport["status"] == "canonical"
     assert screenshot["status"] == "canonical"
     assert viewport["requires_bridge"] is True
     assert screenshot["requires_bridge"] is True
-    assert legacy_viewport["status"] == "compatibility"
-    assert legacy_viewport["canonical_command"] == "capture viewport"
-    assert legacy_screenshot["status"] == "compatibility"
-    assert legacy_screenshot["canonical_command"] == "capture screenshot --source <mode>"
-    assert legacy_pie["canonical_command"] == "capture screenshot --source pie-window"
+    assert removed["capture-viewport"]["status"] == "removed"
+    assert removed["capture-viewport"]["canonical_command"] == "capture viewport"
+    assert removed["capture-screenshot"]["canonical_command"] == "capture screenshot --source <mode>"
+    assert removed["capture-pie-screenshot"]["canonical_command"] == "capture screenshot --source pie-window"
 
 
 @pytest.mark.parametrize(
@@ -65,13 +64,14 @@ def test_catalog_marks_capture_family_as_canonical_and_old_commands_as_compatibi
         ("blueprint", "query-blueprint-graph", "blueprint graph inspect"),
     ],
 )
-def test_catalog_marks_remaining_command_families_as_canonical_and_legacy_as_compatibility(family, legacy, canonical):
+def test_catalog_marks_remaining_command_families_as_canonical_and_legacy_as_removed(family, legacy, canonical):
     family_meta = get_command_metadata(family)
-    legacy_meta = get_command_metadata(legacy)
+    removed = {entry["name"]: entry for entry in iter_removed_command_metadata()}
 
     assert family_meta["status"] == "canonical"
-    assert legacy_meta["status"] == "compatibility"
-    assert legacy_meta["canonical_command"] == canonical
+    assert legacy in removed
+    assert removed[legacy]["status"] == "removed"
+    assert removed[legacy]["canonical_command"] == canonical
 
 
 @pytest.mark.parametrize(
@@ -84,31 +84,36 @@ def test_catalog_marks_remaining_command_families_as_canonical_and_legacy_as_com
         ("query-blueprint-graph", "blueprint"),
     ],
 )
-def test_compatibility_commands_use_canonical_family_category(legacy, category):
-    meta = get_command_metadata(legacy)
+def test_removed_commands_use_canonical_family_category(legacy, category):
+    removed = {entry["name"]: entry for entry in iter_removed_command_metadata()}
+    meta = removed[legacy]
 
     assert meta["category"] == category
 
 
-def test_blueprint_compatibility_aliases_keep_editor_requirement():
-    meta = get_command_metadata("modify-interface")
+def test_blueprint_removed_aliases_keep_migration_metadata():
+    removed = {entry["name"]: entry for entry in iter_removed_command_metadata()}
+    meta = removed["modify-interface"]
 
+    assert meta["status"] == "removed"
     assert meta["canonical_command"] == "blueprint interface modify"
     assert meta["requires_editor"] is True
 
 
-def test_asset_file_compatibility_aliases_stay_offline():
-    meta = get_command_metadata("inspect-uasset")
+def test_asset_file_removed_aliases_stay_offline():
+    removed = {entry["name"]: entry for entry in iter_removed_command_metadata()}
+    meta = removed["inspect-uasset"]
 
+    assert meta["status"] == "removed"
     assert meta["canonical_command"] == "asset inspect-file"
     assert meta["requires_bridge"] is False
     assert meta["requires_editor"] is False
 
 
 def test_catalog_includes_plugin_requirements_for_optional_plugin_tools():
-    mutable = get_command_metadata("compile-co")
-    statetree = get_command_metadata("query-statetree")
-    rewind = get_command_metadata("rewind-start")
+    mutable = get_command_metadata("mutable compile")
+    statetree = get_command_metadata("statetree inspect")
+    rewind = get_command_metadata("anim rewind start")
     enhanced_input = get_command_metadata("trigger-input")
 
     assert mutable["required_plugins"][0]["name"] == "Mutable"
@@ -126,8 +131,9 @@ def test_catalog_can_filter_commands_by_required_plugin():
     mutable_entries = filter_command_metadata(plugin="Mutable")
     mutable_names = {entry["name"] for entry in mutable_entries}
 
-    assert "compile-co" in mutable_names
-    assert "inspect-mutable-parameters" in mutable_names
+    assert "mutable compile" in mutable_names
+    assert "mutable inspect parameters" in mutable_names
+    assert "compile-co" not in mutable_names
     assert all(
         any(plugin["name"] == "Mutable" for plugin in entry["required_plugins"])
         for entry in mutable_entries
@@ -136,7 +142,7 @@ def test_catalog_can_filter_commands_by_required_plugin():
 
 def test_commands_probe_metadata_keeps_plugin_requirement_context():
     payload = command_metadata_as_json(probe=True)
-    mutable_entry = next(entry for entry in payload["commands"] if entry["name"] == "compile-co")
+    mutable_entry = next(entry for entry in payload["commands"] if entry["name"] == "mutable compile")
 
     assert mutable_entry["available"] == "unknown"
     assert mutable_entry["availability_note"]
@@ -150,7 +156,19 @@ def test_commands_json_contains_sorted_metadata_entries():
     names = [entry["name"] for entry in payload["commands"]]
     assert names == sorted(names)
     assert "umg layout" in names
-    assert "compare-umg-layout" in names
+    assert "compare-umg-layout" not in names
+
+
+def test_commands_json_can_include_removed_migration_entries():
+    payload = command_metadata_as_json(include_removed=True)
+
+    names = [entry["name"] for entry in payload["commands"]]
+    removed_entry = next(entry for entry in payload["commands"] if entry["name"] == "query-blueprint")
+
+    assert names == sorted(names)
+    assert removed_entry["status"] == "removed"
+    assert removed_entry["canonical_command"] == "blueprint inspect"
+    assert "Removed flat command" in removed_entry["summary"]
 
 
 def test_all_catalog_entries_have_required_metadata_fields():

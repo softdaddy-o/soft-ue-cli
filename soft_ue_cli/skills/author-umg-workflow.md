@@ -10,7 +10,7 @@ Use this skill when a UI concept must become real editable UMG screens with a st
 
 ## Workflow
 
-1. Convert the UI concept/spec into one or more `apply-widget-tree` JSON files.
+1. Convert the UI concept/spec into one or more `umg designer apply` JSON files.
    - Use stable names for every interactive widget.
    - Prefix navigation buttons with intent, for example `Nav_StartButton`, `Nav_BackButton`.
    - Keep data/action buttons distinct, for example `Item_Weapon_0_Button` and `Action_EquipButton`.
@@ -19,9 +19,9 @@ Use this skill when a UI concept must become real editable UMG screens with a st
 2. Apply and inspect each Designer tree.
 
 ```bash
-soft-ue-cli apply-widget-tree /Game/UI/WBP_MainMenu --spec-file main_menu_tree.json --compile --save
-soft-ue-cli inspect-widget-blueprint /Game/UI/WBP_MainMenu --include-defaults
-soft-ue-cli umg-layout extract --source designer --asset-path /Game/UI/WBP_MainMenu --output umg_expected_layout.json
+soft-ue-cli umg designer apply /Game/UI/WBP_MainMenu --spec-file main_menu_tree.json --compile --save
+soft-ue-cli umg designer inspect /Game/UI/WBP_MainMenu --include-defaults
+soft-ue-cli umg layout extract --source designer --asset-path /Game/UI/WBP_MainMenu --output umg_expected_layout.json
 ```
 
 3. Prepare the stable widget-name contract for a reusable parent class.
@@ -44,7 +44,7 @@ soft-ue-cli umg-layout extract --source designer --asset-path /Game/UI/WBP_MainM
 ```
 
 ```bash
-soft-ue-cli wire-widget-navigation /Game/UI/WBP_MainMenu --bindings-file navigation.json --compile --save
+soft-ue-cli umg navigation wire /Game/UI/WBP_MainMenu --bindings-file navigation.json --compile --save
 ```
 
 The command validates named buttons/targets and exposes required widgets as variables. The returned `parent_binding_contract` is the contract a shared parent class should bind in `NativeConstruct`.
@@ -63,22 +63,20 @@ The command validates named buttons/targets and exposes required widgets as vari
 ```
 
 ```bash
-soft-ue-cli pie-session start --continue-on-blueprint-compile-errors
-soft-ue-cli verify-umg-workflow \
-  --widget-class /Game/UI/WBP_MainMenu.WBP_MainMenu_C \
-  --expected-widgets '["RootCanvas","Nav_StartButton","ScreenSwitcher","LoadoutPanel"]' \
-  --expected-text '["Main Menu"]' \
-  --click-sequence-file click_sequence.json \
-  --capture-after
+soft-ue-cli pie-session start --blueprint-error-action report
+soft-ue-cli umg preview replace --widget-class /Game/UI/WBP_MainMenu.WBP_MainMenu_C --capture-after
+soft-ue-cli umg verify widgets --root-widget WBP_MainMenu_C_0 --expected-widgets '["RootCanvas","Nav_StartButton","ScreenSwitcher","LoadoutPanel"]'
+soft-ue-cli umg verify text --root-widget WBP_MainMenu_C_0 --expected-text '["Main Menu"]'
+soft-ue-cli umg verify navigation --root-widget WBP_MainMenu_C_0 --click-sequence-file click_sequence.json
 ```
 
 5. Compare runtime layout and capture the composited PIE viewport for visual comparison when `capture_after` is returned.
 
 ```bash
-soft-ue-cli umg-layout extract --source runtime --root-widget WBP_MainMenu_C_0 --full-geometry --output umg_runtime_layout.json
-soft-ue-cli umg-layout compare --mode geometry --subset umg_expected_layout.json umg_runtime_layout.json --output umg_layout_report.json
-soft-ue-cli capture-pie-screenshot --output file --scale 50
-soft-ue-cli umg-layout compare --mode pixel concept.png captured.png --annotated-output visual-diff.png
+soft-ue-cli umg layout extract --source runtime --root-widget WBP_MainMenu_C_0 --full-geometry --output umg_runtime_layout.json
+soft-ue-cli umg layout compare --mode geometry --subset umg_expected_layout.json umg_runtime_layout.json --output umg_layout_report.json
+soft-ue-cli capture screenshot --source pie-window --output file --scale 50
+soft-ue-cli umg layout compare --mode pixel concept.png captured.png --annotated-output visual-diff.png
 ```
 
 ## Output Contract

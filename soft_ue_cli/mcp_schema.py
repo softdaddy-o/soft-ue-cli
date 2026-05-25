@@ -5,6 +5,13 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from .command_aliases import REMOVED_COMMAND_MIGRATIONS
+
+
+def _canonical_name(canonical_command: str) -> str:
+    return canonical_command.split(" --", 1)[0]
+
+
 EXCLUDED_COMMANDS: frozenset[str] = frozenset({
     "anim",
     "await-bridge",
@@ -29,25 +36,8 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "report-bug",
     "submit-testimonial",
     "request-feature",
-    "inspect-uasset",
-    "diff-uasset",
     "config",
-    "add-co-node",
-    "add-co-parameter",
-    "add-co-mesh-option",
-    "set-co-base-mesh",
-    "add-co-group-child",
-    "set-co-node-property",
-    "connect-co-pins",
-    "regenerate-co-node-pins",
-    "compile-co",
-    "remove-co-node",
-    "capture-pie-screenshot",
-    "compare-umg-screenshot",
-    "extract-umg-layout",
-    "compare-umg-layout",
-    "umg-layout",
-})
+} | {_canonical_name(command) for command in REMOVED_COMMAND_MIGRATIONS.values()})
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.
 #
@@ -95,6 +85,21 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
         "properties": {
             "modifications": {"type": "array", "description": "Array of actor modification specs"},
         },
+    },
+    # batch-call: calls is a native JSON array in MCP, not a CLI JSON string.
+    "batch-call": {
+        "properties": {
+            "calls": {"type": "array", "description": "Array of {tool, args} entries"},
+        },
+    },
+    # exec-console-command: MCP callers may pass a complete command string while
+    # argparse exposes the legacy command_parts positional.
+    "exec-console-command": {
+        "properties": {
+            "command": {"type": "string", "description": "Console command to execute"},
+            "command_parts": {"type": "array", "description": "Console command tokens"},
+        },
+        "required_remove": ["command_parts"],
     },
     # add-graph-node: position is an [X, Y] array
     "add-graph-node": {
@@ -214,6 +219,98 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
     },
 }
 
+EXTRA_BRIDGE_TOOLS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "validate-config-key",
+        "description": "Validate whether an Unreal config section/key is known and usable.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string", "description": "Config section name"},
+                "key": {"type": "string", "description": "Config key name"},
+                "config_type": {"type": "string", "description": "Config type, e.g. Engine, Game, Input"},
+                "platform": {"type": "string", "description": "Optional config platform"},
+            },
+            "required": ["section", "key"],
+        },
+    },
+    {
+        "name": "set-config-value",
+        "description": "Set an Unreal config value through the active bridge.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string", "description": "Config section name"},
+                "key": {"type": "string", "description": "Config key name"},
+                "value": {"type": "any", "description": "Config value to write"},
+                "config_type": {"type": "string", "description": "Config type, e.g. Engine, Game, Input"},
+                "platform": {"type": "string", "description": "Optional config platform"},
+            },
+            "required": ["section", "key", "value"],
+        },
+    },
+    {
+        "name": "get-config-value",
+        "description": "Read an Unreal config value through the active bridge.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "section": {"type": "string", "description": "Config section name"},
+                "key": {"type": "string", "description": "Config key name"},
+                "config_type": {"type": "string", "description": "Config type, e.g. Engine, Game, Input"},
+                "platform": {"type": "string", "description": "Optional config platform"},
+            },
+            "required": ["section", "key"],
+        },
+    },
+)
+
+TOOL_OVERRIDES.update({
+    "blueprint node add": TOOL_OVERRIDES["add-graph-node"],
+    "blueprint node position": TOOL_OVERRIDES["set-node-position"],
+    "anim state-machine add": TOOL_OVERRIDES["add-anim-state-machine"],
+    "anim state add": TOOL_OVERRIDES["add-anim-state"],
+    "anim transition add": TOOL_OVERRIDES["add-anim-transition"],
+    "mutable graph add-node": TOOL_OVERRIDES["add-co-node"],
+    "mutable graph add-parameter": TOOL_OVERRIDES["add-co-parameter"],
+    "mutable graph add-mesh-option": TOOL_OVERRIDES["add-co-mesh-option"],
+    "mutable graph set-node-property": TOOL_OVERRIDES["set-co-node-property"],
+    "mutable graph create-from-spec": TOOL_OVERRIDES["create-co-from-spec"],
+    "mutable graph wire-slot-from-table": TOOL_OVERRIDES["wire-customizable-object-slot-from-table"],
+    "umg designer apply": TOOL_OVERRIDES["apply-widget-tree"],
+    "umg navigation wire": TOOL_OVERRIDES["wire-widget-navigation"],
+    "umg navigation verify": TOOL_OVERRIDES["wire-widget-navigation"],
+    "umg verify widgets": {
+        "properties": {
+            "expected_widgets": {"type": "array", "description": "Array of expected widget names"},
+        },
+    },
+    "umg verify text": {
+        "properties": {
+            "expected_text": {"type": "array", "description": "Array of expected TextBlock strings"},
+        },
+    },
+    "umg verify navigation": {
+        "properties": {
+            "click_sequence": {"type": "array", "description": "Array of named button click validation steps"},
+        },
+    },
+    "capture screenshot": TOOL_OVERRIDES["capture-screenshot"],
+    "umg layout compare": {
+        "properties": {
+            **TOOL_OVERRIDES["compare-umg-screenshot"]["properties"],
+            **TOOL_OVERRIDES["umg-layout"]["properties"],
+        },
+    },
+    "umg verify runtime-layout": {
+        "properties": {
+            **TOOL_OVERRIDES["compare-umg-screenshot"]["properties"],
+            **TOOL_OVERRIDES["umg-layout"]["properties"],
+        },
+    },
+    "anim sync-marker compare": TOOL_OVERRIDES["compare-sync-markers"],
+})
+
 
 def _argparse_type_to_json(action: argparse.Action) -> dict[str, Any]:
     """Convert a single argparse action to a JSON Schema property."""
@@ -308,6 +405,61 @@ def _extract_nested_subcommands(subparsers_action: argparse._SubParsersAction) -
     return properties, ["subcommand"]
 
 
+def _first_subparsers_action(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _choice_help(subparsers_action: argparse._SubParsersAction, name: str) -> str:
+    for choice_action in subparsers_action._choices_actions:
+        if choice_action.dest == name:
+            return choice_action.help or ""
+    return ""
+
+
+def _iter_nested_leaf_commands(
+    parser: argparse.ArgumentParser,
+    path: tuple[str, ...],
+) -> list[tuple[str, argparse.ArgumentParser, str]]:
+    subparsers_action = _first_subparsers_action(parser)
+    if subparsers_action is None:
+        return [(" ".join(path), parser, parser.description or parser.prog)]
+
+    leaves: list[tuple[str, argparse.ArgumentParser, str]] = []
+    for choice, sub_parser in subparsers_action.choices.items():
+        leaves.extend(_iter_nested_leaf_commands(sub_parser, (*path, choice)))
+    return leaves
+
+
+def _apply_tool_overrides(tool_name: str, params: dict[str, Any]) -> None:
+    if tool_name not in TOOL_OVERRIDES:
+        return
+    override = TOOL_OVERRIDES[tool_name]
+    for prop_name, prop_override in override.get("properties", {}).items():
+        if prop_name in params["properties"]:
+            params["properties"][prop_name].update(prop_override)
+        else:
+            # Allow overrides to add new properties not in argparse
+            params["properties"][prop_name] = prop_override
+    if "required_remove" in override:
+        required = params.get("required", [])
+        params["required"] = [r for r in required if r not in override["required_remove"]]
+
+
+def _tool_def(name: str, sub_parser: argparse.ArgumentParser, description: str = "") -> dict[str, Any]:
+    params = _extract_one(sub_parser)
+    _apply_tool_overrides(name, params)
+    return {
+        "name": name,
+        "description": sub_parser.description or description or sub_parser.prog,
+        "parameters": params,
+        "func": sub_parser.get_default("func"),
+        "defaults": dict(sub_parser._defaults),
+    }
+
+
 def extract_tools() -> list[dict[str, Any]]:
     """Extract MCP tool definitions from the CLI's argparse parser.
 
@@ -336,29 +488,16 @@ def extract_tools() -> list[dict[str, Any]]:
 
     for cmd_name, sub_parser in subparsers_action.choices.items():
         if cmd_name in EXCLUDED_COMMANDS:
+            if _first_subparsers_action(sub_parser) is not None:
+                for leaf_name, leaf_parser, leaf_description in _iter_nested_leaf_commands(sub_parser, (cmd_name,)):
+                    tools.append(_tool_def(leaf_name, leaf_parser, leaf_description))
             continue
 
-        params = _extract_one(sub_parser)
+        tools.append(_tool_def(cmd_name, sub_parser, choice_help.get(cmd_name, "")))
 
-        # Apply per-tool overrides
-        if cmd_name in TOOL_OVERRIDES:
-            override = TOOL_OVERRIDES[cmd_name]
-            for prop_name, prop_override in override.get("properties", {}).items():
-                if prop_name in params["properties"]:
-                    params["properties"][prop_name].update(prop_override)
-                else:
-                    # Allow overrides to add new properties not in argparse
-                    params["properties"][prop_name] = prop_override
-            # Remove fields from required list when the override marks them optional
-            if "required_remove" in override:
-                required = params.get("required", [])
-                params["required"] = [r for r in required if r not in override["required_remove"]]
-
-        tools.append({
-            "name": cmd_name,
-            "description": sub_parser.description or choice_help.get(cmd_name, sub_parser.prog),
-            "parameters": params,
-            "func": sub_parser.get_default("func"),
-        })
+    existing_names = {tool["name"] for tool in tools}
+    for tool_def in EXTRA_BRIDGE_TOOLS:
+        if tool_def["name"] not in existing_names:
+            tools.append({**tool_def, "func": None})
 
     return tools

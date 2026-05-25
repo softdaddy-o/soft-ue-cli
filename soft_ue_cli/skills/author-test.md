@@ -65,7 +65,7 @@ Ask only the minimum needed to classify the request:
 
 All sub-skills should use what was learned in the current session from CLI/bridge/Python exploration:
 
-- runtime signals discovered with tools such as `inspect-anim-instance`, `query-asset`, `call-function`, or `run-python-script`
+- runtime signals discovered with tools such as `anim instance inspect`, `asset query`, `call-function`, or `run-python-script`
 - map and setup details
 - the specific assertion that proves the bug or regression
 

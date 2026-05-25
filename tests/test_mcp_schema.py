@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
@@ -27,39 +28,41 @@ def test_extract_tools_contains_known_command():
     tools = extract_tools()
     tool_names = {t["name"] for t in tools}
     assert "spawn-actor" in tool_names
-    assert "query-blueprint" in tool_names
+    assert "blueprint inspect" in tool_names
+    assert "blueprint graph inspect" in tool_names
     assert "query-enum" in tool_names
     assert "query-struct" in tool_names
-    assert "inspect-customizable-object-graph" in tool_names
-    assert "inspect-mutable-parameters" in tool_names
-    assert "inspect-mutable-diagnostics" in tool_names
-    assert "add-co-node" in tool_names
-    assert "add-co-parameter" in tool_names
-    assert "add-co-mesh-option" in tool_names
-    assert "set-co-node-property" in tool_names
-    assert "connect-co-pins" in tool_names
-    assert "regenerate-co-node-pins" in tool_names
-    assert "compile-co" in tool_names
-    assert "remove-co-node" in tool_names
-    assert "wire-customizable-object-slot-from-table" in tool_names
+    assert "mutable inspect graph" in tool_names
+    assert "mutable inspect parameters" in tool_names
+    assert "mutable inspect diagnostics" in tool_names
+    assert "mutable graph add-node" in tool_names
+    assert "mutable graph add-parameter" in tool_names
+    assert "mutable graph add-mesh-option" in tool_names
+    assert "mutable graph set-node-property" in tool_names
+    assert "mutable graph connect-pins" in tool_names
+    assert "mutable graph regenerate-node-pins" in tool_names
+    assert "mutable compile" in tool_names
+    assert "mutable graph remove-node" in tool_names
+    assert "mutable graph wire-slot-from-table" in tool_names
     assert "reload-bridge-module" in tool_names
-    assert "inspect-uasset" in tool_names
-    assert "diff-uasset" in tool_names
-    assert "apply-widget-tree" in tool_names
-    assert "wire-widget-navigation" in tool_names
-    assert "verify-umg-workflow" in tool_names
-    assert "capture-pie-screenshot" in tool_names
-    assert "compare-umg-screenshot" in tool_names
-    assert "extract-umg-layout" in tool_names
-    assert "compare-umg-layout" in tool_names
-    assert "umg-layout" in tool_names
+    assert "asset inspect-file" in tool_names
+    assert "asset diff-file" in tool_names
+    assert "umg designer apply" in tool_names
+    assert "umg navigation wire" in tool_names
+    assert "umg workflow run" in tool_names
+    assert "capture screenshot" in tool_names
+    assert "umg layout extract" in tool_names
+    assert "umg layout compare" in tool_names
+    assert "umg layout fit" in tool_names
     assert "status" in tool_names
     assert "commands" in tool_names
     assert "wait-for-ready" in tool_names
-    assert "inspect-sync-markers" in tool_names
-    assert "compare-sync-markers" in tool_names
-    assert "add-sync-marker" in tool_names
-    assert "remove-sync-marker" in tool_names
+    assert "anim sync-marker inspect" in tool_names
+    assert "anim sync-marker compare" in tool_names
+    assert "anim sync-marker add" in tool_names
+    assert "anim sync-marker remove" in tool_names
+    assert "query-blueprint" not in tool_names
+    assert "capture-viewport" not in tool_names
 
 
 def test_tool_has_required_fields():
@@ -74,17 +77,32 @@ def test_commands_is_client_side_tool():
     assert "commands" in CLIENT_SIDE_COMMANDS
 
 
-def test_nested_umg_family_is_not_auto_exposed_to_mcp():
+def test_nested_umg_family_root_is_not_auto_exposed_to_mcp():
     assert "umg" in EXCLUDED_COMMANDS
 
 
-def test_nested_capture_family_is_not_auto_exposed_to_mcp():
+def test_nested_capture_family_root_is_not_auto_exposed_to_mcp():
     assert "capture" in EXCLUDED_COMMANDS
 
 
-def test_nested_taxonomy_families_are_not_auto_exposed_to_mcp():
+def test_nested_taxonomy_family_roots_are_not_auto_exposed_to_mcp():
     for family in ["mutable", "statetree", "anim", "asset", "blueprint"]:
         assert family in EXCLUDED_COMMANDS
+
+
+def test_canonical_leaf_commands_are_exposed_to_mcp():
+    tool_names = {t["name"] for t in extract_tools()}
+
+    for name in [
+        "umg designer apply",
+        "capture viewport",
+        "mutable graph add-node",
+        "statetree state add",
+        "anim rewind status",
+        "asset query",
+        "blueprint node add",
+    ]:
+        assert name in tool_names
 
 
 def test_positional_arg_is_required():
@@ -121,7 +139,7 @@ def test_world_options_are_exposed_for_level_actor_property_queries():
 
 def test_store_true_maps_to_boolean():
     tools = extract_tools()
-    tool = next(t for t in tools if t["name"] == "query-blueprint")
+    tool = next(t for t in tools if t["name"] == "blueprint inspect")
     params = tool["parameters"]
     assert params["properties"]["no_detail"]["type"] == "boolean"
 
@@ -136,21 +154,21 @@ def test_set_property_value_override_maps_to_any():
 def test_customizable_object_edit_schema_uses_native_json_types():
     tools = extract_tools()
 
-    add_node = next(t for t in tools if t["name"] == "add-co-node")
+    add_node = next(t for t in tools if t["name"] == "mutable graph add-node")
     add_node_params = add_node["parameters"]["properties"]
     assert add_node_params["position"]["type"] == "array"
     assert add_node_params["properties"]["type"] == "object"
 
-    set_node_property = next(t for t in tools if t["name"] == "set-co-node-property")
+    set_node_property = next(t for t in tools if t["name"] == "mutable graph set-node-property")
     assert set_node_property["parameters"]["properties"]["properties"]["type"] == "object"
 
     add_datatable_row = next(t for t in tools if t["name"] == "add-datatable-row")
     assert add_datatable_row["parameters"]["properties"]["row_data"]["type"] == "object"
 
-    connect_pins = next(t for t in tools if t["name"] == "connect-co-pins")
+    connect_pins = next(t for t in tools if t["name"] == "mutable graph connect-pins")
     assert connect_pins["parameters"]["properties"]["auto_regenerate"]["type"] == "boolean"
 
-    slot_macro = next(t for t in tools if t["name"] == "wire-customizable-object-slot-from-table")
+    slot_macro = next(t for t in tools if t["name"] == "mutable graph wire-slot-from-table")
     slot_params = slot_macro["parameters"]["properties"]
     assert slot_params["filter_values"]["type"] == "array"
     assert slot_params["node_position"]["type"] == "array"
@@ -158,7 +176,7 @@ def test_customizable_object_edit_schema_uses_native_json_types():
 
 def test_apply_widget_tree_schema_uses_native_json_types():
     tools = extract_tools()
-    tool = next(t for t in tools if t["name"] == "apply-widget-tree")
+    tool = next(t for t in tools if t["name"] == "umg designer apply")
     params = tool["parameters"]
 
     assert params["properties"]["spec"]["type"] == "object"
@@ -173,7 +191,7 @@ def test_apply_widget_tree_schema_uses_native_json_types():
 def test_umg_workflow_schema_uses_native_json_types():
     tools = extract_tools()
 
-    wire = next(t for t in tools if t["name"] == "wire-widget-navigation")
+    wire = next(t for t in tools if t["name"] == "umg navigation wire")
     wire_params = wire["parameters"]
     assert wire_params["properties"]["bindings"]["type"] == "array"
     assert wire_params["properties"]["bindings_file"]["type"] == "string"
@@ -183,54 +201,56 @@ def test_umg_workflow_schema_uses_native_json_types():
     assert wire_params["properties"]["allow_busy"]["type"] == "boolean"
     assert "asset_path" in wire_params.get("required", [])
 
-    verify = next(t for t in tools if t["name"] == "verify-umg-workflow")
-    verify_params = verify["parameters"]
-    assert verify_params["properties"]["expected_widgets"]["type"] == "array"
-    assert verify_params["properties"]["expected_text"]["type"] == "array"
-    assert verify_params["properties"]["click_sequence"]["type"] == "array"
-    assert verify_params["properties"]["preview_lifecycle"]["type"] == "string"
-    assert verify_params["properties"]["capture_after"]["type"] == "boolean"
+    verify_widgets = next(t for t in tools if t["name"] == "umg verify widgets")
+    verify_text = next(t for t in tools if t["name"] == "umg verify text")
+    verify_navigation = next(t for t in tools if t["name"] == "umg verify navigation")
+    workflow = next(t for t in tools if t["name"] == "umg workflow run")
+    assert verify_widgets["parameters"]["properties"]["expected_widgets"]["type"] == "array"
+    assert verify_text["parameters"]["properties"]["expected_text"]["type"] == "array"
+    assert verify_navigation["parameters"]["properties"]["click_sequence"]["type"] == "array"
+    assert workflow["parameters"]["properties"]["plan"]["type"] == "string"
+    assert "plan" in workflow["parameters"].get("required", [])
 
 
 def test_visual_capture_schema_exposes_safe_pie_and_compare_options():
     tools = extract_tools()
 
-    capture = next(t for t in tools if t["name"] == "capture-screenshot")
+    capture = next(t for t in tools if t["name"] == "capture screenshot")
     capture_props = capture["parameters"]["properties"]
     assert "pie-window" in capture_props["mode"]["enum"]
     assert capture_props["unsafe_slate_window_capture"]["type"] == "boolean"
 
-    pie_capture = next(t for t in tools if t["name"] == "capture-pie-screenshot")
+    pie_capture = next(t for t in tools if t["name"] == "capture viewport")
     pie_capture_props = pie_capture["parameters"]["properties"]
     assert pie_capture_props["format"]["type"] == "string"
     assert pie_capture_props["cleanup_previous"]["type"] == "boolean"
 
-    compare = next(t for t in tools if t["name"] == "compare-umg-screenshot")
+    compare = next(t for t in tools if t["name"] == "umg layout compare")
     compare_params = compare["parameters"]
     assert compare_params["properties"]["crop"]["type"] == "array"
     assert compare_params["properties"]["annotated_output"]["type"] == "string"
     assert compare_params["properties"]["threshold"]["type"] == "number"
-    assert "reference_image" in compare_params.get("required", [])
-    assert "captured_image" in compare_params.get("required", [])
+    assert "expected_layout" in compare_params.get("required", [])
+    assert "actual_layout" in compare_params.get("required", [])
 
 
 def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
     tools = extract_tools()
 
-    query_graph = next(t for t in tools if t["name"] == "query-blueprint-graph")
+    query_graph = next(t for t in tools if t["name"] == "blueprint graph inspect")
     query_props = query_graph["parameters"]["properties"]
     assert query_props["recursive"]["type"] == "boolean"
     assert query_props["node_class"]["type"] == "string"
 
-    inspect_anim = next(t for t in tools if t["name"] == "inspect-anim-instance")
+    inspect_anim = next(t for t in tools if t["name"] == "anim instance inspect")
     inspect_params = inspect_anim["parameters"]
     assert "actor_tag" not in inspect_params.get("required", [])
     assert inspect_params["properties"]["asset_path"]["type"] == "string"
 
-    compare_markers = next(t for t in tools if t["name"] == "compare-sync-markers")
+    compare_markers = next(t for t in tools if t["name"] == "anim sync-marker compare")
     assert compare_markers["parameters"]["properties"]["asset_paths"]["type"] == "array"
 
-    add_marker = next(t for t in tools if t["name"] == "add-sync-marker")
+    add_marker = next(t for t in tools if t["name"] == "anim sync-marker add")
     assert add_marker["parameters"]["properties"]["time"]["type"] == "number"
 
 
@@ -247,27 +267,26 @@ def test_pie_session_schema_exposes_blueprint_compile_error_policy():
 
 def test_customizable_object_convenience_commands_run_client_side_for_mcp():
     for command in {
-        "add-co-node",
-        "add-co-parameter",
-        "add-co-mesh-option",
-        "set-co-base-mesh",
-        "add-co-group-child",
-        "set-co-node-property",
-        "connect-co-pins",
-        "regenerate-co-node-pins",
-        "compile-co",
-        "remove-co-node",
+        "mutable graph add-node",
+        "mutable graph add-parameter",
+        "mutable graph add-mesh-option",
+        "mutable graph set-base-mesh",
+        "mutable graph add-group-child",
+        "mutable graph set-node-property",
+        "mutable graph connect-pins",
+        "mutable graph regenerate-node-pins",
+        "mutable compile",
+        "mutable graph remove-node",
         "wait-for-ready",
     }:
         assert command in CLIENT_SIDE_COMMANDS
 
 
 def test_visual_compare_command_runs_client_side_for_mcp():
-    assert "capture-pie-screenshot" in CLIENT_SIDE_COMMANDS
-    assert "compare-umg-screenshot" in CLIENT_SIDE_COMMANDS
-    assert "extract-umg-layout" in CLIENT_SIDE_COMMANDS
-    assert "compare-umg-layout" in CLIENT_SIDE_COMMANDS
-    assert "umg-layout" in CLIENT_SIDE_COMMANDS
+    assert "capture screenshot" in CLIENT_SIDE_COMMANDS
+    assert "capture viewport" in CLIENT_SIDE_COMMANDS
+    assert "umg layout extract" in CLIENT_SIDE_COMMANDS
+    assert "umg layout compare" in CLIENT_SIDE_COMMANDS
 
 
 def test_choices_map_to_enum():
@@ -308,7 +327,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 130
+    assert len(tools) <= 140
 
 
 def test_skills_excluded():

@@ -18,8 +18,8 @@ Do not jump straight into recursive Blueprint-to-C++ conversion.
 Start with the target Blueprint:
 
 ```
-soft-ue-cli query-blueprint <ASSET_PATH> --include all --include-inherited
-soft-ue-cli query-blueprint-graph <ASSET_PATH> --list-callables
+soft-ue-cli blueprint inspect <ASSET_PATH> --include all --include-inherited
+soft-ue-cli blueprint graph inspect <ASSET_PATH> --list-callables
 ```
 
 Then inspect referenced Blueprint-only leaf types as needed:
@@ -27,7 +27,7 @@ Then inspect referenced Blueprint-only leaf types as needed:
 ```
 soft-ue-cli query-enum /Game/Path/E_SomeUserEnum
 soft-ue-cli query-struct /Game/Path/S_SomeUserStruct
-soft-ue-cli query-asset --asset-path /Game/Path/SomeDataAsset
+soft-ue-cli asset query --asset-path /Game/Path/SomeDataAsset
 ```
 
 Build a dependency table with:
@@ -79,7 +79,7 @@ This skill has two layers:
 ### Step 1 — Query the Blueprint
 
 ```
-soft-ue-cli query-blueprint <ASSET_PATH> --include all --include-inherited
+soft-ue-cli blueprint inspect <ASSET_PATH> --include all --include-inherited
 ```
 
 ### Step 2 — Generate the `.h` Header
@@ -197,7 +197,7 @@ From the JSON response, build the header file:
 ### Step 4 — List All Callables
 
 ```
-soft-ue-cli query-blueprint-graph <ASSET_PATH> --list-callables
+soft-ue-cli blueprint graph inspect <ASSET_PATH> --list-callables
 ```
 
 This returns `events`, `functions`, and `macros` with their names and parameters.
@@ -205,7 +205,7 @@ This returns `events`, `functions`, and `macros` with their names and parameters
 ### Step 5 — For Each Function/Event, Query Its Graph
 
 ```
-soft-ue-cli query-blueprint-graph <ASSET_PATH> --callable-name <NAME>
+soft-ue-cli blueprint graph inspect <ASSET_PATH> --callable-name <NAME>
 ```
 
 ### Step 6 — Walk the Graph and Translate
@@ -689,7 +689,7 @@ Use these to spot-check that the translation tables are applied correctly.
 
 #### Test Case 1: Simple Actor with Component and Replicated Variable
 
-**Input** (abbreviated `query-blueprint` response):
+**Input** (abbreviated `blueprint inspect` response):
 ```json
 {
   "name": "BP_HealthPickup",
@@ -812,7 +812,7 @@ void ABP_HealthPickup::OnPickedUp(APawn* Instigator)
 
 #### Test Case 2: Graph Logic — Branch + Delay + Library Calls
 
-**Input** (abbreviated `query-blueprint-graph` response for `BeginPlay`):
+**Input** (abbreviated `blueprint graph inspect` response for `BeginPlay`):
 ```json
 {
   "graph": {

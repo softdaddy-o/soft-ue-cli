@@ -10,8 +10,8 @@ Use this skill when a binary Unreal asset has a source-control conflict and you 
 
 This is a workflow skill. It does not rely on a dedicated `replay-changes` command. Use source control plus the offline Unreal inspection tools that already exist:
 
-- `soft-ue-cli inspect-uasset`
-- `soft-ue-cli diff-uasset`
+- `soft-ue-cli asset inspect-file`
+- `soft-ue-cli asset diff-file`
 - `git` or `p4`
 
 ## When to use
@@ -49,11 +49,11 @@ Stage meaning:
 ### 2. Inspect and diff offline
 
 ```bash
-soft-ue-cli inspect-uasset D:/tmp/BP_Player.local.uasset --sections summary,variables,functions,components
-soft-ue-cli inspect-uasset D:/tmp/BP_Player.remote.uasset --sections summary,variables,functions,components
-soft-ue-cli diff-uasset D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
-soft-ue-cli diff-uasset D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.remote.uasset --sections variables,functions,components
-soft-ue-cli diff-uasset D:/tmp/BP_Player.remote.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
+soft-ue-cli asset inspect-file D:/tmp/BP_Player.local.uasset --sections summary,variables,functions,components
+soft-ue-cli asset inspect-file D:/tmp/BP_Player.remote.uasset --sections summary,variables,functions,components
+soft-ue-cli asset diff-file D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
+soft-ue-cli asset diff-file D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.remote.uasset --sections variables,functions,components
+soft-ue-cli asset diff-file D:/tmp/BP_Player.remote.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
 ```
 
 Use the final `remote -> local` diff as the replay checklist after you sync the incoming binary.
@@ -77,7 +77,7 @@ If the asset has sidecars such as `.uexp` or `.ubulk`, handle them in the same p
 - event wiring differences
 - anim graph or Blueprint logic differences exposed by the offline diff
 
-Re-run `inspect-uasset` or `diff-uasset` against a fresh snapshot if you need to verify parity as you go.
+Re-run `asset inspect-file` or `asset diff-file` against a fresh snapshot if you need to verify parity as you go.
 
 ## Perforce workflow
 
@@ -96,11 +96,11 @@ If you know the exact base changelist or revision number, prefer that instead of
 ### 2. Inspect and diff offline
 
 ```bash
-soft-ue-cli inspect-uasset D:/tmp/BP_Player.local.uasset --sections summary,variables,functions,components
-soft-ue-cli inspect-uasset D:/tmp/BP_Player.remote.uasset --sections summary,variables,functions,components
-soft-ue-cli diff-uasset D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
-soft-ue-cli diff-uasset D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.remote.uasset --sections variables,functions,components
-soft-ue-cli diff-uasset D:/tmp/BP_Player.remote.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
+soft-ue-cli asset inspect-file D:/tmp/BP_Player.local.uasset --sections summary,variables,functions,components
+soft-ue-cli asset inspect-file D:/tmp/BP_Player.remote.uasset --sections summary,variables,functions,components
+soft-ue-cli asset diff-file D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
+soft-ue-cli asset diff-file D:/tmp/BP_Player.base.uasset D:/tmp/BP_Player.remote.uasset --sections variables,functions,components
+soft-ue-cli asset diff-file D:/tmp/BP_Player.remote.uasset D:/tmp/BP_Player.local.uasset --sections variables,functions,components
 ```
 
 ### 3. Sync the incoming revision
@@ -125,5 +125,5 @@ Use the `remote -> local` diff as the checklist and manually re-apply the wanted
 ## Anti-patterns
 
 - Accepting `theirs` or running `p4 sync` before saving the local binary revision.
-- Treating `diff-uasset` output as a complete semantic merge.
+- Treating `asset diff-file` output as a complete semantic merge.
 - Replaying everything blindly instead of reconstructing intent section by section.

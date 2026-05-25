@@ -1,6 +1,6 @@
 ---
 name: author-umg-designer
-description: Convert a UI concept image plus text requirements into an editable UMG Designer tree JSON spec for apply-widget-tree.
+description: Convert a UI concept image plus text requirements into an editable UMG Designer tree JSON spec for umg designer apply.
 version: 1.0.0
 ---
 
@@ -11,7 +11,7 @@ Use this skill when a user wants an editable Unreal UMG WidgetBlueprint, not a s
 The output should be a JSON spec for:
 
 ```bash
-soft-ue-cli apply-widget-tree /Game/UI/WBP_Name --spec-file widget_tree.json --compile --save
+soft-ue-cli umg designer apply /Game/UI/WBP_Name --spec-file widget_tree.json --compile --save
 ```
 
 ## Workflow
@@ -31,18 +31,18 @@ soft-ue-cli apply-widget-tree /Game/UI/WBP_Name --spec-file widget_tree.json --c
 13. After applying the spec, verify designer layout and write a required expected layout artifact:
 
 ```bash
-soft-ue-cli inspect-widget-blueprint /Game/UI/WBP_Name --include-defaults --depth-limit 8
-soft-ue-cli umg-layout extract --source designer --asset-path /Game/UI/WBP_Name --output umg_expected_layout.json
+soft-ue-cli umg designer inspect /Game/UI/WBP_Name --include-defaults --depth-limit 8
+soft-ue-cli umg layout extract --source designer --asset-path /Game/UI/WBP_Name --output umg_expected_layout.json
 ```
 
 14. Keep a placeholder asset manifest for every unresolved texture, material, icon, font, or project-specific WidgetBlueprint. The manifest must list the placeholder path, intended final asset, and why the placeholder is acceptable for the current iteration.
 15. When PIE or preview capture is available, run a layout and screenshot comparison loop:
 
 ```bash
-soft-ue-cli umg-layout extract --source runtime --root-widget WBP_Name_C_0 --full-geometry --output umg_runtime_layout.json
-soft-ue-cli umg-layout compare --mode geometry --subset umg_expected_layout.json umg_runtime_layout.json --output umg_layout_report.json
-soft-ue-cli capture-pie-screenshot --output rendered.png
-soft-ue-cli umg-layout compare --mode pixel concept.png rendered.png --annotated-output visual_diff.png
+soft-ue-cli umg layout extract --source runtime --root-widget WBP_Name_C_0 --full-geometry --output umg_runtime_layout.json
+soft-ue-cli umg layout compare --mode geometry --subset umg_expected_layout.json umg_runtime_layout.json --output umg_layout_report.json
+soft-ue-cli capture screenshot --source pie-window --output rendered.png
+soft-ue-cli umg layout compare --mode pixel concept.png rendered.png --annotated-output visual_diff.png
 ```
 
 Report visual gaps separately from functional gaps.
@@ -51,11 +51,11 @@ Report visual gaps separately from functional gaps.
 
 - A region/bounding-box table derived from the concept.
 - A named widget contract for interactive controls.
-- The apply-widget-tree JSON spec.
+- The umg designer apply JSON spec.
 - `umg_expected_layout.json` derived from the designer hierarchy.
 - A placeholder asset manifest for unresolved visual assets.
 - A visual-fidelity checklist stating what matches and what is intentionally placeholder.
-- A recommended layout and screenshot comparison loop when PIE or preview capture is available, including `umg-layout compare`.
+- A recommended layout and screenshot comparison loop when PIE or preview capture is available, including `umg layout compare`.
 
 ## Minimal Spec
 
@@ -106,4 +106,4 @@ Report visual gaps separately from functional gaps.
 
 ## Navigation Notes
 
-For navigation between WidgetBlueprints, include stable button names in the JSON spec and then wire click behavior with project-specific Blueprint graph tooling or a reusable parent-class pattern. Verify graph wiring with `query-blueprint-graph` and designer hierarchy with `inspect-widget-blueprint`.
+For navigation between WidgetBlueprints, include stable button names in the JSON spec and then wire click behavior with project-specific Blueprint graph tooling or a reusable parent-class pattern. Verify graph wiring with `blueprint graph inspect` and designer hierarchy with `umg designer inspect`.

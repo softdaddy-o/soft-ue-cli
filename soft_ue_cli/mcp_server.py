@@ -33,6 +33,7 @@ _BRIDGE_TOOL_NAME_MAP: dict[str, str] = {
 # tools expect different key names. Map (tool_name → {mcp_param: bridge_param}).
 _PARAM_RENAMES: dict[str, dict[str, str]] = {
     "query-asset": {"asset_class": "class"},
+    "exec-console-command": {"command_parts": "command"},
 }
 
 _JSON_TYPE_TO_PY: dict[str, type] = {
@@ -136,6 +137,8 @@ def _make_tool_fn(tool_name: str, params: dict | None = None):
         for mcp_name, bridge_name_param in _PARAM_RENAMES.get(tool_name, {}).items():
             if mcp_name in arguments:
                 arguments[bridge_name_param] = arguments.pop(mcp_name)
+        if tool_name == "exec-console-command" and isinstance(arguments.get("command"), (list, tuple)):
+            arguments["command"] = " ".join(str(part) for part in arguments["command"])
 
         # Use tool-level timeout as HTTP timeout for pie-session start, to avoid
         # MCP request timeout when PIE warmup needs longer.
@@ -193,14 +196,14 @@ def _make_tool_fn(tool_name: str, params: dict | None = None):
 
         return json.dumps(result, indent=2, ensure_ascii=False)
 
-    tool_fn.__name__ = tool_name.replace("-", "_")
+    tool_fn.__name__ = tool_name.replace(" ", "__").replace("-", "_")
     tool_fn.__qualname__ = tool_fn.__name__
     tool_fn.__signature__ = _build_signature(params)
 
     return tool_fn
 
 
-def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None):
+def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None, defaults: dict | None = None):
     """Create a client-side tool handler that runs the existing cmd_* function.
 
     Captures stdout so the output reaches the MCP client instead of the terminal.
@@ -208,7 +211,11 @@ def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None):
     """
 
     def tool_fn(**kwargs: Any) -> str:
-        namespace = _argparse.Namespace(**kwargs)
+        option_defaults = {
+            name: prop.get("default")
+            for name, prop in (params or {}).get("properties", {}).items()
+        }
+        namespace = _argparse.Namespace(**{**option_defaults, **(defaults or {}), **kwargs})
         if tool_name == "config" and hasattr(namespace, "subcommand") and not hasattr(namespace, "config_action"):
             namespace.config_action = namespace.subcommand
         buffer = io.StringIO()
@@ -218,6 +225,9 @@ def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None):
         try:
             cmd_fn(namespace)
             output = buffer.getvalue().strip()
+            if tool_name == "blueprint node add" and output:
+                normalized = _normalize_add_graph_node_result(json.loads(output))
+                output = json.dumps(normalized, indent=2, ensure_ascii=False)
         except SystemExit as exc:
             output = buffer.getvalue().strip()
             return output or json.dumps(
@@ -236,7 +246,7 @@ def _make_client_tool_fn(tool_name: str, cmd_fn, params: dict | None = None):
         output = output or buffer.getvalue().strip()
         return output or json.dumps({"status": "ok"}, indent=2)
 
-    tool_fn.__name__ = tool_name.replace("-", "_")
+    tool_fn.__name__ = tool_name.replace(" ", "__").replace("-", "_")
     tool_fn.__qualname__ = tool_fn.__name__
     tool_fn.__signature__ = _build_signature(params)
 
@@ -256,8 +266,8 @@ def create_server():
         description = tool_def["description"]
         params = tool_def["parameters"]
 
-        if name in CLIENT_SIDE_COMMANDS:
-            fn = _make_client_tool_fn(name, tool_def["func"], params)
+        if name in CLIENT_SIDE_COMMANDS or " " in name:
+            fn = _make_client_tool_fn(name, tool_def["func"], params, tool_def.get("defaults"))
         else:
             fn = _make_tool_fn(name, params)
         fn.__doc__ = description

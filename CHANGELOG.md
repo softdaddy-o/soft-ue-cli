@@ -2,12 +2,19 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
-## Unreleased
+## [1.34.0] - 2026-05-25
 
 ### Changed
+- Removed the old flat public CLI command names for UMG, capture, Mutable, StateTree, animation, asset, and Blueprint workflows. Use the canonical command families such as `umg designer apply`, `capture viewport`, `mutable graph add-node`, `asset inspect-file`, and `blueprint graph inspect`.
+- `commands --include-removed` now lists removed flat commands as migration metadata with a `canonical_command` target instead of keeping duplicate public parser entries alive.
+- MCP schema generation now exposes canonical command-family leaf tools and routes client-side canonical handlers through the same argparse command implementations.
+- MCP schema generation now accepts native JSON arrays for `batch-call`, handles `exec-console-command` command strings cleanly, and exposes bridge-only config tools.
 - Refreshed the README around the current command taxonomy direction, 120+ command/tool count, token-aware capture formatting, optional plugin diagnostics, UMG workflows, and how soft-ue-cli complements UE 5.8's first-party MCP work.
+- Updated packaged skills and the `test-tools` smoke workflow to use canonical CLI commands.
+- Documented UE 5.7 support and Development/DebugGame cooked build support as primary differences from UE 5.8's first-party MCP endpoint.
 
 ### Fixed
+- `call-function --actor-name ... --function-name ...` no longer collides with the legacy positional argument destinations.
 - Added metadata/docs guards so future releases keep `README.md` hooked into package metadata and avoid stale public tool-count claims.
 
 ## [1.33.1] - 2026-05-25

@@ -4,8 +4,8 @@
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![AI agents](https://img.shields.io/badge/AI_agents-ready-7c3aed)](#why-soft-ue-cli)
-[![skills](https://img.shields.io/badge/skills-12-84cc16)](#skills-llm-workflow-prompts)
-[![tools](https://img.shields.io/badge/tools-60%2B-f97316)](#complete-command-reference)
+[![skills](https://img.shields.io/badge/skills-13-84cc16)](#skills-llm-workflow-prompts)
+[![commands](https://img.shields.io/badge/commands-120%2B-f97316)](#complete-command-reference)
 [![MCP](https://img.shields.io/badge/MCP-server-0ea5e9)](#mcp-server-mode)
 [![AI built for coding agents](https://img.shields.io/badge/AI_built_for-coding_agents-6b7280)](#why-soft-ue-cli)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub_Sponsors-Support_this_project-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/softdaddy-o)
@@ -14,9 +14,9 @@
 Built and maintained by a solo developer. [Support this project](#support-this-project) if it saves you time.
 
 
-**Control Unreal Engine 5 from your AI agent or terminal.** soft-ue-cli gives any LLM — via **MCP server** or **CLI** — 60+ tools to spawn actors, edit Blueprints, inspect materials, read and patch UE config files, run Play-In-Editor sessions, capture screenshots, profile performance, and more inside a running UE5 editor or packaged build.
+**Control Unreal Engine 5 from your AI agent or terminal.** soft-ue-cli gives any LLM -- via **MCP server** or **CLI** -- 120+ commands and tools to spawn actors, edit Blueprints, inspect materials, build UMG screens, read and patch UE config files, run Play-In-Editor sessions, capture token-efficient screenshots, profile performance, and inspect local Unreal assets.
 
-Two connection paths. Same package. Bridge tools when Unreal is running, offline tools when it is not.
+Two connection paths. One package. Bridge tools when Unreal is running, offline tools when it is not, and a command catalog that tells agents which surface is canonical, which names are compatibility wrappers, and which optional Unreal plugins are required.
 
 
 ```text
@@ -40,15 +40,43 @@ soft-ue-cli  (CLI or MCP server)
 
 ## Why soft-ue-cli?
 
-- **MCP server + CLI in one package** -- use as an MCP server (`mcp-serve`) for Claude Desktop, Cursor, Windsurf, and other MCP clients, **or** as a standard CLI for Claude Code, shell scripts, and CI/CD. Same 60+ tools either way.
+- **MCP server + CLI in one package** -- use as an MCP server (`mcp-serve`) for Claude Desktop, Cursor, Windsurf, and other MCP clients, **or** as a standard CLI for Claude Code, shell scripts, and CI/CD. Same 120+ tool surface either way.
 - **AI-native UE automation** -- purpose-built so LLM agents can read, modify, and test Unreal Engine projects without a human touching the editor.
-- **60+ tools** covering actors, Blueprints, materials, StateTrees, widgets, assets, config files, PIE sessions, profiling, and more.
+- **120+ commands and tools** covering actors, Blueprints, materials, StateTrees, Mutable/CustomizableObject, widgets, assets, config files, PIE sessions, profiling, screenshots, and local Unreal file analysis.
+- **Canonical command families** -- newer workflows are grouped under `umg`, `capture`, `mutable`, `statetree`, `anim`, `asset`, and `blueprint`, while old one-off command names remain as compatibility wrappers.
+- **Plugin-aware metadata** -- `soft-ue-cli commands --json` reports bridge/editor/PIE requirements plus optional Unreal plugin dependencies, and bridge tools return structured `plugin_unavailable` errors when a plugin is missing.
+- **Token-aware visual feedback** -- viewport and screenshot capture can resize output by scale, width, or height and can emit color, grayscale, or monochrome images for lower LLM token cost.
 - **Online + offline workflows** -- bridge-backed UE mutation and runtime inspection when Unreal is open, plus direct local inspection, diff, and config tooling when it is not.
 - **Config-aware workflows** — inspect hierarchy, trace overrides, diff layers, and patch `.ini`, `BuildConfiguration.xml`, and `.uproject` data from one `config` command group.
+- **UMG authoring loop** -- draft editable Widget Blueprint trees, wire navigation contracts, run PIE interaction checks, and compare designer/runtime layout artifacts.
 - **LLM skill prompts** -- ships with markdown workflows (e.g. Blueprint-to-C++ conversion) exposed as MCP prompts or CLI commands.
 - **Works everywhere UE runs** -- editor, cooked builds, Windows, macOS, Linux.
-- **Single dependency** -- only requires `httpx`. Add `[mcp]` extra for MCP server mode.
+- **Small dependency footprint** -- only requires `httpx` and `Pillow`. Add `[mcp]` extra for MCP server mode.
 - **Team-friendly** -- conditional compilation via `SOFT_UE_BRIDGE` environment variable means only developers who need the bridge get it compiled in.
+
+## Current Direction
+
+Recent releases moved soft-ue-cli from a flat list of one-off bridge calls toward a discoverable automation surface for agents:
+
+- `commands` is the source of truth for command status, replacement names, runtime requirements, optional plugin requirements, and examples.
+- Canonical families (`umg`, `capture`, `mutable`, `statetree`, `anim`, `asset`, `blueprint`) give agents a stable mental model while compatibility wrappers keep older scripts working.
+- UMG and screenshot workflows now support the full agent loop: author, inspect, run PIE, capture visual evidence, compare layout, and keep image payloads small.
+- Optional plugin workflows are expected to compile cleanly without those plugins installed, then fail at runtime with actionable `plugin_unavailable` diagnostics.
+- CLI/Python/bridge probing is treated as the exploration layer; durable gameplay regressions should move into project-native C++ Automation Specs.
+
+## UE 5.8 MCP Positioning
+
+UE 5.8 is adding first-party Unreal MCP support. Use it when you want an Epic-managed, UE 5.8-native MCP endpoint and it already covers the workflow you need.
+
+soft-ue-cli is intentionally a different layer rather than a replacement for first-party MCP:
+
+- It works as both a normal terminal CLI and an MCP server, so the same automation can run from Claude Code, shell scripts, CI, or any MCP client.
+- It includes offline commands for `.uasset`, `.uexp`, `.ini`, `.uproject`, `.uplugin`, and `BuildConfiguration.xml` files, even when the editor is closed.
+- It ships curated LLM skill prompts and a `test-tools` smoke workflow for repeatable agent execution, not just raw editor operations.
+- It keeps compatibility names for existing scripts while exposing canonical command families for newer agents.
+- It reports optional plugin requirements and missing-plugin failures in structured JSON so agents can recover instead of guessing.
+
+The two can coexist: use UE's first-party MCP for native editor coverage when it fits, and use soft-ue-cli for CLI/CI automation, offline inspection, curated workflows, compatibility wrappers, and bridge tools that move independently of engine releases.
 
 ---
 
@@ -79,7 +107,7 @@ After regenerating project files and rebuilding, launch the editor. Look for thi
 LogSoftUEBridge: Bridge server started on port 8080
 ```
 
-### 5. Verify the connection
+### 4. Verify the connection
 
 ```bash
 soft-ue-cli check-setup
@@ -108,7 +136,7 @@ Add to your MCP client config (Claude Desktop, Cursor, Windsurf, etc.):
 }
 ```
 
-The AI editor now has direct access to all 60+ UE tools and skill prompts — no terminal needed.
+The AI editor now has direct access to 120+ UE tools and skill prompts -- no terminal needed.
 
 ---
 
@@ -131,7 +159,7 @@ soft-ue-cli command
 
 The **SoftUEBridge** plugin is a lightweight C++ `UGameInstanceSubsystem` that starts an embedded HTTP server on port 8080 when UE launches. Bridge-backed commands send JSON-RPC requests to this server, and the plugin executes the corresponding UE operations on the game thread, returning structured JSON responses. Offline commands bypass the bridge entirely and operate directly on local files.
 
-All commands output JSON to stdout (except `get-logs --raw`). Exit code 0 means success, 1 means error.
+Automation commands return structured JSON to stdout (except `get-logs --raw`). Discovery and support commands use human-readable output by default where that is more useful, and expose `--json` where applicable. Exit code 0 means success, 1 means error.
 
 ### Skills Architecture
 
@@ -196,6 +224,8 @@ soft-ue-cli commands --category mutable
 soft-ue-cli commands --category statetree
 soft-ue-cli commands --plugin Mutable --json
 ```
+
+The README uses a conservative `120+` count. For exact numbers in the installed version, use `soft-ue-cli commands --json` for the full catalog and `soft-ue-cli mcp-serve` for the MCP-exposed leaf tools.
 
 The JSON output marks each command as canonical, compatibility, or deprecated, and includes whether it needs the bridge, editor, PIE, or optional Unreal plugins. Plugin-dependent bridge tools use a structured unavailable response when a plugin is missing:
 
@@ -513,7 +543,7 @@ Skills are markdown prompts that teach an LLM client how to perform complex mult
 |---------|-------------|
 | `mcp-serve` | Run as an MCP (Model Context Protocol) server over stdio |
 
-Exposes all 60+ commands as MCP tools and skills as MCP prompts. Compatible with Claude Desktop, Claude Code, Cursor, Windsurf, and other MCP clients. Requires the optional `mcp` extra:
+Exposes 120+ commands as MCP tools and skills as MCP prompts. Compatible with Claude Desktop, Claude Code, Cursor, Windsurf, and other MCP clients. Requires the optional `mcp` extra:
 
 ```bash
 pip install soft-ue-cli[mcp]
@@ -595,19 +625,19 @@ soft-ue-cli query-blueprint /Game/Blueprints/BP_Player --include components,vari
 ### Build an editable UMG Designer tree
 
 ```bash
-soft-ue-cli apply-widget-tree /Game/UI/WBP_MainMenu --spec-file menu_tree.json --compile --save
-soft-ue-cli wire-widget-navigation /Game/UI/WBP_MainMenu --bindings-file navigation.json --compile --save
-soft-ue-cli verify-umg-workflow --widget-class /Game/UI/WBP_MainMenu.WBP_MainMenu_C --expected-widgets-file expected_widgets.json --click-sequence-file clicks.json --capture-after
-soft-ue-cli umg-layout extract --source concept-image --input concept.png --output concept_layout.json
-soft-ue-cli umg-layout extract --source designer --asset-path /Game/UI/WBP_MainMenu --output umg_expected_layout.json
-soft-ue-cli umg-layout extract --source runtime --root-widget WBP_MainMenu_C_0 --full-geometry --output umg_runtime_layout.json
-soft-ue-cli umg-layout compare --mode geometry --subset concept_layout.json umg_runtime_layout.json --output umg_layout_report.json
-soft-ue-cli umg-layout fit --concept concept_layout.json --actual umg_runtime_layout.json --spec menu_tree.json --output corrected_menu_tree.json
-soft-ue-cli inspect-widget-blueprint /Game/UI/WBP_MainMenu --include-defaults --depth-limit 8
+soft-ue-cli umg designer apply /Game/UI/WBP_MainMenu --spec-file menu_tree.json --compile --save
+soft-ue-cli umg navigation wire /Game/UI/WBP_MainMenu --bindings-file navigation.json --compile --save
+soft-ue-cli umg workflow run --plan umg_workflow_plan.json
+soft-ue-cli umg layout extract --source concept-image --input concept.png --output concept_layout.json
+soft-ue-cli umg layout extract --source designer --asset-path /Game/UI/WBP_MainMenu --output umg_expected_layout.json
+soft-ue-cli umg layout extract --source runtime --root-widget WBP_MainMenu_C_0 --full-geometry --output umg_runtime_layout.json
+soft-ue-cli umg layout compare --mode geometry --subset concept_layout.json umg_runtime_layout.json --output umg_layout_report.json
+soft-ue-cli umg layout fit --concept concept_layout.json --actual umg_runtime_layout.json --spec menu_tree.json --output corrected_menu_tree.json
+soft-ue-cli umg designer inspect /Game/UI/WBP_MainMenu --include-defaults --depth-limit 8
 soft-ue-cli skills get author-umg-workflow
 ```
 
-`wire-widget-navigation` fails fast while PIE is active or the editor is saving/garbage collecting because it mutates WidgetBlueprint assets. Stop PIE first, wait until the editor is idle, or pass `--allow-pie` / `--allow-busy` when you intentionally accept that risk.
+`umg navigation wire` fails fast while PIE is active or the editor is saving/garbage collecting because it mutates WidgetBlueprint assets. Stop PIE first, wait until the editor is idle, or pass `--allow-pie` / `--allow-busy` when you intentionally accept that risk.
 
 ### Inspect and diff local `.uasset` files offline
 
@@ -659,7 +689,9 @@ soft-ue-cli pie-session stop
 ### Capture a screenshot of the editor viewport
 
 ```bash
-soft-ue-cli capture-screenshot viewport --output screenshot.png
+soft-ue-cli capture screenshot --source viewport --output file
+soft-ue-cli capture viewport --source editor --scale 50 --color-mode grayscale --output file
+soft-ue-cli capture viewport --source editor --width 960 --color-mode monochrome --output file
 ```
 
 ### Edit a Blueprint graph programmatically
@@ -745,8 +777,8 @@ soft-ue-cli skills get level-from-image
 # The LLM analyzes the image, searches for matching assets, places them,
 # then enters a visual feedback loop:
 #   soft-ue-cli set-viewport-camera --preset top --ortho-width 8000
-#   soft-ue-cli capture-viewport --source editor --output file
-#   soft-ue-cli capture-viewport --source editor --scale 50 --color-mode grayscale
+#   soft-ue-cli capture viewport --source editor --output file
+#   soft-ue-cli capture viewport --source editor --scale 50 --color-mode grayscale
 # Compares screenshot to reference, auto-corrects, then asks for human feedback
 ```
 
@@ -828,7 +860,7 @@ Developers who need the bridge set `SOFT_UE_BRIDGE=1` in their environment. Ever
 | **Python** | 3.10+ |
 | **Platforms** | Windows, macOS, Linux |
 | **Build types** | Editor, DebugGame, Development; Shipping only if explicitly opted in |
-| **Dependencies** | `httpx >= 0.27` (sole runtime dependency); optional `mcp >= 1.2` for MCP server mode |
+| **Dependencies** | `httpx >= 0.27`, `Pillow >= 10`; optional `mcp >= 1.2` for MCP server mode |
 
 ---
 
@@ -888,11 +920,11 @@ All feedback commands require GitHub auth: set `GITHUB_TOKEN` env var or run `gh
 
 ### What is soft-ue-cli?
 
-soft-ue-cli is a Python tool that gives AI agents and developers 60+ operations to control Unreal Engine 5. It works as an **MCP server** (for Claude Desktop, Cursor, Windsurf, and other MCP clients) or as a **standard CLI** (for Claude Code, shell scripts, CI/CD). It communicates with a C++ plugin (SoftUEBridge) running inside UE via HTTP/JSON-RPC, enabling actor spawning, Blueprint editing, material inspection, Play-In-Editor sessions, screenshot capture, performance profiling, and more.
+soft-ue-cli is a Python tool that gives AI agents and developers 120+ commands and tools for Unreal Engine 5 automation. It works as an **MCP server** (for Claude Desktop, Cursor, Windsurf, and other MCP clients) or as a **standard CLI** (for Claude Code, shell scripts, CI/CD). It communicates with a C++ plugin (SoftUEBridge) running inside UE via HTTP/JSON-RPC for live editor/runtime work, and it also includes offline parsers for local Unreal files.
 
 ### How do AI agents use soft-ue-cli?
 
-**MCP clients** (Claude Desktop, Cursor, Windsurf): Connect via `soft-ue-cli mcp-serve`. The agent sees all 60+ tools with typed schemas and skill prompts — it can directly call UE operations without going through a terminal.
+**MCP clients** (Claude Desktop, Cursor, Windsurf): Connect via `soft-ue-cli mcp-serve`. The agent sees 120+ tools with typed schemas and skill prompts -- it can directly call UE operations without going through a terminal.
 
 **Claude Code**: Runs soft-ue-cli commands in the terminal. Add a `CLAUDE.md` file to your UE project describing available commands, and Claude Code autonomously queries your level, spawns actors, edits Blueprints, runs PIE sessions, and iterates on your game.
 
@@ -908,7 +940,7 @@ The plugin descriptor restricts SoftUEBridge's editor-only dependency plugins to
 
 ### What Unreal Engine versions are supported?
 
-soft-ue-cli is actively developed against Unreal Engine 5.7.
+soft-ue-cli is actively developed against Unreal Engine 5.7, with UE 5.8 compatibility work tracked as Epic's first-party MCP and preview engine changes stabilize.
 
 ### Is there any runtime performance impact?
 
@@ -930,6 +962,12 @@ Use `query-blueprint-graph` to inspect existing graph nodes, `add-graph-node` to
 
 Unreal Engine's built-in Remote Control API focuses on property access and preset-based workflows. soft-ue-cli provides a broader command set specifically designed for AI coding agents -- including Blueprint graph editing, StateTree manipulation, PIE session control, UE Insights profiling, widget inspection, and asset creation -- with a simpler setup process (one pip install, one plugin copy).
 
+### What is the difference between soft-ue-cli and UE 5.8's first-party MCP?
+
+UE 5.8's first-party MCP support is the right first stop if your project is already on UE 5.8 and you want Epic's native editor MCP endpoint. soft-ue-cli remains useful when you need the same commands from a terminal or CI job, need offline `.uasset`/config inspection, want packaged LLM workflow prompts, or need structured command metadata and missing-plugin recovery across a broader curated tool surface.
+
+They are complementary. Use the official MCP surface where it covers the editor action directly; use soft-ue-cli when the workflow spans CLI automation, offline files, compatibility scripts, visual capture transforms, UMG verification, or optional plugin diagnostics.
+
 ### How do I use soft-ue-cli with Claude Desktop or Cursor?
 
 Run `pip install soft-ue-cli[mcp]` to install MCP support, then add the server to your MCP client config. For Claude Desktop, add to `claude_desktop_config.json`:
@@ -945,14 +983,14 @@ Run `pip install soft-ue-cli[mcp]` to install MCP support, then add the server t
 }
 ```
 
-The MCP server exposes all 60+ commands as MCP tools and skills as MCP prompts. The AI editor can then directly call UE operations without going through the terminal.
+The MCP server exposes 120+ commands as MCP tools and skills as MCP prompts. The AI editor can then directly call UE operations without going through the terminal.
 
 ### What is the difference between soft-ue-cli and other UE MCP servers?
 
 | | soft-ue-cli | unreal-mcp, ue5-mcp, etc. |
 |---|---|---|
-| **Tools** | 60+ | 10–49 |
-| **Coverage** | Blueprints, materials, StateTrees, widgets, PIE, profiling, DataTables, CVars, Live Coding | Varies; most cover actors + basic assets |
+| **Tools** | 120+ commands/tools | Varies |
+| **Coverage** | Blueprints, materials, StateTrees, Mutable, widgets, PIE, profiling, DataTables, CVars, Live Coding, offline file/config inspection | Varies; many focus on live editor operations |
 | **LLM skill prompts** | Yes (MCP prompts + CLI) | No |
 | **CLI mode** | Yes — shell scripts, CI/CD, Claude Code | MCP-only |
 | **Setup** | `pip install soft-ue-cli[mcp]` + copy one plugin | Varies; often requires custom C++/Python scripting |
@@ -972,7 +1010,7 @@ Using soft-ue-cli in your project? [Share your experience](https://github.com/so
 
 ## Roadmap
 
-- UE 5.8 support
+- Track UE 5.8 compatibility and first-party MCP overlap, keeping soft-ue-cli focused on CLI/CI, offline inspection, and curated bridge workflows.
 - More LLM skills (Material-to-HLSL, Animation Blueprint automation)
 - Visual diff for Blueprint changes
 - CI/CD integration examples

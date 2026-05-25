@@ -4,6 +4,12 @@ All notable changes to soft-ue-cli will be documented in this file.
 
 ## Unreleased
 
+### Changed
+- Refreshed the README around the current command taxonomy direction, 120+ command/tool count, token-aware capture formatting, optional plugin diagnostics, UMG workflows, and how soft-ue-cli complements UE 5.8's first-party MCP work.
+
+### Fixed
+- Added metadata/docs guards so future releases keep `README.md` hooked into package metadata and avoid stale public tool-count claims.
+
 ## [1.33.1] - 2026-05-25
 
 ### Fixed

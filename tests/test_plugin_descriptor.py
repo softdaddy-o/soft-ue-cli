@@ -35,19 +35,19 @@ def _plugin_source_path(relative: str) -> Path:
     return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / relative
 
 
-def _agent_guide_path() -> Path:
-    guide = _repo_root() / "AGENTS.md"
-    if not guide.exists():
-        pytest.skip("AGENTS.md is only present in the monorepo checkout")
-    return guide
-
-
-def _test_tools_skill_path() -> Path:
+def _skill_path(relative: str) -> Path:
     root = _repo_root()
-    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / "test-tools.md"
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / relative
     if monorepo_path.exists():
         return monorepo_path
-    return root / "soft_ue_cli" / "skills" / "test-tools.md"
+    return root / "soft_ue_cli" / "skills" / relative
+
+
+def _agent_guide_text() -> str:
+    guide = _repo_root() / "AGENTS.md"
+    if not guide.exists():
+        pytest.skip("AGENTS.md is not exported in the public package")
+    return guide.read_text(encoding="utf-8")
 
 
 def test_editor_dependency_plugins_are_editor_target_only():
@@ -340,7 +340,7 @@ def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
 
 
 def test_agent_guide_warns_new_tools_against_static_registration_macro():
-    guide = _agent_guide_path().read_text(encoding="utf-8")
+    guide = _agent_guide_text()
 
     assert "Do not use REGISTER_BRIDGE_TOOL" in guide
     assert "RegisterToolClass" in guide
@@ -387,7 +387,7 @@ def test_bridge_health_includes_process_identity_for_restart_detection():
 
 
 def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
-    guide = _agent_guide_path().read_text(encoding="utf-8")
+    guide = _agent_guide_text()
 
     assert "OnPostEngineInit" in guide
     assert "newly added UCLASS" in guide
@@ -572,7 +572,7 @@ def test_set_node_position_supports_customizable_object_graphs():
 
 
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    content = _test_tools_skill_path().read_text(encoding="utf-8")
+    content = _skill_path("test-tools.md").read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
 

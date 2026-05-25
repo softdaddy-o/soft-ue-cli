@@ -1,7 +1,7 @@
 ---
 name: test-tools
 description: Exhaustive integration test of all soft-ue-cli tools against a live UE instance. Writes a JSON report.
-version: 2.5.0
+version: 2.6.0
 ---
 
 # test-tools — Integration Test Suite
@@ -1045,6 +1045,52 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             check_stdout=lambda s: '"diffs"' in s or '"sections"' in s or '"overrides"' in s or "no overrides" in s.lower())
     run_cli("config audit", "config", *(["--project-path", project_dir] if project_dir else []), "audit",
             check_stdout=lambda s: '"overrides"' in s or '"sections"' in s or "no overrides" in s.lower())
+    run_cli("commands json metadata", "commands", "--json",
+            check_stdout=lambda s: '"schema": "soft-ue.commands.v1"' in s and '"umg preview replace"' in s)
+    run_cli("commands category umg", "commands", "--category", "umg",
+            check_stdout=lambda s: "umg" in s and "compatibility" in s)
+    run_cli("commands category capture", "commands", "--category", "capture",
+            check_stdout=lambda s: "capture viewport" in s and "capture-screenshot" in s)
+    run_cli("commands category mutable", "commands", "--category", "mutable",
+            check_stdout=lambda s: "mutable graph" in s and "compile-co" in s)
+    run_cli("commands category statetree", "commands", "--category", "statetree",
+            check_stdout=lambda s: "statetree inspect" in s and "query-statetree" in s)
+    run_cli("commands category animation", "commands", "--category", "animation",
+            check_stdout=lambda s: "anim rewind" in s and "rewind-status" in s)
+    run_cli("commands category asset", "commands", "--category", "asset",
+            check_stdout=lambda s: "asset query" in s and "query-asset" in s)
+    run_cli("commands category blueprint", "commands", "--category", "blueprint",
+            check_stdout=lambda s: "blueprint graph" in s and "query-blueprint-graph" in s)
+    run_cli("commands plugin mutable json", "commands", "--plugin", "Mutable", "--json",
+            check_stdout=lambda s: '"required_plugins"' in s and '"Mutable"' in s)
+    run_cli("capture viewport help", "capture", "viewport", "--help",
+            check_stdout=lambda s: "--source" in s and "--scale" in s)
+    run_cli("capture screenshot help", "capture", "screenshot", "--help",
+            check_stdout=lambda s: "--source" in s and "pie-window" in s)
+    run_cli("mutable graph add-node help", "mutable", "graph", "add-node", "--help",
+            check_stdout=lambda s: "add-co-node" in s and "--properties" in s)
+    run_cli("statetree inspect help", "statetree", "inspect", "--help",
+            check_stdout=lambda s: "query-statetree" in s and "--include" in s)
+    run_cli("anim rewind status help", "anim", "rewind", "status", "--help",
+            check_stdout=lambda s: "rewind-status" in s and "recording" in s.lower())
+    run_cli("asset preview help", "asset", "preview", "--help",
+            check_stdout=lambda s: "get-asset-preview" in s and "--resolution" in s)
+    run_cli("blueprint graph inspect help", "blueprint", "graph", "inspect", "--help",
+            check_stdout=lambda s: "query-blueprint-graph" in s and "--graph-name" in s)
+    _umg_expected = os.path.join(tempfile.gettempdir(), f"soft_ue_umg_expected_{RUN_TS}_{mode_name}.json")
+    _umg_actual = os.path.join(tempfile.gettempdir(), f"soft_ue_umg_actual_{RUN_TS}_{mode_name}.json")
+    with open(_umg_expected, "w", encoding="utf-8") as fh:
+        json.dump({"widgets": [{"name": "Root", "normalized_bounds": [0, 0, 1, 1]}]}, fh)
+    with open(_umg_actual, "w", encoding="utf-8") as fh:
+        json.dump({"widgets": [{"name": "Root", "normalized_bounds": [0, 0, 1, 1]}]}, fh)
+    run_cli("umg layout compare smoke", "umg", "layout", "compare", "--mode", "geometry", _umg_expected, _umg_actual,
+            check_stdout=lambda s: '"success": true' in s)
+    run_cli("umg preview help", "umg", "preview", "--help",
+            check_stdout=lambda s: "create" in s and "replace" in s and "remove" in s)
+    run_cli("umg verify help", "umg", "verify", "--help",
+            check_stdout=lambda s: "widgets" in s and "navigation" in s)
+    run_cli("umg workflow help", "umg", "workflow", "--help",
+            check_stdout=lambda s: "run" in s)
     for _co_cmd in (
         "add-co-node",
         "add-co-parameter",

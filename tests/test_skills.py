@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -75,6 +76,24 @@ def test_test_tools_contains_idempotent_teardown_and_insights_stop():
     assert "inspect-widget-blueprint applied tree" in content
     assert "wire-widget-navigation UMG nav contract" in content
     assert "verify-umg-workflow preview widget" in content
+    assert "commands json metadata" in content
+    assert "commands plugin mutable json" in content
+    assert "commands category capture" in content
+    assert "commands category mutable" in content
+    assert "commands category statetree" in content
+    assert "commands category animation" in content
+    assert "commands category asset" in content
+    assert "commands category blueprint" in content
+    assert "capture viewport help" in content
+    assert "capture screenshot help" in content
+    assert "mutable graph add-node help" in content
+    assert "statetree inspect help" in content
+    assert "anim rewind status help" in content
+    assert "asset preview help" in content
+    assert "blueprint graph inspect help" in content
+    assert "umg layout compare smoke" in content
+    assert "umg preview help" in content
+    assert "umg workflow help" in content
 
 
 def test_test_tools_contains_config_suite():
@@ -192,9 +211,7 @@ def test_author_umg_workflow_skill_targets_navigation_and_runtime_verification()
 
 def test_all_skills_have_required_frontmatter():
     """Every .md skill file must have name, description, and version in frontmatter."""
-    monorepo_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
-    exported_dir = Path(__file__).parents[1] / "soft_ue_cli" / "skills"
-    skills_dir = monorepo_dir if monorepo_dir.exists() else exported_dir
+    skills_dir = Path(__file__).parents[2] / "cli" / "soft_ue_cli" / "skills"
     for md_file in skills_dir.glob("*.md"):
         text = md_file.read_text(encoding="utf-8")
         assert text.startswith("---"), f"{md_file.name} missing frontmatter"

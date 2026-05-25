@@ -39,6 +39,7 @@ from soft_ue_cli.__main__ import (
     cmd_call_function,
     cmd_capture_pie_screenshot,
     cmd_capture_screenshot,
+    cmd_commands,
     cmd_compile_co,
     cmd_capture_viewport,
     cmd_compare_umg_screenshot,
@@ -77,6 +78,31 @@ from soft_ue_cli.__main__ import (
 
 
 # -- _parse_vector -------------------------------------------------------------
+
+
+def test_commands_json_prints_command_metadata(capsys):
+    parser = build_parser()
+    args = parser.parse_args(["commands", "--json"])
+
+    cmd_commands(args)
+
+    payload = json.loads(capsys.readouterr().out)
+    names = {entry["name"] for entry in payload["commands"]}
+    assert payload["schema"] == "soft-ue.commands.v1"
+    assert "umg layout" in names
+    assert "compare-umg-layout" in names
+
+
+def test_commands_filter_by_category_prints_human_rows(capsys):
+    parser = build_parser()
+    args = parser.parse_args(["commands", "--category", "compare"])
+
+    cmd_commands(args)
+
+    out = capsys.readouterr().out
+    assert "umg layout" in out
+    assert "compare-umg-layout" in out
+    assert "compatibility" in out
 
 
 def test_parse_vector_three_components():
@@ -2171,6 +2197,244 @@ def test_cmd_capture_viewport_all_options():
     )
 
 
+def test_capture_viewport_family_routes_to_existing_tool():
+    parser = build_parser()
+    args = parser.parse_args([
+        "capture",
+        "viewport",
+        "--source",
+        "editor",
+        "--format",
+        "jpeg",
+        "--scale",
+        "50",
+        "--color-mode",
+        "grayscale",
+    ])
+
+    assert args.func == cmd_capture_viewport
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"file_path": "/tmp/vp.jpg"}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "capture-viewport",
+        {
+            "source": "editor",
+            "format": "jpeg",
+            "scale": 50.0,
+            "color_mode": "grayscale",
+        },
+    )
+
+
+def test_capture_screenshot_family_routes_to_existing_tool():
+    parser = build_parser()
+    args = parser.parse_args([
+        "capture",
+        "screenshot",
+        "--source",
+        "pie-window",
+        "--output",
+        "base64",
+        "--width",
+        "640",
+    ])
+
+    assert args.func == cmd_capture_screenshot
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"image_base64": "..."}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "capture-screenshot",
+        {
+            "mode": "pie-window",
+            "output": "base64",
+            "width": 640,
+        },
+    )
+
+
+def test_capture_screenshot_family_region_uses_region_arg():
+    parser = build_parser()
+    args = parser.parse_args([
+        "capture",
+        "screenshot",
+        "--source",
+        "region",
+        "--region",
+        "10,20,800,600",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"file_path": "/tmp/region.png"}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "capture-screenshot",
+        {
+            "mode": "region",
+            "region": [10, 20, 800, 600],
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("argv", "legacy_command"),
+    [
+        (["mutable", "inspect", "graph", "/Game/Characters/CO_Hero.CO_Hero"], "inspect-customizable-object-graph"),
+        (["mutable", "inspect", "parameters", "/Game/Characters/CO_Hero.CO_Hero"], "inspect-mutable-parameters"),
+        (["mutable", "graph", "add-node", "/Game/Characters/CO_Hero.CO_Hero", "CustomizableObjectNodeFloatParameter"], "add-co-node"),
+        (["mutable", "graph", "create-from-spec", "/Game/Characters/CO_Hero.CO_Hero", "--spec", '{"nodes":[],"edges":[]}'], "create-co-from-spec"),
+        (["mutable", "compile", "/Game/Characters/CO_Hero.CO_Hero"], "compile-co"),
+        (["statetree", "inspect", "/Game/AI/ST_Enemy"], "query-statetree"),
+        (["statetree", "state", "add", "/Game/AI/ST_Enemy", "Patrol"], "add-statetree-state"),
+        (["statetree", "task", "add", "/Game/AI/ST_Enemy", "Patrol", "UStateTreeTask_MoveTo"], "add-statetree-task"),
+        (["anim", "state-machine", "add", "/Game/Animation/ABP_Hero", "Locomotion"], "add-anim-state-machine"),
+        (["anim", "sync-marker", "inspect", "/Game/Animation/Run"], "inspect-sync-markers"),
+        (["anim", "rewind", "status"], "rewind-status"),
+        (["asset", "query", "--asset-path", "/Game/Data/DT_Items"], "query-asset"),
+        (["asset", "preview", "/Game/Textures/T_Player"], "get-asset-preview"),
+        (["asset", "inspect-file", "C:/Project/Content/BP_Player.uasset"], "inspect-uasset"),
+        (["blueprint", "inspect", "/Game/Blueprints/BP_Player"], "query-blueprint"),
+        (["blueprint", "graph", "inspect", "/Game/Blueprints/BP_Player"], "query-blueprint-graph"),
+        (["blueprint", "node", "add", "/Game/Blueprints/BP_Player", "K2Node_CallFunction"], "add-graph-node"),
+    ],
+)
+def test_canonical_command_families_normalize_to_existing_handlers(argv, legacy_command):
+    args = build_parser().parse_args(argv)
+
+    assert args.command == legacy_command
+
+
+def test_canonical_command_family_normalization_preserves_root_options():
+    args = build_parser().parse_args([
+        "--server",
+        "http://127.0.0.1:8080",
+        "--timeout=45",
+        "blueprint",
+        "graph",
+        "inspect",
+        "/Game/Blueprints/BP_Player",
+    ])
+
+    assert args.server == "http://127.0.0.1:8080"
+    assert args.timeout == 45
+    assert args.command == "query-blueprint-graph"
+
+
+def test_mutable_graph_add_node_family_routes_to_existing_tool():
+    args = build_parser().parse_args([
+        "mutable",
+        "graph",
+        "add-node",
+        "/Game/Characters/CO_Hero.CO_Hero",
+        "CustomizableObjectNodeFloatParameter",
+        "--properties",
+        '{"ParameterName":"Height"}',
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "add-customizable-object-node",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node_class": "CustomizableObjectNodeFloatParameter",
+            "properties": {"ParameterName": "Height"},
+        },
+    )
+
+
+def test_statetree_state_add_family_routes_to_existing_tool():
+    args = build_parser().parse_args([
+        "statetree",
+        "state",
+        "add",
+        "/Game/AI/ST_Enemy",
+        "Patrol",
+        "--parent-state",
+        "Combat",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "add-statetree-state",
+        {
+            "asset_path": "/Game/AI/ST_Enemy",
+            "state_name": "Patrol",
+            "parent_state": "Combat",
+        },
+    )
+
+
+def test_anim_rewind_snapshot_family_routes_to_existing_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "rewind",
+        "snapshot",
+        "--actor-tag",
+        "Player",
+        "--time",
+        "1.25",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "rewind-snapshot",
+        {
+            "actor_tag": "Player",
+            "time": 1.25,
+        },
+    )
+
+
+def test_asset_preview_family_routes_to_existing_tool():
+    args = build_parser().parse_args([
+        "asset",
+        "preview",
+        "/Game/Textures/T_Player",
+        "--resolution",
+        "512",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"file_path": "/tmp/preview.png"}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "get-asset-preview",
+        {
+            "asset_path": "/Game/Textures/T_Player",
+            "resolution": 512,
+        },
+    )
+
+
+def test_blueprint_graph_inspect_family_routes_to_existing_tool():
+    args = build_parser().parse_args([
+        "blueprint",
+        "graph",
+        "inspect",
+        "/Game/Blueprints/BP_Player",
+        "--graph-name",
+        "EventGraph",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "query-blueprint-graph",
+        {
+            "asset_path": "/Game/Blueprints/BP_Player",
+            "graph_name": "EventGraph",
+        },
+    )
+
+
 def test_parser_trigger_input_target_accepts_negative_vector_with_space():
     parser = build_parser()
     args = parser.parse_args(["trigger-input", "move-to", "--target", "-2000,-4190,88"])
@@ -2438,6 +2702,155 @@ def test_cmd_verify_umg_workflow_forwards_contract_args():
             "capture_after": True,
             "pie_index": 1,
             "remove_preview": True,
+        },
+    )
+
+
+def test_umg_designer_apply_routes_to_apply_widget_tree():
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "designer",
+        "apply",
+        "/Game/UI/WBP_Menu",
+        "--spec",
+        '{"root":{"class":"CanvasPanel","name":"RootCanvas"}}',
+        "--compile",
+    ])
+
+    assert args.func == cmd_apply_widget_tree
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "apply-widget-tree",
+        {
+            "asset_path": "/Game/UI/WBP_Menu",
+            "spec": {"root": {"class": "CanvasPanel", "name": "RootCanvas"}},
+            "compile": True,
+        },
+    )
+
+
+def test_umg_navigation_wire_routes_to_wire_widget_navigation():
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "navigation",
+        "wire",
+        "/Game/UI/WBP_Menu",
+        "--bindings",
+        '[{"button":"StartButton"}]',
+        "--allow-busy",
+    ])
+
+    assert args.func == cmd_wire_widget_navigation
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "wire-widget-navigation",
+        {
+            "asset_path": "/Game/UI/WBP_Menu",
+            "bindings": [{"button": "StartButton"}],
+            "allow_busy": True,
+        },
+    )
+
+
+def test_umg_layout_compare_routes_to_existing_layout_handler(tmp_path, capsys):
+    expected = tmp_path / "expected.json"
+    actual = tmp_path / "actual.json"
+    expected.write_text(json.dumps({"widgets": [{"name": "A", "normalized_bounds": [0, 0, 1, 1]}]}), encoding="utf-8")
+    actual.write_text(json.dumps({"widgets": [{"name": "A", "normalized_bounds": [0, 0, 1, 1]}]}), encoding="utf-8")
+
+    args = build_parser().parse_args([
+        "umg",
+        "layout",
+        "compare",
+        "--mode",
+        "geometry",
+        str(expected),
+        str(actual),
+    ])
+
+    assert args.func == main_mod.cmd_umg_layout
+    main_mod.cmd_umg_layout(args)
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["success"] is True
+
+
+def test_umg_preview_replace_routes_to_preview_primitive():
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "preview",
+        "replace",
+        "--widget-class",
+        "/Game/UI/WBP_Menu.WBP_Menu_C",
+        "--pie-index",
+        "1",
+        "--viewport-z-order",
+        "7",
+        "--capture-after",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "umg-preview-replace",
+        {
+            "widget_class": "/Game/UI/WBP_Menu.WBP_Menu_C",
+            "pie_index": 1,
+            "viewport_z_order": 7,
+            "capture_after": True,
+        },
+    )
+
+
+def test_umg_preview_remove_routes_to_preview_primitive():
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "preview",
+        "remove",
+        "--preview-handle",
+        "softue-preview:world:widget:guid",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "umg-preview-remove",
+        {
+            "preview_handle": "softue-preview:world:widget:guid",
+        },
+    )
+
+
+def test_umg_verify_navigation_routes_to_verify_umg_workflow():
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "verify",
+        "navigation",
+        "--click-sequence",
+        '[{"button":"StartButton"}]',
+        "--root-widget",
+        "WBP_Menu_C_0",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "verify-umg-workflow",
+        {
+            "root_widget": "WBP_Menu_C_0",
+            "click_sequence": [{"button": "StartButton"}],
         },
     )
 

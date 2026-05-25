@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 
 def _repo_root() -> Path:
     for parent in Path(__file__).resolve().parents:
@@ -31,6 +33,21 @@ def _plugin_source_path(relative: str) -> Path:
     if monorepo_path.exists():
         return monorepo_path
     return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / relative
+
+
+def _agent_guide_path() -> Path:
+    guide = _repo_root() / "AGENTS.md"
+    if not guide.exists():
+        pytest.skip("AGENTS.md is only present in the monorepo checkout")
+    return guide
+
+
+def _test_tools_skill_path() -> Path:
+    root = _repo_root()
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / "test-tools.md"
+    if monorepo_path.exists():
+        return monorepo_path
+    return root / "soft_ue_cli" / "skills" / "test-tools.md"
 
 
 def test_editor_dependency_plugins_are_editor_target_only():
@@ -245,6 +262,62 @@ def test_runtime_config_tools_are_explicitly_registered_in_startup():
     assert "Registry.RegisterToolClass<UValidateConfigKeyTool>()" in module
 
 
+def test_bridge_tool_base_has_plugin_unavailable_error_contract():
+    header = _plugin_source_path(
+        "Source/SoftUEBridge/Public/Tools/BridgeToolBase.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridge/Private/Tools/BridgeToolBase.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "PluginUnavailable(" in header
+    assert "UBridgeToolBase::PluginUnavailable(" in source
+    assert 'SetBoolField(TEXT("success"), false)' in source
+    assert 'SetStringField(TEXT("error_code"), TEXT("plugin_unavailable"))' in source
+    assert 'SetStringField(TEXT("plugin"), PluginName)' in source
+    assert 'SetStringField(TEXT("command"), CommandName)' in source
+    assert 'SetStringField(TEXT("recovery"), Recovery)' in source
+    assert "FBridgeToolResult::Json(Result)" in source
+
+
+def test_umg_preview_lifecycle_tools_are_registered_and_registry_lists_handles():
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Widget/UMGPreviewTool.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Widget/UMGPreviewTool.cpp"
+    ).read_text(encoding="utf-8")
+    registry_header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Widget/WidgetPreviewRegistry.h"
+    ).read_text(encoding="utf-8")
+    registry_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Widget/WidgetPreviewRegistry.cpp"
+    ).read_text(encoding="utf-8")
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+
+    for tool_name in [
+        "umg-preview-create",
+        "umg-preview-replace",
+        "umg-preview-remove",
+        "umg-preview-list",
+    ]:
+        assert tool_name in header
+
+    assert "UUMGPreviewCreateTool" in module
+    assert "UUMGPreviewReplaceTool" in module
+    assert "UUMGPreviewRemoveTool" in module
+    assert "UUMGPreviewListTool" in module
+    assert "FWidgetPreviewSummary" in registry_header
+    assert "RemovePreviewByHandle" in registry_header
+    assert "ListPreviewsForWorld" in registry_header
+    assert "RemovePreviewByHandle" in registry_source
+    assert "ListPreviewsForWorld" in registry_source
+    assert 'SetStringField(TEXT("preview_handle")' in source
+    assert 'SetArrayField(TEXT("root_widgets")' in source
+
+
 def test_runtime_capture_viewport_tool_is_explicitly_registered_without_static_init():
     module = _plugin_source_path(
         "Source/SoftUEBridge/Private/SoftUEBridgeModule.cpp"
@@ -267,10 +340,7 @@ def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
 
 
 def test_agent_guide_warns_new_tools_against_static_registration_macro():
-    guide_path = _repo_root() / "AGENTS.md"
-    if not guide_path.exists():
-        return
-    guide = guide_path.read_text(encoding="utf-8")
+    guide = _agent_guide_path().read_text(encoding="utf-8")
 
     assert "Do not use REGISTER_BRIDGE_TOOL" in guide
     assert "RegisterToolClass" in guide
@@ -317,10 +387,7 @@ def test_bridge_health_includes_process_identity_for_restart_detection():
 
 
 def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
-    guide_path = _repo_root() / "AGENTS.md"
-    if not guide_path.exists():
-        return
-    guide = guide_path.read_text(encoding="utf-8")
+    guide = _agent_guide_path().read_text(encoding="utf-8")
 
     assert "OnPostEngineInit" in guide
     assert "newly added UCLASS" in guide
@@ -505,10 +572,7 @@ def test_set_node_position_supports_customizable_object_graphs():
 
 
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    root = _repo_root()
-    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / "test-tools.md"
-    exported_path = root / "soft_ue_cli" / "skills" / "test-tools.md"
-    content = (monorepo_path if monorepo_path.exists() else exported_path).read_text(encoding="utf-8")
+    content = _test_tools_skill_path().read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
 

@@ -88,6 +88,7 @@
 #include "Tools/Widget/WidgetBlueprintTool.h"
 #include "Tools/Widget/InspectRuntimeWidgetsTool.h"
 #include "Tools/Widget/WireWidgetNavigationTool.h"
+#include "Tools/Widget/UMGPreviewTool.h"
 #include "Tools/Widget/VerifyUMGWorkflowTool.h"
 
 // Write
@@ -255,6 +256,10 @@ void FSoftUEBridgeEditorModule::StartupModule()
 	Registry.RegisterToolClass<UWidgetBlueprintTool>();
 	Registry.RegisterToolClass<UInspectRuntimeWidgetsTool>();
 	Registry.RegisterToolClass<UWireWidgetNavigationTool>();
+	Registry.RegisterToolClass<UUMGPreviewCreateTool>();
+	Registry.RegisterToolClass<UUMGPreviewReplaceTool>();
+	Registry.RegisterToolClass<UUMGPreviewRemoveTool>();
+	Registry.RegisterToolClass<UUMGPreviewListTool>();
 	Registry.RegisterToolClass<UVerifyUMGWorkflowTool>();
 
 	// Write

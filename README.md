@@ -184,6 +184,102 @@ Running `soft-ue-cli mcp-serve` starts an MCP server over stdio. It auto-generat
 
 ---
 
+## Command Discovery And Taxonomy
+
+Use `soft-ue-cli commands` to inspect the public command surface without connecting to Unreal:
+
+```bash
+soft-ue-cli commands
+soft-ue-cli commands --json
+soft-ue-cli commands --category umg
+soft-ue-cli commands --category mutable
+soft-ue-cli commands --category statetree
+soft-ue-cli commands --plugin Mutable --json
+```
+
+The JSON output marks each command as canonical, compatibility, or deprecated, and includes whether it needs the bridge, editor, PIE, or optional Unreal plugins. Plugin-dependent bridge tools use a structured unavailable response when a plugin is missing:
+
+```json
+{
+  "success": false,
+  "error_code": "plugin_unavailable",
+  "plugin": "StateTree",
+  "command": "statetree inspect",
+  "recovery": "Enable the StateTree plugin, rebuild if prompted, and restart the editor."
+}
+```
+
+UMG, capture, Mutable, StateTree, animation, asset, and Blueprint workflows now have canonical command families. Existing one-off commands remain as compatibility wrappers for this release:
+
+| Compatibility command | Canonical command |
+|-----------------------|-------------------|
+| `apply-widget-tree` | `umg designer apply` |
+| `inspect-widget-blueprint` | `umg designer inspect` |
+| `wire-widget-navigation` | `umg navigation wire` |
+| `verify-umg-workflow` | `umg workflow run` |
+| `extract-umg-layout` | `umg layout extract` |
+| `compare-umg-layout` | `umg layout compare --mode geometry` |
+| `compare-umg-screenshot` | `umg layout compare --mode pixel` |
+| `capture-viewport` | `capture viewport` |
+| `capture-screenshot` | `capture screenshot --source <mode>` |
+| `capture-pie-screenshot` | `capture screenshot --source pie-window` |
+| `inspect-customizable-object-graph` | `mutable inspect graph` |
+| `inspect-mutable-parameters` | `mutable inspect parameters` |
+| `inspect-mutable-diagnostics` | `mutable inspect diagnostics` |
+| `add-co-node` | `mutable graph add-node` |
+| `add-co-parameter` | `mutable graph add-parameter` |
+| `add-co-mesh-option` | `mutable graph add-mesh-option` |
+| `set-co-base-mesh` | `mutable graph set-base-mesh` |
+| `add-co-group-child` | `mutable graph add-group-child` |
+| `set-co-node-property` | `mutable graph set-node-property` |
+| `connect-co-pins` | `mutable graph connect-pins` |
+| `regenerate-co-node-pins` | `mutable graph regenerate-node-pins` |
+| `remove-co-node` | `mutable graph remove-node` |
+| `create-co-from-spec` | `mutable graph create-from-spec` |
+| `wire-customizable-object-slot-from-table` | `mutable graph wire-slot-from-table` |
+| `compile-co` | `mutable compile` |
+| `query-statetree` | `statetree inspect` |
+| `add-statetree-state` | `statetree state add` |
+| `remove-statetree-state` | `statetree state remove` |
+| `add-statetree-task` | `statetree task add` |
+| `add-statetree-transition` | `statetree transition add` |
+| `inspect-anim-instance` | `anim instance inspect` |
+| `inspect-sync-markers` | `anim sync-marker inspect` |
+| `compare-sync-markers` | `anim sync-marker compare` |
+| `add-sync-marker` | `anim sync-marker add` |
+| `remove-sync-marker` | `anim sync-marker remove` |
+| `add-anim-state-machine` | `anim state-machine add` |
+| `add-anim-state` | `anim state add` |
+| `add-anim-transition` | `anim transition add` |
+| `rewind-start` | `anim rewind start` |
+| `rewind-stop` | `anim rewind stop` |
+| `rewind-status` | `anim rewind status` |
+| `rewind-list-tracks` | `anim rewind list-tracks` |
+| `rewind-overview` | `anim rewind overview` |
+| `rewind-snapshot` | `anim rewind snapshot` |
+| `rewind-save` | `anim rewind save` |
+| `query-asset` | `asset query` |
+| `delete-asset` | `asset delete` |
+| `release-asset-lock` | `asset release-lock` |
+| `get-asset-diff` | `asset diff` |
+| `get-asset-preview` | `asset preview` |
+| `open-asset` | `asset open` |
+| `set-asset-property` | `asset set-property` |
+| `inspect-uasset` | `asset inspect-file` |
+| `diff-uasset` | `asset diff-file` |
+| `save-asset` | `asset save` |
+| `create-asset` | `asset create` |
+| `query-blueprint` | `blueprint inspect` |
+| `query-blueprint-graph` | `blueprint graph inspect` |
+| `compile-blueprint` | `blueprint compile` |
+| `add-graph-node` | `blueprint node add` |
+| `remove-graph-node` | `blueprint node remove` |
+| `set-node-position` | `blueprint node position` |
+| `set-node-property` | `blueprint node property` |
+| `connect-graph-pins` | `blueprint pin connect` |
+| `disconnect-graph-pin` | `blueprint pin disconnect` |
+| `modify-interface` | `blueprint interface modify` |
+
 ## Complete Command Reference
 
 Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <command> --help` for detailed options.
@@ -214,6 +310,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
+| `blueprint` | Canonical Blueprint inspection, graph, node, pin, interface, and compile command family |
 | `query-blueprint` | Inspect a Blueprint asset -- components, variables, functions, interfaces, event dispatchers |
 | `query-blueprint-graph` | Inspect event graphs, function graphs, nested AnimBlueprint graphs, node connections, positions, and class-filtered nodes |
 | `inspect-uasset` | Inspect a local `.uasset` file offline by parsed metadata, with best support for Blueprint and External Actor assets |
@@ -237,6 +334,8 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
+| `asset` | Canonical asset query, preview, source-control, offline file, creation, and save command family |
+| `mutable` | Canonical Mutable/CustomizableObject inspection, graph authoring, and compile command family |
 | `query-asset` | Search the Content Browser by name, class, or path -- also inspect DataTables and map `WorldSettings` such as `DefaultGameMode` |
 | `query-enum` | Inspect a UserDefinedEnum asset -- authored names, display names, tooltips, numeric values |
 | `query-struct` | Inspect a UserDefinedStruct asset -- authored member names, defaults, and metadata |
@@ -283,6 +382,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 | `exec-console-command` | Execute arbitrary UE console commands directly in editor, PIE, or game worlds |
 | `pie-session` | Start, stop, pause, resume PIE -- also query actor state during play |
 | `pie-tick` | Start PIE if needed and advance the world deterministically by frame count |
+| `anim` | Canonical animation instance, sync marker, graph authoring, transition, and Rewind command family |
 | `inspect-anim-instance` | Snapshot a target actor's live `UAnimInstance` state or inspect static AnimBlueprint topology with `--asset-path` |
 | `inspect-sync-markers` | List AuthoredSyncMarkers on an AnimSequence asset |
 | `compare-sync-markers` | Compare sync marker names and timing across AnimSequence assets |
@@ -295,6 +395,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
+| `capture` | Canonical capture command family for viewport and screenshot capture |
 | `capture-screenshot` | Capture the editor viewport, PIE window, or a specific editor panel |
 | `capture-viewport` | Capture the current viewport (auto-detects PIE, standalone, or editor) |
 | `set-viewport-camera` | Set editor viewport camera position, rotation, or preset view (top/front/right/perspective) |
@@ -327,6 +428,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
+| `statetree` | Canonical StateTree inspection, state, task, and transition command family |
 | `query-statetree` | Inspect a StateTree asset -- states, tasks, transitions |
 | `add-statetree-state` | Add a state to a StateTree |
 | `add-statetree-task` | Add a task to a StateTree state |
@@ -337,6 +439,7 @@ Every command is available via `soft-ue-cli <command>`. Run `soft-ue-cli <comman
 
 | Command | Description |
 |---------|-------------|
+| `umg` | Canonical UMG command family for designer apply/inspect, navigation, preview lifecycle, verification, layout, and workflows |
 | `inspect-widget-blueprint` | Inspect UMG Widget Blueprint hierarchy, bindings, properties, and input mapping key bindings |
 | `inspect-runtime-widgets` | Inspect live UMG widget geometry during PIE sessions |
 | `apply-widget-tree` | Build or replace a Widget Blueprint Designer hierarchy from a declarative JSON spec |
@@ -367,6 +470,7 @@ Requires the **Animation Insights (GameplayInsights)** plugin enabled in Edit > 
 
 | Command | Description |
 |---------|-------------|
+| `anim rewind` | Canonical Rewind Debugger recording and inspection command family |
 | `rewind-start` | Start a Rewind Debugger recording with channel and actor filtering, or load an existing `.utrace` file with `--load` |
 | `rewind-stop` | Stop the current recording |
 | `rewind-status` | Query current recording state (detects recordings from CLI or editor UI) |

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from .client import call_tool, health_check
+from .command_aliases import normalize_command_aliases
 from .discovery import get_server_url
 
 
@@ -44,7 +45,8 @@ def _normalize_negative_vector_options(args: list[str] | None) -> list[str] | No
 
 class SoftUEArgumentParser(argparse.ArgumentParser):
     def parse_known_args(self, args=None, namespace=None):
-        normalized_args = _normalize_negative_vector_options(list(sys.argv[1:]) if args is None else list(args))
+        alias_args = normalize_command_aliases(list(sys.argv[1:]) if args is None else list(args))
+        normalized_args = _normalize_negative_vector_options(alias_args)
         return super().parse_known_args(normalized_args, namespace)
 
 
@@ -68,6 +70,48 @@ def _fix_msys_asset_path(path: str) -> str:
 
 def _print_json(data: object) -> None:
     print(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+def cmd_commands(args: argparse.Namespace) -> None:
+    from .command_catalog import command_metadata_as_json, filter_command_metadata
+
+    if args.json:
+        payload = command_metadata_as_json(probe=args.probe)
+        entries = payload["commands"]
+        if args.category:
+            entries = [entry for entry in entries if entry["category"] == args.category or args.category in entry["name"].split()]
+        if args.requires_bridge:
+            entries = [entry for entry in entries if entry["requires_bridge"]]
+        if args.compatibility:
+            entries = [entry for entry in entries if entry["status"] in {"compatibility", "deprecated"}]
+        if args.plugin:
+            plugin = args.plugin.lower()
+            entries = [
+                entry
+                for entry in entries
+                if any(req["name"].lower() == plugin for req in entry["required_plugins"])
+            ]
+        payload["commands"] = entries
+        _print_json(payload)
+        return
+
+    entries = filter_command_metadata(
+        category=args.category,
+        requires_bridge=True if args.requires_bridge else None,
+        compatibility=args.compatibility,
+        plugin=args.plugin,
+    )
+    print(f"{'Command':<38} {'Layer':<14} {'Category':<12} {'Bridge':<6} {'Status':<14} Canonical")
+    print("-" * 110)
+    for entry in entries:
+        print(
+            f"{entry['name']:<38} "
+            f"{entry['layer']:<14} "
+            f"{entry['category']:<12} "
+            f"{str(entry['requires_bridge']).lower():<6} "
+            f"{entry['status']:<14} "
+            f"{entry['canonical_command']}"
+        )
 
 
 def _run_tool(tool_name: str, arguments: dict) -> dict:
@@ -2337,6 +2381,92 @@ def cmd_verify_umg_workflow(args: argparse.Namespace) -> None:
     _print_json(_run_tool("verify-umg-workflow", arguments))
 
 
+def _run_verify_umg_workflow_from_namespace(args: argparse.Namespace, *, preview_lifecycle: str | None = None) -> None:
+    arguments: dict = {}
+    if getattr(args, "widget_class", None):
+        arguments["widget_class"] = args.widget_class
+    if getattr(args, "root_widget", None):
+        arguments["root_widget"] = args.root_widget
+    if getattr(args, "expected_widgets", None):
+        arguments["expected_widgets"] = _parse_json_array_arg(args.expected_widgets, "--expected-widgets")
+    if getattr(args, "expected_widgets_file", None):
+        arguments["expected_widgets"] = _parse_json_array_file_arg(args.expected_widgets_file, "--expected-widgets-file")
+    if getattr(args, "expected_text", None):
+        arguments["expected_text"] = _parse_json_array_arg(args.expected_text, "--expected-text")
+    if getattr(args, "expected_text_file", None):
+        arguments["expected_text"] = _parse_json_array_file_arg(args.expected_text_file, "--expected-text-file")
+    if getattr(args, "click_sequence", None):
+        arguments["click_sequence"] = _parse_json_array_arg(args.click_sequence, "--click-sequence")
+    if getattr(args, "click_sequence_file", None):
+        arguments["click_sequence"] = _parse_json_array_file_arg(args.click_sequence_file, "--click-sequence-file")
+    if getattr(args, "pie_index", None) is not None:
+        arguments["pie_index"] = args.pie_index
+    if getattr(args, "viewport_z_order", None) is not None:
+        arguments["viewport_z_order"] = args.viewport_z_order
+    if getattr(args, "capture_after", False):
+        arguments["capture_after"] = True
+    if getattr(args, "remove_preview", False):
+        arguments["remove_preview"] = True
+    if preview_lifecycle:
+        arguments["preview_lifecycle"] = preview_lifecycle
+    elif getattr(args, "preview_lifecycle", None):
+        arguments["preview_lifecycle"] = args.preview_lifecycle
+    _print_json(_run_tool("verify-umg-workflow", arguments))
+
+
+def cmd_umg_preview_create(args: argparse.Namespace) -> None:
+    _run_umg_preview_tool(args, "umg-preview-create")
+
+
+def cmd_umg_preview_replace(args: argparse.Namespace) -> None:
+    _run_umg_preview_tool(args, "umg-preview-replace")
+
+
+def cmd_umg_preview_remove(args: argparse.Namespace) -> None:
+    _run_umg_preview_tool(args, "umg-preview-remove")
+
+
+def cmd_umg_preview_list(args: argparse.Namespace) -> None:
+    _run_umg_preview_tool(args, "umg-preview-list")
+
+
+def _run_umg_preview_tool(args: argparse.Namespace, tool_name: str) -> None:
+    arguments: dict = {}
+    if getattr(args, "widget_class", None):
+        arguments["widget_class"] = args.widget_class
+    if getattr(args, "preview_handle", None):
+        arguments["preview_handle"] = args.preview_handle
+    if getattr(args, "pie_index", None) is not None:
+        arguments["pie_index"] = args.pie_index
+    if getattr(args, "viewport_z_order", None) is not None:
+        arguments["viewport_z_order"] = args.viewport_z_order
+    if getattr(args, "capture_after", False):
+        arguments["capture_after"] = True
+    _print_json(_run_tool(tool_name, arguments))
+
+
+def cmd_umg_verify_widgets(args: argparse.Namespace) -> None:
+    _run_verify_umg_workflow_from_namespace(args)
+
+
+def cmd_umg_verify_text(args: argparse.Namespace) -> None:
+    _run_verify_umg_workflow_from_namespace(args)
+
+
+def cmd_umg_verify_navigation(args: argparse.Namespace) -> None:
+    _run_verify_umg_workflow_from_namespace(args)
+
+
+def cmd_umg_workflow_run(args: argparse.Namespace) -> None:
+    plan = json.loads(Path(args.plan).read_text(encoding="utf-8-sig"))
+    _print_json({
+        "success": False,
+        "error_code": "workflow_runner_not_implemented",
+        "message": "umg workflow run metadata is available; orchestration execution will be implemented in the next bridge split.",
+        "plan": plan,
+    })
+
+
 def cmd_set_asset_property(args: argparse.Namespace) -> None:
     arguments: dict = {
         "asset_path": args.asset_path,
@@ -3345,6 +3475,27 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p_commands = sub.add_parser(
+        "commands",
+        help="List command taxonomy, canonical replacements, and availability metadata.",
+        description=(
+            "List public soft-ue-cli command metadata. Use --json for machine-readable output.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli commands\n"
+            "  soft-ue-cli commands --json\n"
+            "  soft-ue-cli commands --category umg\n"
+            "  soft-ue-cli commands --compatibility"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_commands.add_argument("--json", action="store_true", help="Emit machine-readable command metadata")
+    p_commands.add_argument("--probe", action="store_true", help="Augment JSON output with live bridge availability when available")
+    p_commands.add_argument("--category", help="Filter by category or command family token")
+    p_commands.add_argument("--requires-bridge", action="store_true", help="Only show commands that require the bridge")
+    p_commands.add_argument("--compatibility", action="store_true", help="Only show compatibility or deprecated wrappers")
+    p_commands.add_argument("--plugin", help="Only show commands that require the named Unreal plugin")
+    p_commands.set_defaults(func=cmd_commands)
 
     # setup
     p_setup = sub.add_parser(
@@ -4451,6 +4602,70 @@ def build_parser() -> argparse.ArgumentParser:
     _add_capture_transform_args(p_cv)
     p_cv.set_defaults(func=cmd_capture_viewport)
 
+    p_capture = sub.add_parser(
+        "capture",
+        help="Canonical capture command family.",
+        description=(
+            "Canonical capture command family.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli capture viewport --source editor --scale 50\n"
+            "  soft-ue-cli capture screenshot --source pie-window --output base64"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    capture_sub = p_capture.add_subparsers(dest="capture_action", required=True)
+
+    p_capture_viewport = capture_sub.add_parser(
+        "viewport",
+        help="Capture a game or editor viewport.",
+        description=(
+            "Capture a viewport screenshot through the existing capture-viewport bridge tool.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli capture viewport\n"
+            "  soft-ue-cli capture viewport --source editor\n"
+            "  soft-ue-cli capture viewport --output base64 --scale 50"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_capture_viewport.add_argument("--source", choices=["auto", "game", "editor"],
+                                    help="Viewport source: auto (default), game (PIE/standalone), editor")
+    p_capture_viewport.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
+    p_capture_viewport.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
+    _add_capture_transform_args(p_capture_viewport)
+    p_capture_viewport.set_defaults(func=cmd_capture_viewport)
+
+    p_capture_screenshot = capture_sub.add_parser(
+        "screenshot",
+        help="Capture an editor, viewport, region, or PIE window screenshot.",
+        description=(
+            "Capture a screenshot through the existing capture-screenshot bridge tool.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli capture screenshot --source window\n"
+            "  soft-ue-cli capture screenshot --source tab --window-name Blueprint\n"
+            "  soft-ue-cli capture screenshot --source region --region 0,0,800,600\n"
+            "  soft-ue-cli capture screenshot --source pie-window --scale 50"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_capture_screenshot.add_argument(
+        "--source",
+        dest="mode",
+        default="viewport",
+        choices=["window", "tab", "region", "viewport", "pie-window"],
+        help="Screenshot source (default: viewport)",
+    )
+    p_capture_screenshot.add_argument("--window-name", metavar="NAME", help="Editor panel name for --source tab")
+    p_capture_screenshot.add_argument("--region", metavar="X,Y,W,H", help="Screen coordinates for --source region")
+    p_capture_screenshot.add_argument(
+        "--unsafe-slate-window-capture",
+        action="store_true",
+        help="Allow direct full Slate window capture during PIE instead of the safe PIE viewport fallback",
+    )
+    p_capture_screenshot.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
+    p_capture_screenshot.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
+    _add_capture_transform_args(p_capture_screenshot)
+    p_capture_screenshot.set_defaults(func=cmd_capture_screenshot)
+
     p_cus = sub.add_parser(
         "compare-umg-screenshot",
         help="Compare a captured UMG screenshot against a reference image.",
@@ -4568,6 +4783,152 @@ def build_parser() -> argparse.ArgumentParser:
     p_ul_fit.add_argument("--spec", required=True, help="Current apply-widget-tree JSON spec")
     p_ul_fit.add_argument("--output", metavar="PATH", help="Optional path to write corrected apply-widget-tree JSON")
     p_ul_fit.set_defaults(func=cmd_umg_layout)
+
+    p_umg = sub.add_parser(
+        "umg",
+        help="Canonical UMG command family.",
+        description=(
+            "Canonical UMG command family for designer authoring, navigation,\n"
+            "preview lifecycle, verification, layout comparison, and workflows.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli umg designer apply /Game/UI/WBP_Menu --spec-file menu.json --compile --save\n"
+            "  soft-ue-cli umg navigation wire /Game/UI/WBP_Menu --bindings-file navigation.json\n"
+            "  soft-ue-cli umg layout compare --mode geometry expected.json actual.json"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    umg_sub = p_umg.add_subparsers(dest="umg_action", required=True)
+
+    p_umg_designer = umg_sub.add_parser("designer", help="Inspect or apply UMG Designer trees")
+    umg_designer_sub = p_umg_designer.add_subparsers(dest="designer_action", required=True)
+    p_umg_designer_apply = umg_designer_sub.add_parser("apply", help="Apply a declarative widget tree spec")
+    p_umg_designer_apply.add_argument("asset_path", help="Widget Blueprint asset path")
+    p_umg_designer_apply.add_argument("--spec", help="Widget tree spec JSON object")
+    p_umg_designer_apply.add_argument("--spec-file", help="Path to widget tree spec JSON")
+    p_umg_designer_apply.add_argument("--append", action="store_true", help="Append children instead of replacing the Designer tree")
+    p_umg_designer_apply.add_argument("--compile", action="store_true", help="Compile the Widget Blueprint after mutation")
+    p_umg_designer_apply.add_argument("--save", action="store_true", help="Save the Widget Blueprint after mutation")
+    p_umg_designer_apply.add_argument("--checkout", action="store_true", help="Checkout the asset before mutation")
+    p_umg_designer_apply.set_defaults(func=cmd_apply_widget_tree)
+    p_umg_designer_inspect = umg_designer_sub.add_parser("inspect", help="Inspect a Widget Blueprint Designer tree")
+    p_umg_designer_inspect.add_argument("asset_path", help="Widget Blueprint asset path")
+    p_umg_designer_inspect.add_argument("--include-defaults", action="store_true", help="Include resolved default property values")
+    p_umg_designer_inspect.add_argument("--depth-limit", type=int, help="Maximum widget tree depth")
+    p_umg_designer_inspect.add_argument("--no-bindings", action="store_true", help="Exclude binding metadata")
+    p_umg_designer_inspect.set_defaults(func=cmd_inspect_widget_blueprint)
+
+    p_umg_nav = umg_sub.add_parser("navigation", help="Validate or wire UMG navigation contracts")
+    umg_nav_sub = p_umg_nav.add_subparsers(dest="navigation_action", required=True)
+    for nav_action, nav_help in (("wire", "Wire named navigation buttons"), ("verify", "Validate navigation bindings without saving")):
+        p_umg_nav_action = umg_nav_sub.add_parser(nav_action, help=nav_help)
+        p_umg_nav_action.add_argument("asset_path", help="Widget Blueprint asset path")
+        p_umg_nav_action.add_argument("--bindings", help="Navigation bindings JSON array")
+        p_umg_nav_action.add_argument("--bindings-file", help="Path to navigation bindings JSON")
+        p_umg_nav_action.add_argument("--compile", action="store_true", help="Compile the Widget Blueprint after mutation")
+        p_umg_nav_action.add_argument("--save", action="store_true", help="Save the Widget Blueprint after mutation")
+        p_umg_nav_action.add_argument("--checkout", action="store_true", help="Checkout the asset before mutation")
+        p_umg_nav_action.add_argument("--allow-pie", action="store_true", help="Allow mutation while PIE is active")
+        p_umg_nav_action.add_argument("--allow-busy", action="store_true", help="Allow mutation while the editor is saving or garbage collecting")
+        p_umg_nav_action.set_defaults(func=cmd_wire_widget_navigation)
+
+    p_umg_preview = umg_sub.add_parser("preview", help="Manage tool-owned runtime preview widgets")
+    umg_preview_sub = p_umg_preview.add_subparsers(dest="preview_action", required=True)
+    for preview_action, preview_func, help_text in (
+        ("create", cmd_umg_preview_create, "Create a tool-owned preview widget without removing existing previews"),
+        ("replace", cmd_umg_preview_replace, "Replace existing tool-owned previews with a new preview widget"),
+    ):
+        p_preview = umg_preview_sub.add_parser(preview_action, help=help_text)
+        p_preview.add_argument("--widget-class", required=True, help="Widget class or WidgetBlueprint asset path")
+        p_preview.add_argument("--pie-index", type=int, help="PIE instance index")
+        p_preview.add_argument("--viewport-z-order", type=int, help="Viewport Z order")
+        p_preview.add_argument("--capture-after", action="store_true", help="Return a capture recommendation")
+        p_preview.set_defaults(func=preview_func)
+    p_preview_remove = umg_preview_sub.add_parser("remove", help="Remove tool-owned preview widgets")
+    p_preview_remove.add_argument("--preview-handle", help="Specific preview handle returned by umg preview create/replace")
+    p_preview_remove.add_argument("--pie-index", type=int, help="PIE instance index")
+    p_preview_remove.set_defaults(func=cmd_umg_preview_remove)
+    p_preview_list = umg_preview_sub.add_parser("list", help="List runtime widgets and tool-owned preview count")
+    p_preview_list.add_argument("--pie-index", type=int, help="PIE instance index")
+    p_preview_list.set_defaults(func=cmd_umg_preview_list)
+
+    p_umg_verify = umg_sub.add_parser("verify", help="Verify runtime UMG widgets")
+    umg_verify_sub = p_umg_verify.add_subparsers(dest="verify_action", required=True)
+    p_verify_widgets = umg_verify_sub.add_parser("widgets", help="Verify expected runtime widget names")
+    p_verify_widgets.add_argument("--root-widget", help="Runtime root widget name")
+    p_verify_widgets.add_argument("--expected-widgets", help="Expected widget names JSON array")
+    p_verify_widgets.add_argument("--expected-widgets-file", help="Path to expected widget names JSON array")
+    p_verify_widgets.add_argument("--pie-index", type=int, help="PIE instance index")
+    p_verify_widgets.set_defaults(func=cmd_umg_verify_widgets)
+    p_verify_text = umg_verify_sub.add_parser("text", help="Verify expected runtime TextBlock strings")
+    p_verify_text.add_argument("--root-widget", help="Runtime root widget name")
+    p_verify_text.add_argument("--expected-text", help="Expected TextBlock strings JSON array")
+    p_verify_text.add_argument("--expected-text-file", help="Path to expected text JSON array")
+    p_verify_text.add_argument("--pie-index", type=int, help="PIE instance index")
+    p_verify_text.set_defaults(func=cmd_umg_verify_text)
+    p_verify_nav = umg_verify_sub.add_parser("navigation", help="Verify runtime navigation click sequence")
+    p_verify_nav.add_argument("--root-widget", help="Runtime root widget name")
+    p_verify_nav.add_argument("--click-sequence", help="Click sequence JSON array")
+    p_verify_nav.add_argument("--click-sequence-file", help="Path to click sequence JSON array")
+    p_verify_nav.add_argument("--pie-index", type=int, help="PIE instance index")
+    p_verify_nav.set_defaults(func=cmd_umg_verify_navigation)
+    p_verify_runtime_layout = umg_verify_sub.add_parser("runtime-layout", help="Verify runtime layout against expected layout JSON")
+    p_verify_runtime_layout.add_argument("expected_layout", help="Expected normalized layout JSON path")
+    p_verify_runtime_layout.add_argument("actual_layout", help="Actual normalized layout JSON path")
+    p_verify_runtime_layout.add_argument("--mode", choices=["geometry", "pixel", "both"], default="geometry", help="Comparison mode")
+    p_verify_runtime_layout.add_argument("--subset", action="store_true", help="Ignore extra actual widgets")
+    p_verify_runtime_layout.add_argument("--bounds-tolerance", type=float, default=0.02, help="Normalized bounds tolerance")
+    p_verify_runtime_layout.add_argument("--opacity-tolerance", type=float, default=0.05, help="Opacity tolerance")
+    p_verify_runtime_layout.add_argument("--ignore-mask", action="append", help="Widget name, JSON object/list, or JSON file path to ignore")
+    p_verify_runtime_layout.add_argument("--crop", metavar="X,Y,W,H", help="Crop captured image for pixel comparison")
+    p_verify_runtime_layout.add_argument("--threshold", type=float, default=0.9, help="Pixel similarity threshold")
+    p_verify_runtime_layout.add_argument("--annotated-output", metavar="PATH", help="Optional annotated pixel diff output")
+    p_verify_runtime_layout.add_argument("--reference-image", metavar="PATH", help="Reference image for --mode both")
+    p_verify_runtime_layout.add_argument("--captured-image", metavar="PATH", help="Captured image for --mode both")
+    p_verify_runtime_layout.add_argument("--output", dest="output_file", metavar="PATH", help="Optional path to write comparison report JSON")
+    p_verify_runtime_layout.set_defaults(func=cmd_umg_layout, layout_action="compare")
+
+    p_umg_layout = umg_sub.add_parser("layout", help="Extract, compare, or fit UMG layout artifacts")
+    p_umg_layout.set_defaults(func=cmd_umg_layout)
+    umg_layout_sub = p_umg_layout.add_subparsers(dest="layout_action", required=True)
+    p_umg_layout_extract = umg_layout_sub.add_parser("extract", help="Extract a normalized layout artifact")
+    p_umg_layout_extract.add_argument("--source", choices=["designer", "runtime", "figma", "concept-image"], required=True, help="Layout source")
+    p_umg_layout_extract.add_argument("--input", metavar="PATH", help="Concept image or Figma/Stitch JSON input path")
+    p_umg_layout_extract.add_argument("--asset-path", metavar="PATH", help="Widget Blueprint asset path for designer extraction")
+    p_umg_layout_extract.add_argument("--root-widget", metavar="NAME", help="Runtime root widget name for runtime extraction")
+    p_umg_layout_extract.add_argument("--pie-index", type=int, default=0, help="PIE instance index")
+    p_umg_layout_extract.add_argument("--depth-limit", type=int, default=12, help="Designer widget tree depth limit")
+    p_umg_layout_extract.add_argument("--canvas-size", metavar="W,H", help="Canvas size used for normalized bounds")
+    p_umg_layout_extract.add_argument("--full-geometry", action="store_true", help="Request full runtime and Slate geometry")
+    p_umg_layout_extract.add_argument("--min-region-area", type=int, default=64, help="Minimum concept-image foreground region area")
+    p_umg_layout_extract.add_argument("--output", dest="output_file", metavar="PATH", help="Optional path to write normalized layout JSON")
+    p_umg_layout_extract.set_defaults(func=cmd_umg_layout)
+    p_umg_layout_compare = umg_layout_sub.add_parser("compare", help="Compare layout or pixel artifacts")
+    p_umg_layout_compare.add_argument("expected_layout", help="Expected layout JSON path, or reference image for --mode pixel")
+    p_umg_layout_compare.add_argument("actual_layout", help="Actual layout JSON path, or captured image for --mode pixel")
+    p_umg_layout_compare.add_argument("--mode", choices=["geometry", "pixel", "both"], default="geometry", help="Comparison mode")
+    p_umg_layout_compare.add_argument("--subset", action="store_true", help="Only compare expected widgets and ignore extra actual widgets")
+    p_umg_layout_compare.add_argument("--ignore-mask", action="append", help="Widget name, JSON object/list, or JSON file path to ignore")
+    p_umg_layout_compare.add_argument("--bounds-tolerance", type=float, default=0.02, help="Normalized bounds tolerance")
+    p_umg_layout_compare.add_argument("--opacity-tolerance", type=float, default=0.05, help="Opacity tolerance")
+    p_umg_layout_compare.add_argument("--crop", metavar="X,Y,W,H", help="Crop captured image for pixel comparison")
+    p_umg_layout_compare.add_argument("--threshold", type=float, default=0.9, help="Pixel similarity threshold")
+    p_umg_layout_compare.add_argument("--annotated-output", metavar="PATH", help="Optional annotated pixel diff output")
+    p_umg_layout_compare.add_argument("--reference-image", metavar="PATH", help="Reference image for --mode both")
+    p_umg_layout_compare.add_argument("--captured-image", metavar="PATH", help="Captured image for --mode both")
+    p_umg_layout_compare.add_argument("--output", dest="output_file", metavar="PATH", help="Optional path to write comparison report JSON")
+    p_umg_layout_compare.set_defaults(func=cmd_umg_layout)
+    p_umg_layout_fit = umg_layout_sub.add_parser("fit", help="Emit a corrected apply-widget-tree spec from layout deltas")
+    p_umg_layout_fit.add_argument("--concept", required=True, help="Concept or expected normalized layout JSON")
+    p_umg_layout_fit.add_argument("--actual", required=True, help="Runtime or actual normalized layout JSON")
+    p_umg_layout_fit.add_argument("--spec", required=True, help="Current apply-widget-tree JSON spec")
+    p_umg_layout_fit.add_argument("--output", metavar="PATH", help="Optional path to write corrected apply-widget-tree JSON")
+    p_umg_layout_fit.set_defaults(func=cmd_umg_layout)
+
+    p_umg_workflow = umg_sub.add_parser("workflow", help="Run UMG workflow plans")
+    umg_workflow_sub = p_umg_workflow.add_subparsers(dest="workflow_action", required=True)
+    p_umg_workflow_run = umg_workflow_sub.add_parser("run", help="Run a UMG workflow JSON plan")
+    p_umg_workflow_run.add_argument("--plan", required=True, help="Path to a UMG workflow JSON plan")
+    p_umg_workflow_run.set_defaults(func=cmd_umg_workflow_run)
 
     # -------------------------------------------------------------------------
     # Editor tools — Material

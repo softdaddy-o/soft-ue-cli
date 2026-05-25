@@ -70,6 +70,23 @@ float UBridgeToolBase::GetFloatArgOrDefault(const TSharedPtr<FJsonObject>& Args,
 	return Default;
 }
 
+FBridgeToolResult UBridgeToolBase::PluginUnavailable(
+	const FString& PluginName,
+	const FString& CommandName,
+	const FString& Recovery)
+{
+	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+	Result->SetBoolField(TEXT("success"), false);
+	Result->SetStringField(TEXT("error_code"), TEXT("plugin_unavailable"));
+	Result->SetStringField(TEXT("plugin"), PluginName);
+	Result->SetStringField(TEXT("command"), CommandName);
+	Result->SetStringField(
+		TEXT("message"),
+		FString::Printf(TEXT("%s plugin is not enabled."), *PluginName));
+	Result->SetStringField(TEXT("recovery"), Recovery);
+	return FBridgeToolResult::Json(Result);
+}
+
 bool UBridgeToolBase::MatchesWildcard(const FString& Name, const FString& Pattern)
 {
 	if (Pattern.IsEmpty()) return true;

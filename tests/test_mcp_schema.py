@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
@@ -53,6 +52,7 @@ def test_extract_tools_contains_known_command():
     assert "compare-umg-layout" in tool_names
     assert "umg-layout" in tool_names
     assert "status" in tool_names
+    assert "commands" in tool_names
     assert "wait-for-ready" in tool_names
     assert "inspect-sync-markers" in tool_names
     assert "compare-sync-markers" in tool_names
@@ -66,6 +66,23 @@ def test_tool_has_required_fields():
     assert "name" in tool
     assert "description" in tool
     assert "parameters" in tool
+
+
+def test_commands_is_client_side_tool():
+    assert "commands" in CLIENT_SIDE_COMMANDS
+
+
+def test_nested_umg_family_is_not_auto_exposed_to_mcp():
+    assert "umg" in EXCLUDED_COMMANDS
+
+
+def test_nested_capture_family_is_not_auto_exposed_to_mcp():
+    assert "capture" in EXCLUDED_COMMANDS
+
+
+def test_nested_taxonomy_families_are_not_auto_exposed_to_mcp():
+    for family in ["mutable", "statetree", "anim", "asset", "blueprint"]:
+        assert family in EXCLUDED_COMMANDS
 
 
 def test_positional_arg_is_required():

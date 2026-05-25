@@ -79,6 +79,39 @@ int32 FWidgetPreviewRegistry::RemovePreviewsForWorld(UWorld* World, TArray<FStri
 	return RemovedCount;
 }
 
+int32 FWidgetPreviewRegistry::RemovePreviewByHandle(const FString& Handle, TArray<FString>* OutRemovedHandles)
+{
+	if (Handle.IsEmpty())
+	{
+		return 0;
+	}
+
+	TArray<FRegisteredWidgetPreview>& Registry = GetWidgetPreviewRegistry();
+	int32 RemovedCount = 0;
+
+	for (int32 Index = Registry.Num() - 1; Index >= 0; --Index)
+	{
+		FRegisteredWidgetPreview& Entry = Registry[Index];
+		if (!Entry.Handle.Equals(Handle, ESearchCase::CaseSensitive))
+		{
+			continue;
+		}
+
+		if (UUserWidget* Widget = Entry.Widget.Get())
+		{
+			Widget->RemoveFromParent();
+		}
+		if (OutRemovedHandles)
+		{
+			OutRemovedHandles->Add(Entry.Handle);
+		}
+		++RemovedCount;
+		Registry.RemoveAtSwap(Index, 1, EAllowShrinking::No);
+	}
+
+	return RemovedCount;
+}
+
 int32 FWidgetPreviewRegistry::CountPreviewsForWorld(UWorld* World)
 {
 	if (!World)
@@ -95,4 +128,30 @@ int32 FWidgetPreviewRegistry::CountPreviewsForWorld(UWorld* World)
 		}
 	}
 	return Count;
+}
+
+void FWidgetPreviewRegistry::ListPreviewsForWorld(UWorld* World, TArray<FWidgetPreviewSummary>& OutSummaries)
+{
+	OutSummaries.Reset();
+
+	for (const FRegisteredWidgetPreview& Entry : GetWidgetPreviewRegistry())
+	{
+		UWorld* EntryWorld = Entry.World.Get();
+		UUserWidget* Widget = Entry.Widget.Get();
+		if (!EntryWorld || !Widget)
+		{
+			continue;
+		}
+		if (World && EntryWorld != World)
+		{
+			continue;
+		}
+
+		FWidgetPreviewSummary Summary;
+		Summary.Handle = Entry.Handle;
+		Summary.WorldName = EntryWorld->GetName();
+		Summary.WidgetName = Widget->GetName();
+		Summary.WidgetClass = Widget->GetClass() ? Widget->GetClass()->GetName() : TEXT("");
+		OutSummaries.Add(Summary);
+	}
 }

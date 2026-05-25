@@ -4,6 +4,19 @@ All notable changes to soft-ue-cli will be documented in this file.
 
 ## Unreleased
 
+## [1.33.0] - 2026-05-25
+
+### Added
+- New `commands` discovery command exposes command taxonomy, compatibility replacements, bridge/editor/PIE requirements, and optional Unreal plugin metadata in human and JSON formats.
+- New canonical `umg` command family groups UMG designer, navigation, preview, verification, layout, and workflow commands while keeping existing one-off UMG commands as compatibility wrappers.
+- New `umg-preview-create`, `umg-preview-replace`, `umg-preview-remove`, and `umg-preview-list` bridge tools manage tool-owned runtime preview widgets with handles and structured preview summaries.
+- New canonical `capture` command family adds `capture viewport` and `capture screenshot --source ...` while keeping existing capture commands as compatibility wrappers.
+- New canonical `mutable`, `statetree`, `anim`, `asset`, and `blueprint` command families route to the existing flat commands while marking the old names as compatibility wrappers in command metadata.
+- Bridge tools can now return a structured `plugin_unavailable` JSON contract for optional Unreal plugin requirements.
+
+### Changed
+- `test-tools` now smoke-tests command metadata discovery and the canonical UMG, capture, Mutable, StateTree, animation, asset, and Blueprint command surfaces.
+
 ## [1.32.0] - 2026-05-24
 
 ### Added

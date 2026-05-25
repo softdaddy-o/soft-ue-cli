@@ -51,6 +51,11 @@ protected:
 	static bool GetFloatArg(const TSharedPtr<FJsonObject>& Args, const FString& Key, float& Out);
 	static float GetFloatArgOrDefault(const TSharedPtr<FJsonObject>& Args, const FString& Key, float Default = 0.0f);
 
+	static FBridgeToolResult PluginUnavailable(
+		const FString& PluginName,
+		const FString& CommandName,
+		const FString& Recovery);
+
 	/** Wildcard match: *suffix, prefix*, *substring*, or exact */
 	static bool MatchesWildcard(const FString& Name, const FString& Pattern);
 

@@ -6,15 +6,23 @@ import argparse
 from typing import Any
 
 EXCLUDED_COMMANDS: frozenset[str] = frozenset({
+    "anim",
     "await-bridge",
+    "asset",
+    "blueprint",
+    "capture",
+    "umg",
+    "mutable",
     "skills",
     "mcp-serve",
+    "statetree",
 })
 
 # Commands executed client-side (no bridge call). Their existing cmd_* handlers
 # are invoked directly by the MCP server instead of being forwarded to the bridge.
 CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "status",
+    "commands",
     "wait-for-ready",
     "check-setup",
     "setup",

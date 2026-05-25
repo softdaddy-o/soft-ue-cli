@@ -4,6 +4,11 @@ All notable changes to soft-ue-cli will be documented in this file.
 
 ## Unreleased
 
+## [1.33.1] - 2026-05-25
+
+### Fixed
+- PyPI package metadata now uses `README.md` as the project description, so the published project page reflects the current command taxonomy documentation.
+
 ## [1.33.0] - 2026-05-25
 
 ### Added

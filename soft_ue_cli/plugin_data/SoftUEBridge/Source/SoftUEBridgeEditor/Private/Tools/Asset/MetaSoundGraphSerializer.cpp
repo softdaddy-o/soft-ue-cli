@@ -117,20 +117,22 @@ namespace MetaSoundGraphSerializer
 		Graph->SetArrayField(TEXT("outputs"), GraphOutputs);
 
 		// Read the build/default page only — never the deprecated, editor-only RootGraph.Graph.
-		const FMetasoundFrontendGraph& Page = Document.RootGraph.GetConstDefaultGraph();
-
+		// Use the non-asserting FindConstGraph: a default-constructed document has no pages,
+		// and GetConstDefaultGraph() would check()/crash. Missing page -> empty graph.
 		TArray<TSharedPtr<FJsonValue>> Nodes;
-		for (const FMetasoundFrontendNode& Node : Page.Nodes)
+		TArray<TSharedPtr<FJsonValue>> Edges;
+		if (const FMetasoundFrontendGraph* Page = Document.RootGraph.FindConstGraph(Metasound::Frontend::DefaultPageID))
 		{
-			Nodes.Add(MakeShared<FJsonValueObject>(NodeToJson(Document, Node)));
+			for (const FMetasoundFrontendNode& Node : Page->Nodes)
+			{
+				Nodes.Add(MakeShared<FJsonValueObject>(NodeToJson(Document, Node)));
+			}
+			for (const FMetasoundFrontendEdge& Edge : Page->Edges)
+			{
+				Edges.Add(MakeShared<FJsonValueObject>(EdgeToJson(Edge)));
+			}
 		}
 		Graph->SetArrayField(TEXT("nodes"), Nodes);
-
-		TArray<TSharedPtr<FJsonValue>> Edges;
-		for (const FMetasoundFrontendEdge& Edge : Page.Edges)
-		{
-			Edges.Add(MakeShared<FJsonValueObject>(EdgeToJson(Edge)));
-		}
 		Graph->SetArrayField(TEXT("edges"), Edges);
 
 		Root->SetObjectField(TEXT("graph"), Graph);

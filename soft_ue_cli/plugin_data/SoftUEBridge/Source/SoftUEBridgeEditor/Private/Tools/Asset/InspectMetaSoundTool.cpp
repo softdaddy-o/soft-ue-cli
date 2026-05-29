@@ -44,7 +44,7 @@ FBridgeToolResult UInspectMetaSoundTool::Execute(
 	}
 
 	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
-	const FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FName(*AssetPath));
+	const FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(AssetPath));
 	UObject* AssetObject = AssetData.IsValid() ? AssetData.GetAsset() : nullptr;
 	if (!AssetObject)
 	{

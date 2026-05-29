@@ -4820,7 +4820,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read a MetaSound Source or Patch graph.",
         description=(
             "Inspect a MetaSound Source or Patch asset through the metasound-inspect bridge tool.\n"
-            "Returns JSON with the declared interface inputs/outputs, nodes, connections, and input defaults.\n\n"
+            "Returns JSON with the declared interface inputs/outputs, nodes, edges (connections), and input defaults.\n\n"
             "EXAMPLES:\n"
             "  soft-ue-cli metasound inspect /Game/Audio/MS_Footsteps"
         ),

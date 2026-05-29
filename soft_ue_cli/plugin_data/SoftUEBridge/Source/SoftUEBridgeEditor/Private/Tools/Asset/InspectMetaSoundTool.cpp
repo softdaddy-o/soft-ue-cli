@@ -12,7 +12,7 @@ FString UInspectMetaSoundTool::GetToolDescription() const
 {
 	return TEXT(
 		"Inspect a MetaSound Source or Patch asset. Returns the declared interface inputs/outputs, "
-		"graph nodes with their class names and input defaults, and the connections between nodes.");
+		"graph nodes with their class names and input defaults, and the edges (connections) between nodes.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UInspectMetaSoundTool::GetInputSchema() const

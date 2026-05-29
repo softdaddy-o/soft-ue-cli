@@ -497,7 +497,7 @@ _EXPLICIT_ENTRIES: dict[str, dict[str, Any]] = {
     ),
     "metasound inspect": _entry(
         "metasound inspect",
-        "Read a MetaSound Source or Patch graph: interface inputs/outputs, nodes, connections, and input defaults.",
+        "Read a MetaSound Source or Patch graph: interface inputs/outputs, nodes, edges (connections), and input defaults.",
         layer="bridge",
         category="inspect",
         requires_bridge=True,

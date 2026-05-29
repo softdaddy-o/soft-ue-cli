@@ -76,6 +76,10 @@ public class SoftUEBridgeEditor : ModuleRules
 			"StateTreeModule",
 			"StateTreeEditorModule",
 
+			// MetaSound (read-only graph inspection)
+			"MetasoundFrontend",
+			"MetasoundEngine",
+
 			// Python Scripting
 			"PythonScriptPlugin",
 

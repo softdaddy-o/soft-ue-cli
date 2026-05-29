@@ -751,6 +751,10 @@ def cmd_query_struct(args: argparse.Namespace) -> None:
     _print_json(_run_tool("query-struct", {"asset_path": args.asset_path}))
 
 
+def cmd_metasound_inspect(args: argparse.Namespace) -> None:
+    _print_json(_run_tool("metasound-inspect", {"asset_path": args.asset_path}))
+
+
 def cmd_delete_asset(args: argparse.Namespace) -> None:
     _print_json(_run_tool("delete-asset", {"asset_path": args.asset_path}))
 
@@ -4798,6 +4802,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_capture_screenshot.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
     _add_capture_transform_args(p_capture_screenshot)
     p_capture_screenshot.set_defaults(func=cmd_capture_screenshot)
+
+    p_metasound = sub.add_parser(
+        "metasound",
+        help="Canonical MetaSound inspection command family.",
+        description=(
+            "Canonical MetaSound inspection command family.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli metasound inspect /Game/Audio/MS_Footsteps"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    metasound_sub = p_metasound.add_subparsers(dest="metasound_action", required=True)
+
+    p_metasound_inspect = metasound_sub.add_parser(
+        "inspect",
+        help="Read a MetaSound Source or Patch graph.",
+        description=(
+            "Inspect a MetaSound Source or Patch asset through the metasound-inspect bridge tool.\n"
+            "Returns JSON with the declared interface inputs/outputs, nodes, connections, and input defaults.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli metasound inspect /Game/Audio/MS_Footsteps"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_metasound_inspect.add_argument("asset_path", help="Asset path to the MetaSound (e.g., /Game/Audio/MS_Footsteps)")
+    p_metasound_inspect.set_defaults(func=cmd_metasound_inspect)
 
     p_cus = sub.add_parser(
         "compare-umg-screenshot",

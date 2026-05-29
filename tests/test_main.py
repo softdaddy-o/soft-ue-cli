@@ -363,6 +363,21 @@ def test_cmd_get_property_forwards_world():
     )
 
 
+def test_parser_metasound_inspect():
+    parser = build_parser()
+    args = parser.parse_args(["metasound", "inspect", "/Game/Audio/MS_Foo"])
+    assert args.asset_path == "/Game/Audio/MS_Foo"
+
+
+def test_cmd_metasound_inspect_forwards_asset_path():
+    parser = build_parser()
+    args = parser.parse_args(["metasound", "inspect", "/Game/Audio/MS_Foo"])
+    with patch("soft_ue_cli.__main__._run_tool", return_value={}) as mock_run:
+        with patch("soft_ue_cli.__main__._print_json"):
+            args.func(args)
+    mock_run.assert_called_once_with("metasound-inspect", {"asset_path": "/Game/Audio/MS_Foo"})
+
+
 def test_parser_call_function_no_args():
     parser = build_parser()
     args = parser.parse_args(["call-function", "BP_Hero", "Jump"])

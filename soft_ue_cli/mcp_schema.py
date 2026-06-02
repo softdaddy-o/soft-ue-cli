@@ -19,6 +19,7 @@ EXCLUDED_COMMANDS: frozenset[str] = frozenset({
     "blueprint",
     "capture",
     "umg",
+    "metasound",
     "mutable",
     "skills",
     "mcp-serve",

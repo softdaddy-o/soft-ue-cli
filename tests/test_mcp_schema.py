@@ -90,6 +90,16 @@ def test_nested_taxonomy_family_roots_are_not_auto_exposed_to_mcp():
         assert family in EXCLUDED_COMMANDS
 
 
+def test_nested_metasound_family_root_is_not_auto_exposed_to_mcp():
+    assert "metasound" in EXCLUDED_COMMANDS
+
+
+def test_metasound_inspect_leaf_is_exposed_to_mcp():
+    tool = next(t for t in extract_tools() if t["name"] == "metasound inspect")
+    assert "asset_path" in tool["parameters"]["properties"]
+    assert "asset_path" in tool["parameters"].get("required", [])
+
+
 def test_canonical_leaf_commands_are_exposed_to_mcp():
     tool_names = {t["name"] for t in extract_tools()}
 

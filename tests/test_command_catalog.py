@@ -171,6 +171,17 @@ def test_commands_json_can_include_removed_migration_entries():
     assert "Removed flat command" in removed_entry["summary"]
 
 
+def test_catalog_marks_metasound_inspect_as_bridge_editor_command():
+    meta = get_command_metadata("metasound inspect")
+
+    assert meta["status"] == "canonical"
+    assert meta["layer"] == "bridge"
+    assert meta["category"] == "inspect"
+    assert meta["requires_bridge"] is True
+    assert meta["requires_editor"] is True
+    assert meta["requires_pie"] is False
+
+
 def test_all_catalog_entries_have_required_metadata_fields():
     required = {
         "name",

@@ -6,6 +6,7 @@
 #include "Tools/GetLogsTool.h"
 #include "HttpServerModule.h"
 #include "Misc/FileHelper.h"
+#include "Misc/App.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformFileManager.h"
 #include "Dom/JsonObject.h"

@@ -55,6 +55,13 @@ namespace
 		return GBridgePIETransition != EBridgePIETransition::None
 			&& (FPlatformTime::Seconds() - GBridgePIETransitionStartedAt) < GBridgePIETransitionGraceSeconds;
 	}
+
+	double GetTransitionAgeSeconds()
+	{
+		return GBridgePIETransitionStartedAt > 0.0
+			? FPlatformTime::Seconds() - GBridgePIETransitionStartedAt
+			: 0.0;
+	}
 }
 
 FString UPieSessionTool::GetToolDescription() const
@@ -231,9 +238,32 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 			Result->SetStringField(TEXT("world_name"), PIEWorld->GetName());
 			Result->SetStringField(TEXT("state"), TEXT("already_running"));
 			Result->SetBoolField(TEXT("pie_started"), true);
+			Result->SetBoolField(TEXT("non_blocking_start"), true);
+			Result->SetBoolField(TEXT("start_request_dispatched"), false);
+			Result->SetNumberField(TEXT("transition_age_seconds"), GetTransitionAgeSeconds());
 			Result->SetStringField(TEXT("blueprint_error_action"), BlueprintErrorAction);
 			return FBridgeToolResult::Json(Result);
 		}
+	}
+
+	if (GBridgePIETransition == EBridgePIETransition::Starting && IsTransitionFresh())
+	{
+		if (GBridgePIESessionId.IsEmpty())
+		{
+			GBridgePIESessionId = GenerateSessionId();
+		}
+
+		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+		Result->SetBoolField(TEXT("success"), true);
+		Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
+		Result->SetStringField(TEXT("state"), TEXT("starting"));
+		Result->SetBoolField(TEXT("pie_started"), false);
+		Result->SetBoolField(TEXT("non_blocking_start"), true);
+		Result->SetBoolField(TEXT("start_request_dispatched"), false);
+		Result->SetNumberField(TEXT("transition_age_seconds"), GetTransitionAgeSeconds());
+		Result->SetStringField(TEXT("blueprint_error_action"), BlueprintErrorAction);
+		Result->SetBoolField(TEXT("preflight_blueprints"), bPreflightBlueprints);
+		return FBridgeToolResult::Json(Result);
 	}
 
 	const bool bSuppressBlueprintWarnings = BlueprintErrorAction == TEXT("continue");
@@ -300,6 +330,9 @@ FBridgeToolResult UPieSessionTool::ExecuteStart(const TSharedPtr<FJsonObject>& A
 	Result->SetStringField(TEXT("session_id"), GBridgePIESessionId);
 	Result->SetStringField(TEXT("state"), IsPIEReadyState(PIEWorld) ? TEXT("running") : TEXT("starting"));
 	Result->SetBoolField(TEXT("pie_started"), IsPIEReadyState(PIEWorld));
+	Result->SetBoolField(TEXT("non_blocking_start"), true);
+	Result->SetBoolField(TEXT("start_request_dispatched"), true);
+	Result->SetNumberField(TEXT("transition_age_seconds"), GetTransitionAgeSeconds());
 	Result->SetStringField(TEXT("blueprint_error_action"), BlueprintErrorAction);
 	Result->SetBoolField(TEXT("preflight_blueprints"), bPreflightBlueprints);
 	Result->SetArrayField(TEXT("blueprint_compile_errors"), BlueprintCompileErrors);
@@ -477,12 +510,14 @@ FBridgeToolResult UPieSessionTool::ExecuteGetState(const TSharedPtr<FJsonObject>
 	if (GBridgePIETransition == EBridgePIETransition::Starting)
 	{
 		Result->SetStringField(TEXT("state"), TEXT("starting"));
+		Result->SetNumberField(TEXT("transition_age_seconds"), GetTransitionAgeSeconds());
 		return FBridgeToolResult::Json(Result);
 	}
 
 	if (GBridgePIETransition == EBridgePIETransition::Stopping)
 	{
 		Result->SetStringField(TEXT("state"), bRunning ? TEXT("stopping") : TEXT("stopped"));
+		Result->SetNumberField(TEXT("transition_age_seconds"), GetTransitionAgeSeconds());
 		return FBridgeToolResult::Json(Result);
 	}
 

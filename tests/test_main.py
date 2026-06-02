@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli import __main__ as main_mod
 from soft_ue_cli.__main__ import (
@@ -781,6 +780,36 @@ def test_cmd_build_and_relaunch_forwards_args(capsys):
     )
 
 
+def test_cmd_build_and_relaunch_forwards_toolchain_overrides(capsys):
+    parser = build_parser()
+    args = parser.parse_args([
+        "build-and-relaunch",
+        "--config",
+        "Debug",
+        "--compiler",
+        "VisualStudio2022",
+        "--compiler-version",
+        "14.38.33130",
+        "--toolchain",
+        "14.38.33130",
+    ])
+
+    with patch("soft_ue_cli.__main__.health_check", return_value={"running": True}), patch(
+        "soft_ue_cli.__main__._run_tool", return_value={"success": True}
+    ) as mock_run:
+        cmd_build_and_relaunch(args)
+
+    mock_run.assert_called_once_with(
+        "build-and-relaunch",
+        {
+            "build_config": "Debug",
+            "compiler": "VisualStudio2022",
+            "compiler_version": "14.38.33130",
+            "toolchain": "14.38.33130",
+        },
+    )
+
+
 def test_wait_for_build_and_relaunch_reads_utf8_bom_status_file(tmp_path, monkeypatch, capsys):
     status_path = tmp_path / "build_status.json"
     status_path.write_text('{"success": true}', encoding="utf-8-sig")
@@ -933,6 +962,45 @@ def test_offline_build_and_relaunch_builds_launches_and_waits(tmp_path, monkeypa
     assert popen_calls[0][0] == [str(editor_exe), str(project)]
 
 
+def test_offline_build_and_relaunch_passes_toolchain_overrides(tmp_path, monkeypatch):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    build_bat = tmp_path / "Build.bat"
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    build_bat.write_text("@echo off", encoding="utf-8")
+    editor_exe.write_text("", encoding="utf-8")
+    run_calls = []
+
+    def fake_run(command, **kwargs):
+        run_calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(main_mod.subprocess, "Popen", lambda *_args, **_kwargs: None)
+
+    args = argparse.Namespace(
+        project=str(project),
+        editor_exe=str(editor_exe),
+        build_bat=str(build_bat),
+        config="Development",
+        wait=True,
+        skip_relaunch=True,
+        build_timeout=30,
+        relaunch_timeout=5,
+        compiler="VisualStudio2022",
+        compiler_version="14.38.33130",
+        toolchain="14.38.33130",
+    )
+
+    result = main_mod._run_offline_build_and_relaunch(args)
+
+    assert result["success"] is True
+    assert "-Compiler=VisualStudio2022" in run_calls[0]
+    assert "-CompilerVersion=14.38.33130" in run_calls[0]
+    assert result["compiler"] == "VisualStudio2022"
+    assert result["compiler_version"] == "14.38.33130"
+
+
 def test_offline_build_discovers_engine_from_uproject_engine_association(tmp_path, monkeypatch):
     project = tmp_path / "MyGame.uproject"
     project.write_text('{"EngineAssociation": "5.6"}', encoding="utf-8")
@@ -1015,6 +1083,7 @@ def test_cmd_wait_for_ready_timeout_reports_last_error(capsys, monkeypatch):
 
     monkeypatch.setattr("soft_ue_cli.__main__.health_check", lambda **_kwargs: {"error": "connection refused"})
     monkeypatch.setattr("soft_ue_cli.__main__.get_server_url", lambda: "http://127.0.0.1:8080")
+    monkeypatch.setattr("soft_ue_cli.__main__._detect_blocking_editor_modal", lambda: None)
     monkeypatch.setattr("time.sleep", fake_sleep)
     monkeypatch.setattr("time.monotonic", lambda: clock["now"])
 
@@ -1028,6 +1097,40 @@ def test_cmd_wait_for_ready_timeout_reports_last_error(capsys, monkeypatch):
     assert result["status"] == "timeout"
     assert result["last_error"] == "connection refused"
     assert "bridge did not become ready within 2s" in captured.err
+
+
+def test_cmd_wait_for_ready_timeout_reports_restore_packages_modal(capsys, monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["wait-for-ready", "--timeout", "2", "--poll-interval", "1"])
+    clock = {"now": 0.0}
+
+    def fake_sleep(seconds):
+        clock["now"] += seconds
+
+    monkeypatch.setattr("soft_ue_cli.__main__.health_check", lambda **_kwargs: {"error": "timed out"})
+    monkeypatch.setattr("soft_ue_cli.__main__.get_server_url", lambda: "http://127.0.0.1:8080")
+    monkeypatch.setattr(
+        "soft_ue_cli.__main__._detect_blocking_editor_modal",
+        lambda: {
+            "kind": "editor_startup_modal",
+            "title": "Restore Packages",
+            "process_id": 1234,
+            "recovery_hint": "Close the editor, clear the package restore marker, then relaunch.",
+        },
+    )
+    monkeypatch.setattr("time.sleep", fake_sleep)
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+
+    with pytest.raises(SystemExit) as exc:
+        cmd_wait_for_ready(args)
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert result["status"] == "editor_blocked_by_modal"
+    assert result["diagnostics"]["modal"]["title"] == "Restore Packages"
+    assert result["diagnostics"]["lifecycle_state"] == "editor_blocked_by_modal"
+    assert "Restore Packages" in captured.err
 
 
 def test_cmd_wait_for_ready_launches_editor_before_polling(capsys, monkeypatch, tmp_path):
@@ -1147,6 +1250,96 @@ def test_wait_for_build_and_relaunch_timeout_reports_last_stage(tmp_path, capsys
     assert "last stage: building" in captured.err
     assert str(status_path) in captured.err
     assert str(log_path) in captured.err
+
+
+def test_wait_for_build_and_relaunch_reads_success_status_before_timeout(tmp_path, capsys, monkeypatch):
+    status_path = tmp_path / "BuildAndRelaunch.status.json"
+    log_path = tmp_path / "BuildAndRelaunch.log"
+    log_path.write_text("build ok\n", encoding="utf-8")
+    clock = {"now": 0.0}
+
+    def fake_sleep(seconds):
+        clock["now"] += seconds
+        status_path.write_text(
+            json.dumps(
+                {
+                    "complete": True,
+                    "success": True,
+                    "stage": "completed",
+                    "exit_code": 0,
+                    "message": "Build completed successfully.",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr("time.sleep", fake_sleep)
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+
+    _wait_for_build_and_relaunch(
+        {
+            "project": "MyGame",
+            "build_status_path": str(status_path),
+            "build_log_path": str(log_path),
+        },
+        skip_relaunch=True,
+        poll_interval=1.0,
+        build_timeout=1.0,
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"] is True
+    assert result["status"] == "build_succeeded"
+
+
+def test_wait_for_build_and_relaunch_relaunch_timeout_reports_modal(tmp_path, capsys, monkeypatch):
+    status_path = tmp_path / "BuildAndRelaunch.status.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "complete": True,
+                "success": True,
+                "stage": "completed",
+                "exit_code": 0,
+                "message": "Build completed and editor relaunch was requested.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    clock = {"now": 0.0}
+
+    def fake_sleep(seconds):
+        clock["now"] += seconds
+
+    monkeypatch.setattr("time.sleep", fake_sleep)
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+    monkeypatch.setattr(main_mod, "health_check", lambda **_kwargs: {"error": "timed out"})
+    monkeypatch.setattr(
+        main_mod,
+        "_detect_blocking_editor_modal",
+        lambda: {
+            "kind": "editor_startup_modal",
+            "title": "Restore Packages",
+            "process_id": 42,
+            "recovery_hint": "Close the editor, clear the package restore marker, then relaunch.",
+        },
+    )
+
+    _wait_for_build_and_relaunch(
+        {
+            "project": "MyGame",
+            "build_status_path": str(status_path),
+        },
+        skip_relaunch=False,
+        startup_recovery=None,
+        poll_interval=1.0,
+        build_timeout=1.0,
+        relaunch_timeout=2.0,
+    )
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "build_succeeded_relaunch_blocked"
+    assert result["diagnostics"]["modal"]["title"] == "Restore Packages"
 
 
 def test_cmd_trigger_live_coding_forwards_scope_args():
@@ -1640,6 +1833,26 @@ def test_cmd_set_node_position_forwards_positions_for_customizable_object_paths(
     )
 
 
+def test_cmd_set_node_position_accepts_mcp_native_positions_array():
+    args = argparse.Namespace(
+        asset_path="/Game/BP_Player",
+        positions=[{"guid": "abc", "x": 500, "y": 100}],
+        graph_name="EventGraph",
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_set_node_position(args)
+
+    mock_run.assert_called_once_with(
+        "set-node-position",
+        {
+            "asset_path": "/Game/BP_Player",
+            "positions": [{"guid": "abc", "x": 500, "y": 100}],
+            "graph_name": "EventGraph",
+        },
+    )
+
+
 def test_cmd_remove_co_node_forwards_node_reference():
     from soft_ue_cli import __main__ as main_mod
 
@@ -1771,6 +1984,36 @@ def test_parser_capture_screenshot_format_and_output():
     args = parser.parse_args(["capture", "screenshot", "--source", "window", "--format", "png", "--output", "file"])
     assert args.format == "png"
     assert args.output == "file"
+
+
+def test_cmd_capture_screenshot_copies_to_requested_output_file(tmp_path, capsys):
+    source = tmp_path / "bridge-shot.png"
+    output = tmp_path / "requested-shot.png"
+    source.write_bytes(b"png-bytes")
+    parser = build_parser()
+    args = parser.parse_args([
+        "capture",
+        "screenshot",
+        "--source",
+        "pie-window",
+        "--output-file",
+        str(output),
+    ])
+
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"file_path": str(source), "mode": "file"}) as mock_call:
+        cmd_capture_screenshot(args)
+
+    mock_call.assert_called_once_with(
+        "capture-screenshot",
+        {
+            "mode": "pie-window",
+            "output": "file",
+        },
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert output.read_bytes() == b"png-bytes"
+    assert payload["file_path"] == str(output)
+    assert payload["bridge_file_path"] == str(source)
 
 
 def test_parser_capture_screenshot_invalid_mode():
@@ -2279,6 +2522,7 @@ def test_capture_screenshot_family_region_uses_region_arg():
         (["mutable", "compile", "/Game/Characters/CO_Hero.CO_Hero"], {"command": "mutable", "mutable_action": "compile"}),
         (["statetree", "inspect", "/Game/AI/ST_Enemy"], {"command": "statetree", "statetree_action": "inspect"}),
         (["anim", "rewind", "status"], {"command": "anim", "anim_action": "rewind", "anim_rewind_action": "status"}),
+        (["automation", "tests", "run", "--filter", "Project."], {"command": "automation", "automation_action": "tests", "automation_tests_action": "run"}),
         (["asset", "query", "--asset-path", "/Game/Data/DT_Items"], {"command": "asset", "asset_action": "query"}),
         (["asset", "inspect-file", "C:/Project/Content/BP_Player.uasset"], {"command": "asset", "asset_action": "inspect-file"}),
         (["blueprint", "inspect", "/Game/Blueprints/BP_Player"], {"command": "blueprint", "blueprint_action": "inspect"}),
@@ -2298,6 +2542,7 @@ def test_canonical_command_families_parse_as_canonical_commands(argv, expected_a
     ["query-blueprint-graph", "/Game/Blueprints/BP_Player"],
     ["inspect-customizable-object-graph", "/Game/Characters/CO_Hero.CO_Hero"],
     ["capture-viewport"],
+    ["run-automation-tests", "--filter", "Project."],
     ["umg-layout", "extract", "--source", "concept-image", "--input", "concept.png"],
 ])
 def test_removed_flat_commands_are_no_longer_supported(argv):
@@ -2394,6 +2639,71 @@ def test_anim_rewind_snapshot_family_routes_to_existing_tool():
     )
 
 
+def test_anim_retarget_repoint_references_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "retarget",
+        "repoint-references",
+        "/Game/Anim/AM_Attack",
+        "/Game/Anim/BS_Locomotion",
+        "--map",
+        "/Game/Anim/AS_Attack=/Game/Anim/RTG/AS_Attack",
+        "--map",
+        "/Game/Anim/AS_Run:/Game/Anim/RTG/AS_Run",
+        "--target-skeleton",
+        "/Game/Characters/SKEL_Target",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "anim-repoint-references",
+        {
+            "asset_paths": ["/Game/Anim/AM_Attack", "/Game/Anim/BS_Locomotion"],
+            "replacement_map": {
+                "/Game/Anim/AS_Attack": "/Game/Anim/RTG/AS_Attack",
+                "/Game/Anim/AS_Run": "/Game/Anim/RTG/AS_Run",
+            },
+            "target_skeleton": "/Game/Characters/SKEL_Target",
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_automation_tests_run_family_routes_to_existing_tool():
+    args = build_parser().parse_args([
+        "automation",
+        "tests",
+        "run",
+        "--filter",
+        "Project.",
+        "--timeout",
+        "90",
+        "--max-tests",
+        "2",
+        "--list-only",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "run-automation-tests",
+        {
+            "filter": "Project.",
+            "flags": "all",
+            "timeout": 90.0,
+            "list_only": True,
+            "max_tests": 2,
+        },
+        timeout=210.0,
+    )
+
+
 def test_asset_preview_family_routes_to_existing_tool():
     args = build_parser().parse_args([
         "asset",
@@ -2460,7 +2770,7 @@ def test_cmd_trigger_input_forwards_negative_target_vector():
 
 
 def test_parser_inspect_runtime_widgets_defaults():
-    parser = build_parser()
+    parser = build_parser(include_removed=True)
     args = parser.parse_args(["inspect-runtime-widgets"])
     assert args.func.__name__ == "cmd_inspect_runtime_widgets"
     assert args.filter is None
@@ -2474,7 +2784,7 @@ def test_parser_inspect_runtime_widgets_defaults():
 
 
 def test_parser_inspect_runtime_widgets_all_args():
-    parser = build_parser()
+    parser = build_parser(include_removed=True)
     args = parser.parse_args([
         "inspect-runtime-widgets",
         "--filter", "HealthBar",
@@ -2494,6 +2804,32 @@ def test_parser_inspect_runtime_widgets_all_args():
     assert args.no_geometry is True
     assert args.no_properties is True
     assert args.root_widget == "WBP_HUD_C_0"
+
+
+def test_umg_runtime_inspect_routes_to_runtime_widget_tool():
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "runtime",
+        "inspect",
+        "--root-widget",
+        "WBP_Menu_C_0",
+        "--depth-limit",
+        "2",
+        "--include-slate",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"root_widgets": []}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "inspect-runtime-widgets",
+        {
+            "depth_limit": 2,
+            "include_slate": True,
+            "root_widget": "WBP_Menu_C_0",
+        },
+    )
 
 
 # -- apply-widget-tree ---------------------------------------------------------
@@ -2778,6 +3114,162 @@ def test_umg_layout_compare_routes_to_existing_layout_handler(tmp_path, capsys):
     assert data["success"] is True
 
 
+def test_umg_layout_extract_runtime_resolves_preview_handle(capsys):
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "layout",
+        "extract",
+        "--source",
+        "runtime",
+        "--preview-handle",
+        "softue-preview:abc",
+        "--full-geometry",
+    ])
+
+    def fake_run(tool_name, arguments):
+        if tool_name == "umg-preview-list":
+            return {
+                "success": True,
+                "previews": [
+                    {
+                        "preview_handle": "softue-preview:abc",
+                        "widget_name": "WBP_Menu_C_0",
+                    }
+                ],
+            }
+        if tool_name == "inspect-runtime-widgets":
+            return {
+                "source_type": "runtime",
+                "widget_count": 1,
+                "root_widgets": [
+                    {
+                        "name": "WBP_Menu_C_0",
+                        "class": "WBP_Menu_C",
+                        "geometry": {
+                            "absolute_position": [0, 0],
+                            "local_size": [1920, 1080],
+                        },
+                    }
+                ],
+            }
+        raise AssertionError(tool_name)
+
+    with patch("soft_ue_cli.__main__._run_tool", side_effect=fake_run) as mock_run:
+        args.func(args)
+
+    assert mock_run.call_args_list[0].args == ("umg-preview-list", {"pie_index": 0})
+    assert mock_run.call_args_list[1].args == (
+        "inspect-runtime-widgets",
+        {
+            "pie_index": 0,
+            "root_widget": "WBP_Menu_C_0",
+            "include_geometry": True,
+            "include_slate": True,
+        },
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["preview_handle"] == "softue-preview:abc"
+    assert payload["runtime_root_widget"] == "WBP_Menu_C_0"
+    assert payload["widgets"][0]["name"] == "WBP_Menu_C_0"
+
+
+def test_umg_workflow_iterate_layout_writes_manifest(tmp_path, capsys):
+    concept = tmp_path / "concept.json"
+    spec = tmp_path / "spec.json"
+    output_dir = tmp_path / "iter"
+    bridge_shot = tmp_path / "bridge-shot.png"
+    concept.write_text(
+        json.dumps({
+            "canvas_size": [1920, 1080],
+            "widgets": [{"name": "StartButton", "normalized_bounds": [0.1, 0.2, 0.2, 0.1]}],
+        }),
+        encoding="utf-8",
+    )
+    spec.write_text(
+        json.dumps({
+            "root": {
+                "class": "CanvasPanel",
+                "name": "RootCanvas",
+                "children": [
+                    {
+                        "class": "Button",
+                        "name": "StartButton",
+                        "slot": {"position": [100, 200], "size": [300, 100]},
+                    }
+                ],
+            }
+        }),
+        encoding="utf-8",
+    )
+    bridge_shot.write_bytes(b"png")
+
+    def fake_run(tool_name, arguments, **kwargs):
+        if tool_name == "pie-session" and arguments["action"] == "status":
+            return {"state": "stopped"}
+        if tool_name == "pie-session" and arguments["action"] == "start":
+            return {"success": True, "state": "running"}
+        if tool_name == "apply-widget-tree":
+            return {"success": True}
+        if tool_name == "umg-preview-replace":
+            return {"success": True, "preview_handle": "softue-preview:abc", "widget_name": "WBP_Menu_C_0"}
+        if tool_name == "capture-screenshot":
+            return {"file_path": str(bridge_shot), "width": 1920, "height": 1080, "mode": "file"}
+        if tool_name == "inspect-runtime-widgets":
+            return {
+                "widget_count": 2,
+                "root_widgets": [
+                    {
+                        "name": "WBP_Menu_C_0",
+                        "class": "WBP_Menu_C",
+                        "geometry": {"absolute_position": [0, 0], "local_size": [1920, 1080]},
+                        "children": [
+                            {
+                                "name": "StartButton",
+                                "class": "Button",
+                                "geometry": {"absolute_position": [210, 230], "local_size": [310, 110]},
+                            }
+                        ],
+                    }
+                ],
+            }
+        raise AssertionError(tool_name)
+
+    args = build_parser().parse_args([
+        "umg",
+        "workflow",
+        "iterate-layout",
+        "--asset-path",
+        "/Game/UI/WBP_Menu",
+        "--widget-class",
+        "/Game/UI/WBP_Menu.WBP_Menu_C",
+        "--concept-layout",
+        str(concept),
+        "--spec",
+        str(spec),
+        "--output-dir",
+        str(output_dir),
+        "--apply",
+        "--compile",
+        "--save",
+        "--capture",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", side_effect=fake_run):
+        args.func(args)
+
+    payload = json.loads(capsys.readouterr().out)
+    manifest = output_dir / "iteration_manifest.json"
+    assert payload["manifest_file"] == str(manifest)
+    assert manifest.exists()
+    written = json.loads(manifest.read_text(encoding="utf-8"))
+    assert written["iterations"][0]["preview_handle"] == "softue-preview:abc"
+    assert Path(written["iterations"][0]["runtime_layout"]).exists()
+    assert Path(written["iterations"][0]["comparison_report"]).exists()
+    assert Path(written["iterations"][0]["corrected_spec"]).exists()
+    assert Path(written["iterations"][0]["screenshot"]).read_bytes() == b"png"
+
+
 def test_umg_preview_replace_routes_to_preview_primitive():
     parser = build_parser()
     args = parser.parse_args([
@@ -2803,6 +3295,41 @@ def test_umg_preview_replace_routes_to_preview_primitive():
             "pie_index": 1,
             "viewport_z_order": 7,
             "capture_after": True,
+        },
+    )
+
+
+def test_umg_preview_replace_forwards_viewport_layout_controls():
+    parser = build_parser()
+    args = parser.parse_args([
+        "umg",
+        "preview",
+        "replace",
+        "--widget-class",
+        "/Game/UI/WBP_Menu.WBP_Menu_C",
+        "--fullscreen",
+        "--viewport-anchors",
+        "0,0,1,1",
+        "--viewport-position",
+        "0,0",
+        "--viewport-size",
+        "1920,1080",
+        "--viewport-alignment",
+        "0,0",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "umg-preview-replace",
+        {
+            "widget_class": "/Game/UI/WBP_Menu.WBP_Menu_C",
+            "fullscreen": True,
+            "viewport_anchors": [0.0, 0.0, 1.0, 1.0],
+            "viewport_position": [0.0, 0.0],
+            "viewport_size": [1920.0, 1080.0],
+            "viewport_alignment": [0.0, 0.0],
         },
     )
 
@@ -3090,6 +3617,32 @@ def test_cmd_add_graph_node_invalid_position_exits():
     assert exc.value.code == 1
 
 
+def test_cmd_add_graph_node_accepts_mcp_native_position_array():
+    args = argparse.Namespace(
+        asset_path="/Game/BP_Player",
+        graph_name="EventGraph",
+        node_class="K2Node_IfThenElse",
+        position=[400, 0],
+        no_auto_position=False,
+        connect_to_node=None,
+        connect_to_pin=None,
+        properties=None,
+    )
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_add_graph_node(args)
+
+    mock_run.assert_called_once_with(
+        "add-graph-node",
+        {
+            "asset_path": "/Game/BP_Player",
+            "node_class": "K2Node_IfThenElse",
+            "graph_name": "EventGraph",
+            "position": [400, 0],
+        },
+    )
+
+
 # -- AnimBlueprint state machine authoring -----------------------------------
 
 
@@ -3303,18 +3856,46 @@ def test_pie_tick_parses_all_flags():
         "--delta", "0.0166666",
         "--no-auto-start",
         "--map", "/Game/Maps/Test",
+        "--timeout", "42.5",
     ])
     assert args.frames == 60
     assert args.delta == pytest.approx(0.0166666)
     assert args.no_auto_start is True
     assert args.map == "/Game/Maps/Test"
+    assert args.timeout == 42.5
 
 
 def test_pie_tick_forwards_to_run_tool():
-    ns = argparse.Namespace(frames=30, delta=None, no_auto_start=False, map=None)
+    ns = argparse.Namespace(frames=30, delta=None, no_auto_start=False, map=None, timeout=None)
     with patch("soft_ue_cli.__main__._run_tool", return_value={"ticks": 30}) as mock_run:
         cmd_pie_tick(ns)
-    mock_run.assert_called_once_with("pie-tick", {"frames": 30})
+    mock_run.assert_called_once_with("pie-tick", {"frames": 30}, timeout=90.0)
+
+
+def test_pie_tick_forwards_timeout_to_tool():
+    ns = argparse.Namespace(frames=30, delta=None, no_auto_start=False, map=None, timeout=7.5)
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"ticks": 30}) as mock_run:
+        cmd_pie_tick(ns)
+    mock_run.assert_called_once_with("pie-tick", {"frames": 30, "timeout": 7.5}, timeout=67.5)
+
+
+def test_pie_tick_exits_nonzero_for_structured_native_timeout(capsys):
+    ns = argparse.Namespace(frames=30, delta=None, no_auto_start=False, map=None, timeout=1.0)
+    with patch(
+        "soft_ue_cli.__main__._run_tool",
+        return_value={
+            "success": False,
+            "status": "timeout",
+            "tool": "pie-tick",
+            "active_phase": "tick_frames",
+        },
+    ):
+        with pytest.raises(SystemExit) as exc:
+            cmd_pie_tick(ns)
+
+    assert exc.value.code == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["active_phase"] == "tick_frames"
 
 
 # -- inspect-anim-instance -----------------------------------------------------

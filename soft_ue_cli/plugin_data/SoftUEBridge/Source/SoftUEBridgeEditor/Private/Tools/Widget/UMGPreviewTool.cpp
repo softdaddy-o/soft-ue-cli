@@ -7,6 +7,7 @@
 #include "Editor.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Widgets/Layout/Anchors.h"
 #include "Tools/Widget/WidgetPreviewRegistry.h"
 #include "UObject/UObjectIterator.h"
 #include "Utils/BridgeAssetModifier.h"
@@ -33,6 +34,31 @@ namespace
 		ViewportZOrder.Type = TEXT("integer");
 		ViewportZOrder.Description = TEXT("Viewport Z order for the created preview widget (default: 0).");
 		Schema.Add(TEXT("viewport_z_order"), ViewportZOrder);
+
+		FBridgeSchemaProperty Fullscreen;
+		Fullscreen.Type = TEXT("boolean");
+		Fullscreen.Description = TEXT("Apply full-screen viewport layout defaults to avoid zero-sized preview geometry.");
+		Schema.Add(TEXT("fullscreen"), Fullscreen);
+
+		FBridgeSchemaProperty ViewportAnchors;
+		ViewportAnchors.Type = TEXT("array");
+		ViewportAnchors.Description = TEXT("Viewport anchors as [MinX, MinY, MaxX, MaxY].");
+		Schema.Add(TEXT("viewport_anchors"), ViewportAnchors);
+
+		FBridgeSchemaProperty ViewportPosition;
+		ViewportPosition.Type = TEXT("array");
+		ViewportPosition.Description = TEXT("Viewport position as [X, Y].");
+		Schema.Add(TEXT("viewport_position"), ViewportPosition);
+
+		FBridgeSchemaProperty ViewportSize;
+		ViewportSize.Type = TEXT("array");
+		ViewportSize.Description = TEXT("Desired viewport size as [W, H].");
+		Schema.Add(TEXT("viewport_size"), ViewportSize);
+
+		FBridgeSchemaProperty ViewportAlignment;
+		ViewportAlignment.Type = TEXT("array");
+		ViewportAlignment.Description = TEXT("Viewport alignment as [X, Y].");
+		Schema.Add(TEXT("viewport_alignment"), ViewportAlignment);
 
 		FBridgeSchemaProperty CaptureAfter;
 		CaptureAfter.Type = TEXT("boolean");
@@ -202,6 +228,233 @@ namespace
 		return Values;
 	}
 
+	struct FPreviewViewportLayout
+	{
+		bool bApply = false;
+		bool bFullscreen = false;
+		bool bHasAnchors = false;
+		bool bHasPosition = false;
+		bool bHasSize = false;
+		bool bHasAlignment = false;
+		FAnchors Anchors = FAnchors(0.0f, 0.0f, 0.0f, 0.0f);
+		FVector2D Position = FVector2D::ZeroVector;
+		FVector2D Size = FVector2D::ZeroVector;
+		FVector2D Alignment = FVector2D::ZeroVector;
+	};
+
+	bool TryReadVector2(
+		const TSharedPtr<FJsonObject>& Obj,
+		const TCHAR* Field,
+		FVector2D& OutValue,
+		bool& bOutFound,
+		FString& OutError)
+	{
+		bOutFound = false;
+		const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+		if (!Obj.IsValid() || !Obj->TryGetArrayField(Field, Array))
+		{
+			return true;
+		}
+		if (!Array || Array->Num() != 2)
+		{
+			OutError = FString::Printf(TEXT("%s must be an array [X, Y]"), Field);
+			return false;
+		}
+
+		double X = 0.0;
+		double Y = 0.0;
+		if (!(*Array)[0]->TryGetNumber(X) || !(*Array)[1]->TryGetNumber(Y))
+		{
+			OutError = FString::Printf(TEXT("%s must contain numeric values"), Field);
+			return false;
+		}
+
+		OutValue = FVector2D(X, Y);
+		bOutFound = true;
+		return true;
+	}
+
+	bool TryReadAnchors(
+		const TSharedPtr<FJsonObject>& Obj,
+		const TCHAR* Field,
+		FAnchors& OutValue,
+		bool& bOutFound,
+		FString& OutError)
+	{
+		bOutFound = false;
+		const TArray<TSharedPtr<FJsonValue>>* Array = nullptr;
+		if (!Obj.IsValid() || !Obj->TryGetArrayField(Field, Array))
+		{
+			return true;
+		}
+		if (!Array || Array->Num() != 4)
+		{
+			OutError = FString::Printf(TEXT("%s must be an array [MinX, MinY, MaxX, MaxY]"), Field);
+			return false;
+		}
+
+		double MinX = 0.0;
+		double MinY = 0.0;
+		double MaxX = 0.0;
+		double MaxY = 0.0;
+		if (!(*Array)[0]->TryGetNumber(MinX)
+			|| !(*Array)[1]->TryGetNumber(MinY)
+			|| !(*Array)[2]->TryGetNumber(MaxX)
+			|| !(*Array)[3]->TryGetNumber(MaxY))
+		{
+			OutError = FString::Printf(TEXT("%s must contain numeric values"), Field);
+			return false;
+		}
+
+		OutValue = FAnchors(MinX, MinY, MaxX, MaxY);
+		bOutFound = true;
+		return true;
+	}
+
+	bool ParsePreviewViewportLayout(
+		const TSharedPtr<FJsonObject>& Arguments,
+		FPreviewViewportLayout& OutLayout,
+		FString& OutError)
+	{
+		if (!Arguments.IsValid())
+		{
+			return true;
+		}
+
+		bool bFullscreen = false;
+		if (Arguments->TryGetBoolField(TEXT("fullscreen"), bFullscreen) && bFullscreen)
+		{
+			OutLayout.bApply = true;
+			OutLayout.bFullscreen = true;
+			OutLayout.bHasAnchors = true;
+			OutLayout.bHasPosition = true;
+			OutLayout.bHasSize = true;
+			OutLayout.bHasAlignment = true;
+			OutLayout.Anchors = FAnchors(0.0f, 0.0f, 1.0f, 1.0f);
+			OutLayout.Position = FVector2D::ZeroVector;
+			OutLayout.Size = FVector2D(1920.0, 1080.0);
+			OutLayout.Alignment = FVector2D::ZeroVector;
+		}
+
+		bool bFound = false;
+		FAnchors Anchors;
+		if (!TryReadAnchors(Arguments, TEXT("viewport_anchors"), Anchors, bFound, OutError))
+		{
+			return false;
+		}
+		if (bFound)
+		{
+			OutLayout.bApply = true;
+			OutLayout.bHasAnchors = true;
+			OutLayout.Anchors = Anchors;
+		}
+
+		FVector2D Position;
+		if (!TryReadVector2(Arguments, TEXT("viewport_position"), Position, bFound, OutError))
+		{
+			return false;
+		}
+		if (bFound)
+		{
+			OutLayout.bApply = true;
+			OutLayout.bHasPosition = true;
+			OutLayout.Position = Position;
+		}
+
+		FVector2D Size;
+		if (!TryReadVector2(Arguments, TEXT("viewport_size"), Size, bFound, OutError))
+		{
+			return false;
+		}
+		if (bFound)
+		{
+			OutLayout.bApply = true;
+			OutLayout.bHasSize = true;
+			OutLayout.Size = Size;
+		}
+
+		FVector2D Alignment;
+		if (!TryReadVector2(Arguments, TEXT("viewport_alignment"), Alignment, bFound, OutError))
+		{
+			return false;
+		}
+		if (bFound)
+		{
+			OutLayout.bApply = true;
+			OutLayout.bHasAlignment = true;
+			OutLayout.Alignment = Alignment;
+		}
+
+		return true;
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Vector2DToJsonArray(const FVector2D& Value)
+	{
+		TArray<TSharedPtr<FJsonValue>> Array;
+		Array.Add(MakeShareable(new FJsonValueNumber(Value.X)));
+		Array.Add(MakeShareable(new FJsonValueNumber(Value.Y)));
+		return Array;
+	}
+
+	TArray<TSharedPtr<FJsonValue>> AnchorsToJsonArray(const FAnchors& Value)
+	{
+		TArray<TSharedPtr<FJsonValue>> Array;
+		Array.Add(MakeShareable(new FJsonValueNumber(Value.Minimum.X)));
+		Array.Add(MakeShareable(new FJsonValueNumber(Value.Minimum.Y)));
+		Array.Add(MakeShareable(new FJsonValueNumber(Value.Maximum.X)));
+		Array.Add(MakeShareable(new FJsonValueNumber(Value.Maximum.Y)));
+		return Array;
+	}
+
+	TSharedPtr<FJsonObject> BuildViewportLayoutResult(const FPreviewViewportLayout& Layout)
+	{
+		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+		Result->SetBoolField(TEXT("applied"), Layout.bApply);
+		Result->SetBoolField(TEXT("fullscreen"), Layout.bFullscreen);
+		if (Layout.bHasAnchors)
+		{
+			Result->SetArrayField(TEXT("viewport_anchors"), AnchorsToJsonArray(Layout.Anchors));
+		}
+		if (Layout.bHasPosition)
+		{
+			Result->SetArrayField(TEXT("viewport_position"), Vector2DToJsonArray(Layout.Position));
+		}
+		if (Layout.bHasSize)
+		{
+			Result->SetArrayField(TEXT("viewport_size"), Vector2DToJsonArray(Layout.Size));
+		}
+		if (Layout.bHasAlignment)
+		{
+			Result->SetArrayField(TEXT("viewport_alignment"), Vector2DToJsonArray(Layout.Alignment));
+		}
+		return Result;
+	}
+
+	void ApplyPreviewViewportLayout(UUserWidget* Widget, const FPreviewViewportLayout& Layout)
+	{
+		if (!Widget || !Layout.bApply)
+		{
+			return;
+		}
+		if (Layout.bHasAnchors)
+		{
+			Widget->SetAnchorsInViewport(Layout.Anchors);
+		}
+		if (Layout.bHasAlignment)
+		{
+			Widget->SetAlignmentInViewport(Layout.Alignment);
+		}
+		if (Layout.bHasPosition)
+		{
+			Widget->SetPositionInViewport(Layout.Position, false);
+		}
+		if (Layout.bHasSize)
+		{
+			Widget->SetDesiredSizeInViewport(Layout.Size);
+		}
+		Widget->ForceLayoutPrepass();
+	}
+
 	void SetRemovedHandles(TSharedPtr<FJsonObject> Result, const TArray<FString>& RemovedHandles)
 	{
 		TArray<TSharedPtr<FJsonValue>> RemovedHandleValues;
@@ -259,7 +512,15 @@ namespace
 			Arguments->TryGetBoolField(TEXT("capture_after"), bCaptureAfter);
 		}
 
+		FPreviewViewportLayout ViewportLayout;
+		FString ViewportLayoutError;
+		if (!ParsePreviewViewportLayout(Arguments, ViewportLayout, ViewportLayoutError))
+		{
+			return FBridgeToolResult::Error(ViewportLayoutError);
+		}
+
 		CreatedWidget->AddToViewport(ViewportZOrder);
+		ApplyPreviewViewportLayout(CreatedWidget, ViewportLayout);
 		const FString PreviewHandle = FWidgetPreviewRegistry::MakeHandle(WidgetClassPath, PIEWorld);
 		FWidgetPreviewRegistry::RegisterPreview(PIEWorld, CreatedWidget, PreviewHandle);
 
@@ -272,6 +533,7 @@ namespace
 		Result->SetStringField(TEXT("widget_name"), CreatedWidget->GetName());
 		Result->SetStringField(TEXT("preview_handle"), PreviewHandle);
 		Result->SetNumberField(TEXT("viewport_z_order"), ViewportZOrder);
+		Result->SetObjectField(TEXT("viewport_layout"), BuildViewportLayoutResult(ViewportLayout));
 		Result->SetNumberField(TEXT("removed_existing_previews"), RemovedExistingPreviews);
 		Result->SetNumberField(TEXT("tool_preview_count"), FWidgetPreviewRegistry::CountPreviewsForWorld(PIEWorld));
 		SetRemovedHandles(Result, RemovedPreviewHandles);

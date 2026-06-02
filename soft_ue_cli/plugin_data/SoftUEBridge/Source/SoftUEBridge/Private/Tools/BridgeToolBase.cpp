@@ -5,6 +5,21 @@
 #include "Engine/Engine.h"
 #include "GameFramework/Actor.h"
 
+FString BridgeToolExecutionContextToString(EBridgeToolExecutionContext Context)
+{
+	switch (Context)
+	{
+	case EBridgeToolExecutionContext::GameThread:
+		return TEXT("GameThread");
+	case EBridgeToolExecutionContext::SlateTicker:
+		return TEXT("SlateTicker");
+	case EBridgeToolExecutionContext::PIEWorldTickSafe:
+		return TEXT("PIEWorldTickSafe");
+	default:
+		return TEXT("Unknown");
+	}
+}
+
 FBridgeToolDefinition UBridgeToolBase::GetDefinition() const
 {
 	FBridgeToolDefinition Def;
@@ -12,6 +27,7 @@ FBridgeToolDefinition UBridgeToolBase::GetDefinition() const
 	Def.Description = GetToolDescription();
 	Def.InputSchema = GetInputSchema();
 	Def.Required = GetRequiredParams();
+	Def.ExecutionContext = BridgeToolExecutionContextToString(GetExecutionContextRequirement());
 	return Def;
 }
 

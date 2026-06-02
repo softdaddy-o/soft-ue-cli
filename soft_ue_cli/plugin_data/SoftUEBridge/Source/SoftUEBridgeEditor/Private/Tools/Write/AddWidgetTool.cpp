@@ -4,6 +4,7 @@
 #include "Utils/BridgeAssetModifier.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "WidgetBlueprint.h"
+#include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Widget.h"
 #include "Components/CanvasPanel.h"
@@ -18,6 +19,125 @@
 #include "Components/Border.h"
 #include "Components/Overlay.h"
 #include "ScopedTransaction.h"
+
+namespace
+{
+	UClass* ResolveBuiltInWidgetClass(const FString& WidgetClass)
+	{
+		if (WidgetClass.Equals(TEXT("Button"), ESearchCase::IgnoreCase))
+		{
+			return UButton::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("TextBlock"), ESearchCase::IgnoreCase))
+		{
+			return UTextBlock::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("Image"), ESearchCase::IgnoreCase))
+		{
+			return UImage::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("ProgressBar"), ESearchCase::IgnoreCase))
+		{
+			return UProgressBar::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("CanvasPanel"), ESearchCase::IgnoreCase))
+		{
+			return UCanvasPanel::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("VerticalBox"), ESearchCase::IgnoreCase))
+		{
+			return UVerticalBox::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("HorizontalBox"), ESearchCase::IgnoreCase))
+		{
+			return UHorizontalBox::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("Border"), ESearchCase::IgnoreCase))
+		{
+			return UBorder::StaticClass();
+		}
+		if (WidgetClass.Equals(TEXT("Overlay"), ESearchCase::IgnoreCase))
+		{
+			return UOverlay::StaticClass();
+		}
+
+		return nullptr;
+	}
+
+	FString BuildGeneratedWidgetClassPath(const FString& WidgetClass)
+	{
+		FString PackagePath;
+		FString ObjectName;
+		if (WidgetClass.Split(TEXT("."), &PackagePath, &ObjectName))
+		{
+			if (ObjectName.EndsWith(TEXT("_C")))
+			{
+				return WidgetClass;
+			}
+			return PackagePath + TEXT(".") + ObjectName + TEXT("_C");
+		}
+
+		int32 LastSlashIndex = INDEX_NONE;
+		if (!WidgetClass.FindLastChar(TEXT('/'), LastSlashIndex))
+		{
+			return WidgetClass;
+		}
+
+		const FString AssetName = WidgetClass.Mid(LastSlashIndex + 1);
+		return WidgetClass + TEXT(".") + AssetName + TEXT("_C");
+	}
+
+	UClass* ResolveWidgetClass(
+		const FString& WidgetClass,
+		FString& OutResolvedWidgetClassPath,
+		bool& bOutChildUserWidgetClass)
+	{
+		OutResolvedWidgetClassPath.Reset();
+		bOutChildUserWidgetClass = false;
+
+		UClass* WClass = ResolveBuiltInWidgetClass(WidgetClass);
+		if (!WClass && WidgetClass.StartsWith(TEXT("/")))
+		{
+			WClass = LoadClass<UWidget>(nullptr, *WidgetClass);
+			if (!WClass)
+			{
+				const FString GeneratedClassPath = BuildGeneratedWidgetClassPath(WidgetClass);
+				WClass = LoadClass<UWidget>(nullptr, *GeneratedClassPath);
+			}
+
+			if (!WClass)
+			{
+				FString LoadError;
+				if (UWidgetBlueprint* LoadedWidgetBP = FBridgeAssetModifier::LoadAssetByPath<UWidgetBlueprint>(WidgetClass, LoadError))
+				{
+					WClass = LoadedWidgetBP->GeneratedClass;
+				}
+				else if (UWidgetBlueprint* DirectWidgetBP = LoadObject<UWidgetBlueprint>(nullptr, *WidgetClass))
+				{
+					WClass = DirectWidgetBP->GeneratedClass;
+				}
+			}
+		}
+
+		if (!WClass)
+		{
+			WClass = FindFirstObject<UClass>(*WidgetClass, EFindFirstObjectOptions::ExactClass);
+			if (!WClass)
+			{
+				WClass = FindFirstObject<UClass>(*(TEXT("U") + WidgetClass), EFindFirstObjectOptions::ExactClass);
+			}
+		}
+
+		if (!WClass || !WClass->IsChildOf(UWidget::StaticClass()))
+		{
+			return nullptr;
+		}
+
+		OutResolvedWidgetClassPath = WClass->GetPathName();
+		bOutChildUserWidgetClass = WClass->IsChildOf(UUserWidget::StaticClass());
+		return WClass;
+	}
+}
 
 FString UAddWidgetTool::GetToolDescription() const
 {
@@ -90,55 +210,10 @@ FBridgeToolResult UAddWidgetTool::Execute(
 		return FBridgeToolResult::Error(TEXT("WidgetBlueprint has no WidgetTree"));
 	}
 
-	// Find widget class
-	UClass* WClass = nullptr;
-
-	if (WidgetClass.Equals(TEXT("Button"), ESearchCase::IgnoreCase))
-	{
-		WClass = UButton::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("TextBlock"), ESearchCase::IgnoreCase))
-	{
-		WClass = UTextBlock::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("Image"), ESearchCase::IgnoreCase))
-	{
-		WClass = UImage::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("ProgressBar"), ESearchCase::IgnoreCase))
-	{
-		WClass = UProgressBar::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("CanvasPanel"), ESearchCase::IgnoreCase))
-	{
-		WClass = UCanvasPanel::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("VerticalBox"), ESearchCase::IgnoreCase))
-	{
-		WClass = UVerticalBox::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("HorizontalBox"), ESearchCase::IgnoreCase))
-	{
-		WClass = UHorizontalBox::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("Border"), ESearchCase::IgnoreCase))
-	{
-		WClass = UBorder::StaticClass();
-	}
-	else if (WidgetClass.Equals(TEXT("Overlay"), ESearchCase::IgnoreCase))
-	{
-		WClass = UOverlay::StaticClass();
-	}
-	else
-	{
-		WClass = FindFirstObject<UClass>(*WidgetClass, EFindFirstObjectOptions::ExactClass);
-		if (!WClass)
-		{
-			WClass = FindFirstObject<UClass>(*(TEXT("U") + WidgetClass), EFindFirstObjectOptions::ExactClass);
-		}
-	}
-
-	if (!WClass || !WClass->IsChildOf(UWidget::StaticClass()))
+	FString ResolvedWidgetClassPath;
+	bool bChildUserWidgetClass = false;
+	UClass* WClass = ResolveWidgetClass(WidgetClass, ResolvedWidgetClassPath, bChildUserWidgetClass);
+	if (!WClass)
 	{
 		return FBridgeToolResult::Error(FString::Printf(TEXT("Widget class not found: %s"), *WidgetClass));
 	}
@@ -225,6 +300,8 @@ FBridgeToolResult UAddWidgetTool::Execute(
 	Result->SetStringField(TEXT("asset"), AssetPath);
 	Result->SetStringField(TEXT("widget_name"), NewWidget->GetName());
 	Result->SetStringField(TEXT("widget_class"), WClass->GetName());
+	Result->SetStringField(TEXT("resolved_widget_class_path"), ResolvedWidgetClassPath);
+	Result->SetBoolField(TEXT("child_user_widget_class"), bChildUserWidgetClass);
 	Result->SetBoolField(TEXT("needs_compile"), true);
 	Result->SetBoolField(TEXT("needs_save"), true);
 

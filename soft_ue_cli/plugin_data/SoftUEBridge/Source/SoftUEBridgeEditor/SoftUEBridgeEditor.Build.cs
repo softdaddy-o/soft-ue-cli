@@ -70,6 +70,7 @@ public class SoftUEBridgeEditor : ModuleRules
 			// Project Settings
 			"GameplayTags",
 			"EngineSettings",
+			"DesktopPlatform",
 			"Projects",
 
 			// StateTree
@@ -96,6 +97,7 @@ public class SoftUEBridgeEditor : ModuleRules
 			"Landscape",
 
 			// Rewind Debugger
+			"GameplayInsights",
 			"RewindDebuggerInterface",
 			"TraceLog",
 			"TraceAnalysis",

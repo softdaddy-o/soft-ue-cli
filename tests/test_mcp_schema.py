@@ -1,13 +1,11 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
+"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
@@ -32,6 +30,7 @@ def test_extract_tools_contains_known_command():
     assert "blueprint graph inspect" in tool_names
     assert "query-enum" in tool_names
     assert "query-struct" in tool_names
+    assert "metasound inspect" in tool_names
     assert "mutable inspect graph" in tool_names
     assert "mutable inspect parameters" in tool_names
     assert "mutable inspect diagnostics" in tool_names
@@ -54,6 +53,7 @@ def test_extract_tools_contains_known_command():
     assert "umg layout extract" in tool_names
     assert "umg layout compare" in tool_names
     assert "umg layout fit" in tool_names
+    assert "umg runtime inspect" in tool_names
     assert "status" in tool_names
     assert "commands" in tool_names
     assert "wait-for-ready" in tool_names
@@ -61,8 +61,84 @@ def test_extract_tools_contains_known_command():
     assert "anim sync-marker compare" in tool_names
     assert "anim sync-marker add" in tool_names
     assert "anim sync-marker remove" in tool_names
-    assert "query-blueprint" not in tool_names
-    assert "capture-viewport" not in tool_names
+    assert "query-blueprint" in tool_names
+    assert "capture-viewport" in tool_names
+
+
+def test_extract_tools_exposes_removed_flat_aliases():
+    tool_names = {t["name"] for t in extract_tools()}
+
+    for alias in (
+        "capture-screenshot",
+        "capture-pie-screenshot",
+        "create-asset",
+        "apply-widget-tree",
+        "verify-umg-workflow",
+        "inspect-runtime-widgets",
+    ):
+        assert alias in tool_names
+
+
+def test_capture_screenshot_schema_default_mode_is_viewport():
+    tools = {t["name"]: t for t in extract_tools()}
+    tool = tools["capture-screenshot"]
+    assert tool["parameters"]["properties"]["mode"]["type"] == "string"
+    assert tool["parameters"]["properties"]["mode"]["default"] == "viewport"
+    assert "mode" not in tool["parameters"].get("required", [])
+
+
+def test_nested_metasound_family_root_is_not_auto_exposed_to_mcp():
+    assert "metasound" in EXCLUDED_COMMANDS
+
+
+def test_metasound_inspect_leaf_is_exposed_to_mcp():
+    tool = next(t for t in extract_tools() if t["name"] == "metasound inspect")
+    assert "asset_path" in tool["parameters"]["properties"]
+    assert "asset_path" in tool["parameters"].get("required", [])
+
+
+def test_capture_pie_screenshot_schema_defaults_to_pie_window():
+    tools = {t["name"]: t for t in extract_tools()}
+    tool = tools["capture-pie-screenshot"]
+    assert tool["parameters"]["properties"]["mode"]["type"] == "string"
+    assert tool["parameters"]["properties"]["mode"]["default"] == "pie-window"
+    assert "mode" not in tool["parameters"].get("required", [])
+    assert tool["parameters"]["properties"]["mode"]["enum"] == [
+        "window",
+        "tab",
+        "region",
+        "viewport",
+        "pie-window",
+    ]
+
+
+def test_pie_tick_schema_exposes_timeout_parameter():
+    tools = {t["name"]: t for t in extract_tools()}
+    tool = tools["pie-tick"]
+    assert tool["parameters"]["properties"]["timeout"]["type"] == "number"
+    assert "timeout" not in tool["parameters"].get("required", [])
+
+
+def test_call_function_mcp_schema_matches_bridge_contract():
+    tools = {t["name"]: t for t in extract_tools()}
+    params = tools["call-function"]["parameters"]
+
+    assert params["properties"]["function_name"]["type"] == "string"
+    assert params["properties"]["args"]["type"] == "object"
+    assert params["properties"]["batch"]["type"] == "array"
+    assert "function_name" in params.get("required", [])
+    assert "batch_json" not in params["properties"]
+    assert "output" not in params["properties"]
+
+
+def test_config_bridge_schemas_match_string_only_bridge_contract():
+    tools = {t["name"]: t for t in extract_tools()}
+
+    for name in ("validate-config-key", "set-config-value", "get-config-value"):
+        params = tools[name]["parameters"]
+        assert "config_type" in params.get("required", [])
+
+    assert tools["set-config-value"]["parameters"]["properties"]["value"]["type"] == "string"
 
 
 def test_tool_has_required_fields():
@@ -215,11 +291,18 @@ def test_umg_workflow_schema_uses_native_json_types():
     verify_text = next(t for t in tools if t["name"] == "umg verify text")
     verify_navigation = next(t for t in tools if t["name"] == "umg verify navigation")
     workflow = next(t for t in tools if t["name"] == "umg workflow run")
+    iterate = next(t for t in tools if t["name"] == "umg workflow iterate-layout")
     assert verify_widgets["parameters"]["properties"]["expected_widgets"]["type"] == "array"
     assert verify_text["parameters"]["properties"]["expected_text"]["type"] == "array"
     assert verify_navigation["parameters"]["properties"]["click_sequence"]["type"] == "array"
     assert workflow["parameters"]["properties"]["plan"]["type"] == "string"
     assert "plan" in workflow["parameters"].get("required", [])
+    assert iterate["parameters"]["properties"]["apply"]["type"] == "boolean"
+    assert iterate["parameters"]["properties"]["compile"]["type"] == "boolean"
+    assert iterate["parameters"]["properties"]["save"]["type"] == "boolean"
+    assert iterate["parameters"]["properties"]["capture"]["type"] == "boolean"
+    assert iterate["parameters"]["properties"]["max_iterations"]["type"] == "integer"
+    assert "concept_layout" in iterate["parameters"].get("required", [])
 
 
 def test_visual_capture_schema_exposes_safe_pie_and_compare_options():
@@ -229,6 +312,7 @@ def test_visual_capture_schema_exposes_safe_pie_and_compare_options():
     capture_props = capture["parameters"]["properties"]
     assert "pie-window" in capture_props["mode"]["enum"]
     assert capture_props["unsafe_slate_window_capture"]["type"] == "boolean"
+    assert capture_props["output_file"]["type"] == "string"
 
     pie_capture = next(t for t in tools if t["name"] == "capture viewport")
     pie_capture_props = pie_capture["parameters"]["properties"]
@@ -242,6 +326,22 @@ def test_visual_capture_schema_exposes_safe_pie_and_compare_options():
     assert compare_params["properties"]["threshold"]["type"] == "number"
     assert "expected_layout" in compare_params.get("required", [])
     assert "actual_layout" in compare_params.get("required", [])
+
+    extract = next(t for t in tools if t["name"] == "umg layout extract")
+    assert extract["parameters"]["properties"]["preview_handle"]["type"] == "string"
+
+    runtime = next(t for t in tools if t["name"] == "umg runtime inspect")
+    runtime_props = runtime["parameters"]["properties"]
+    assert runtime_props["root_widget"]["type"] == "string"
+    assert runtime_props["include_slate"]["type"] == "boolean"
+
+    preview = next(t for t in tools if t["name"] == "umg preview replace")
+    preview_props = preview["parameters"]["properties"]
+    assert preview_props["fullscreen"]["type"] == "boolean"
+    assert preview_props["viewport_anchors"]["type"] == "array"
+    assert preview_props["viewport_position"]["type"] == "array"
+    assert preview_props["viewport_size"]["type"] == "array"
+    assert preview_props["viewport_alignment"]["type"] == "array"
 
 
 def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
@@ -262,6 +362,13 @@ def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
 
     add_marker = next(t for t in tools if t["name"] == "anim sync-marker add")
     assert add_marker["parameters"]["properties"]["time"]["type"] == "number"
+
+    repoint = next(t for t in tools if t["name"] == "anim retarget repoint-references")
+    repoint_params = repoint["parameters"]
+    assert repoint_params["properties"]["asset_paths"]["type"] == "array"
+    assert repoint_params["properties"]["replacement_map"]["type"] == "object"
+    assert "asset_paths" in repoint_params.get("required", [])
+    assert "replacement_map" in repoint_params.get("required", [])
 
 
 def test_pie_session_schema_exposes_blueprint_compile_error_policy():
@@ -337,7 +444,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 140
+    assert len(tools) <= 220
 
 
 def test_skills_excluded():

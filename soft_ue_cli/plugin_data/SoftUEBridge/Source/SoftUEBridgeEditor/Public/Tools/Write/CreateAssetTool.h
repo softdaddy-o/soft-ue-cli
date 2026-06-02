@@ -57,7 +57,7 @@ private:
 	UObject* CreateMaterial(const FString& PackagePath, const FString& AssetName, IAssetTools& AssetTools, FString& OutError);
 	UObject* CreateDataTable(const FString& PackagePath, const FString& AssetName, const FString& RowStruct, IAssetTools& AssetTools, FString& OutError);
 	UObject* CreateLevel(const FString& PackagePath, const FString& AssetName, IAssetTools& AssetTools, FString& OutError);
-	UObject* CreateWidgetBlueprint(const FString& PackagePath, const FString& AssetName, IAssetTools& AssetTools, TSharedPtr<FJsonObject>& Result, FString& OutError);
+	UObject* CreateWidgetBlueprint(const FString& PackagePath, const FString& AssetName, const FString& ParentClassName, IAssetTools& AssetTools, TSharedPtr<FJsonObject>& Result, FString& OutError);
 	UObject* CreateAnimBlueprint(const FString& AssetPath, const FString& AssetName, const FString& SkeletonPath, TSharedPtr<FJsonObject>& Result, FString& OutError);
 	UObject* CreateAnimLayerInterface(const FString& AssetPath, const FString& AssetName, const FString& SkeletonPath, TSharedPtr<FJsonObject>& Result, FString& OutError);
 	UObject* CreateBlueprintInterface(const FString& AssetPath, const FString& AssetName, TSharedPtr<FJsonObject>& Result, FString& OutError);

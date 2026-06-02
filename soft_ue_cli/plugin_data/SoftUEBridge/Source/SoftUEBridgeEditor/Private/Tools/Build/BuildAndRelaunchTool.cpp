@@ -7,8 +7,13 @@
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 #include "Containers/Ticker.h"
+#include "DesktopPlatformModule.h"
+#include "Dom/JsonObject.h"
+#include "IDesktopPlatform.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "Editor.h"
 
 namespace
@@ -22,6 +27,131 @@ namespace
 	{
 		const FString Escaped = Value.Replace(TEXT("\""), TEXT("\\\""));
 		return FString::Printf(TEXT("\"%s\""), *Escaped);
+	}
+
+	bool IsUsableEngineDir(const FString& EngineDir)
+	{
+		return !EngineDir.IsEmpty()
+			&& FPaths::DirectoryExists(EngineDir)
+			&& FPaths::FileExists(FPaths::Combine(EngineDir, TEXT("Build/BatchFiles/Build.bat")))
+			&& FPaths::FileExists(FPaths::Combine(EngineDir, TEXT("Binaries/Win64/UnrealEditor.exe")));
+	}
+
+	FString NormalizeEngineDir(FString Candidate)
+	{
+		if (Candidate.IsEmpty())
+		{
+			return Candidate;
+		}
+
+		Candidate = FPaths::ConvertRelativePathToFull(Candidate);
+		FPaths::NormalizeDirectoryName(Candidate);
+		if (!FPaths::GetCleanFilename(Candidate).Equals(TEXT("Engine"), ESearchCase::IgnoreCase))
+		{
+			const FString NestedEngine = FPaths::Combine(Candidate, TEXT("Engine"));
+			if (FPaths::DirectoryExists(NestedEngine))
+			{
+				Candidate = NestedEngine;
+				FPaths::NormalizeDirectoryName(Candidate);
+			}
+		}
+		return Candidate;
+	}
+
+	FString ReadProjectEngineAssociation(const FString& ProjectPath)
+	{
+		FString ProjectJsonText;
+		if (!FFileHelper::LoadFileToString(ProjectJsonText, *ProjectPath))
+		{
+			return TEXT("");
+		}
+
+		TSharedPtr<FJsonObject> ProjectJson;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ProjectJsonText);
+		if (!FJsonSerializer::Deserialize(Reader, ProjectJson) || !ProjectJson.IsValid())
+		{
+			return TEXT("");
+		}
+
+		FString EngineAssociation;
+		ProjectJson->TryGetStringField(TEXT("EngineAssociation"), EngineAssociation);
+		EngineAssociation.TrimStartAndEndInline();
+		return EngineAssociation;
+	}
+
+	FString ResolveEngineDirForBuild(
+		const FString& ProjectPath,
+		const FString& CurrentEngineDir,
+		FString& OutEngineAssociation,
+		FString& OutEngineSource)
+	{
+		OutEngineAssociation = ReadProjectEngineAssociation(ProjectPath);
+
+		if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
+		{
+			FString EngineIdentifier;
+			if (DesktopPlatform->GetEngineIdentifierForProject(ProjectPath, EngineIdentifier))
+			{
+				FString EngineRootDir;
+				if (DesktopPlatform->GetEngineRootDirFromIdentifier(EngineIdentifier, EngineRootDir))
+				{
+					const FString Candidate = NormalizeEngineDir(EngineRootDir);
+					if (IsUsableEngineDir(Candidate))
+					{
+						OutEngineSource = TEXT("project_engine_association_desktop_platform");
+						if (OutEngineAssociation.IsEmpty())
+						{
+							OutEngineAssociation = EngineIdentifier;
+						}
+						return Candidate;
+					}
+				}
+			}
+		}
+
+		if (!OutEngineAssociation.IsEmpty())
+		{
+			TArray<FString> CandidateRoots;
+			if (FPaths::IsRelative(OutEngineAssociation))
+			{
+				TArray<FString> EpicRoots;
+				for (const TCHAR* EnvName : {TEXT("ProgramFiles"), TEXT("ProgramW6432"), TEXT("ProgramFiles(x86)")})
+				{
+					FString EnvValue = FPlatformMisc::GetEnvironmentVariable(EnvName);
+					if (!EnvValue.IsEmpty())
+					{
+						EpicRoots.Add(FPaths::Combine(EnvValue, TEXT("Epic Games")));
+					}
+				}
+				EpicRoots.Add(TEXT("C:/Program Files/Epic Games"));
+				EpicRoots.Add(TEXT("D:/Program Files/Epic Games"));
+
+				for (const FString& EpicRoot : EpicRoots)
+				{
+					CandidateRoots.Add(FPaths::Combine(EpicRoot, FString::Printf(TEXT("UE_%s"), *OutEngineAssociation)));
+					CandidateRoots.Add(FPaths::Combine(EpicRoot, OutEngineAssociation));
+				}
+			}
+			else
+			{
+				CandidateRoots.Add(OutEngineAssociation);
+			}
+
+			for (const FString& CandidateRoot : CandidateRoots)
+			{
+				const FString Candidate = NormalizeEngineDir(CandidateRoot);
+				if (IsUsableEngineDir(Candidate))
+				{
+					OutEngineSource = TEXT("project_engine_association_search");
+					return Candidate;
+				}
+			}
+		}
+
+		OutEngineSource = OutEngineAssociation.IsEmpty()
+			? TEXT("current_editor_engine_no_association")
+			: TEXT("current_editor_engine_association_unresolved");
+		return NormalizeEngineDir(CurrentEngineDir);
 	}
 }
 
@@ -52,6 +182,24 @@ TMap<FString, FBridgeSchemaProperty> UBuildAndRelaunchTool::GetInputSchema() con
 	StartupMarkerTimeout.bRequired = false;
 	Schema.Add(TEXT("startup_marker_timeout"), StartupMarkerTimeout);
 
+	FBridgeSchemaProperty Compiler;
+	Compiler.Type = TEXT("string");
+	Compiler.Description = TEXT("Optional Unreal Build Tool compiler override, forwarded as -Compiler=<value>");
+	Compiler.bRequired = false;
+	Schema.Add(TEXT("compiler"), Compiler);
+
+	FBridgeSchemaProperty CompilerVersion;
+	CompilerVersion.Type = TEXT("string");
+	CompilerVersion.Description = TEXT("Optional Unreal Build Tool compiler version override, forwarded as -CompilerVersion=<value>");
+	CompilerVersion.bRequired = false;
+	Schema.Add(TEXT("compiler_version"), CompilerVersion);
+
+	FBridgeSchemaProperty Toolchain;
+	Toolchain.Type = TEXT("string");
+	Toolchain.Description = TEXT("Alias for compiler_version when pinning an installed toolchain");
+	Toolchain.bRequired = false;
+	Schema.Add(TEXT("toolchain"), Toolchain);
+
 	return Schema;
 }
 
@@ -62,6 +210,12 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 #if PLATFORM_WINDOWS
 	FString BuildConfig = GetStringArgOrDefault(Arguments, TEXT("build_config"), TEXT("Development"));
 	bool bSkipRelaunch = GetBoolArgOrDefault(Arguments, TEXT("skip_relaunch"), false);
+	const FString Compiler = GetStringArgOrDefault(Arguments, TEXT("compiler"), TEXT(""));
+	const FString CompilerVersion = GetStringArgOrDefault(
+		Arguments,
+		TEXT("compiler_version"),
+		GetStringArgOrDefault(Arguments, TEXT("toolchain"), TEXT("")));
+	const FString Toolchain = GetStringArgOrDefault(Arguments, TEXT("toolchain"), TEXT(""));
 	const float StartupMarkerTimeoutSeconds = FMath::Clamp(
 		GetFloatArgOrDefault(Arguments, TEXT("startup_marker_timeout"), 30.0f),
 		5.0f,
@@ -85,8 +239,15 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 
 	FString ProjectName = FPaths::GetBaseFilename(ProjectPath);
 
-	// Get engine paths
-	FString EngineDir = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
+	// Get engine paths. Prefer the project's EngineAssociation so a live editor
+	// cannot accidentally build through a different installed engine.
+	FString EngineAssociation;
+	FString EngineSource;
+	FString EngineDir = ResolveEngineDirForBuild(
+		ProjectPath,
+		FPaths::ConvertRelativePathToFull(FPaths::EngineDir()),
+		EngineAssociation,
+		EngineSource);
 	FString BuildBatchFile = FPaths::Combine(EngineDir, TEXT("Build/BatchFiles/Build.bat"));
 	FString EditorExecutable = FPaths::Combine(EngineDir, TEXT("Binaries/Win64/UnrealEditor.exe"));
 
@@ -137,6 +298,9 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	const FString EscapedProjectPath = EscapePowerShellSingleQuotedString(ProjectPath);
 	const FString EscapedProjectName = EscapePowerShellSingleQuotedString(ProjectName);
 	const FString EscapedBuildConfig = EscapePowerShellSingleQuotedString(BuildConfig);
+	const FString EscapedCompiler = EscapePowerShellSingleQuotedString(Compiler);
+	const FString EscapedCompilerVersion = EscapePowerShellSingleQuotedString(CompilerVersion);
+	const FString EscapedToolchain = EscapePowerShellSingleQuotedString(Toolchain);
 
 	FString WorkerScript = TEXT("$ErrorActionPreference = 'Stop'\n");
 	WorkerScript += FString::Printf(TEXT("$WorkerScriptPath = '%s'\n"), *EscapedTempScriptPath);
@@ -148,6 +312,9 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += FString::Printf(TEXT("$ProjectPath = '%s'\n"), *EscapedProjectPath);
 	WorkerScript += FString::Printf(TEXT("$ProjectName = '%s'\n"), *EscapedProjectName);
 	WorkerScript += FString::Printf(TEXT("$BuildConfig = '%s'\n"), *EscapedBuildConfig);
+	WorkerScript += FString::Printf(TEXT("$Compiler = '%s'\n"), *EscapedCompiler);
+	WorkerScript += FString::Printf(TEXT("$CompilerVersion = '%s'\n"), *EscapedCompilerVersion);
+	WorkerScript += FString::Printf(TEXT("$Toolchain = '%s'\n"), *EscapedToolchain);
 	WorkerScript += FString::Printf(TEXT("$EditorPid = %u\n"), CurrentPID);
 	WorkerScript += FString::Printf(TEXT("$SkipRelaunch = $%s\n"), bSkipRelaunch ? TEXT("true") : TEXT("false"));
 	WorkerScript += TEXT("\n");
@@ -189,7 +356,11 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += TEXT("    \"Editor closed.\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
 	WorkerScript += TEXT("    \"Building $ProjectName ($BuildConfig)...\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
 	WorkerScript += TEXT("    Write-BridgeStatus -Stage 'building' -Message \"Running Build.bat for $($ProjectName)Editor ($BuildConfig).\"\n");
-	WorkerScript += TEXT("    & $BuildBatchFile \"$($ProjectName)Editor\" 'Win64' $BuildConfig $ProjectPath '-waitmutex' 2>&1 | Out-File -FilePath $BuildLogPath -Append -Encoding utf8\n");
+	WorkerScript += TEXT("    $BuildArgs = @(\"$($ProjectName)Editor\", 'Win64', $BuildConfig, $ProjectPath, '-waitmutex')\n");
+	WorkerScript += TEXT("    if ($Compiler) { $BuildArgs += \"-Compiler=$Compiler\" }\n");
+	WorkerScript += TEXT("    if ($CompilerVersion) { $BuildArgs += \"-CompilerVersion=$CompilerVersion\" }\n");
+	WorkerScript += TEXT("    elseif ($Toolchain) { $BuildArgs += \"-CompilerVersion=$Toolchain\" }\n");
+	WorkerScript += TEXT("    & $BuildBatchFile @BuildArgs 2>&1 | Out-File -FilePath $BuildLogPath -Append -Encoding utf8\n");
 	WorkerScript += TEXT("    $BuildExit = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }\n");
 	WorkerScript += TEXT("    if ($BuildExit -ne 0) {\n");
 	WorkerScript += TEXT("        Write-BridgeStatus -Stage 'build_failed' -Complete $true -Success $false -ExitCode $BuildExit -Message 'Build failed. See build log.'\n");
@@ -288,6 +459,24 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	Result->SetBoolField(TEXT("complete"), false);
 	Result->SetStringField(TEXT("project"), ProjectName);
 	Result->SetStringField(TEXT("build_config"), BuildConfig);
+	Result->SetStringField(TEXT("engine_dir"), EngineDir);
+	Result->SetStringField(TEXT("engine_source"), EngineSource);
+	if (!EngineAssociation.IsEmpty())
+	{
+		Result->SetStringField(TEXT("engine_association"), EngineAssociation);
+	}
+	if (!Compiler.IsEmpty())
+	{
+		Result->SetStringField(TEXT("compiler"), Compiler);
+	}
+	if (!CompilerVersion.IsEmpty())
+	{
+		Result->SetStringField(TEXT("compiler_version"), CompilerVersion);
+	}
+	if (!Toolchain.IsEmpty())
+	{
+		Result->SetStringField(TEXT("toolchain"), Toolchain);
+	}
 	Result->SetBoolField(TEXT("will_relaunch"), !bSkipRelaunch);
 	Result->SetNumberField(TEXT("editor_pid"), CurrentPID);
 	Result->SetStringField(TEXT("build_log_path"), BuildLogPath);

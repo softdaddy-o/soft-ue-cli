@@ -29,6 +29,11 @@ _BRIDGE_TOOL_NAME_MAP: dict[str, str] = {
     "project-info": "get-project-info",
 }
 
+
+_BRIDGE_TOOL_DEFAULTS: dict[str, dict[str, Any]] = {
+    "capture-pie-screenshot": {"mode": "pie-window"},
+}
+
 # Per-tool parameter renames: MCP exposes argparse dest names, but some bridge
 # tools expect different key names. Map (tool_name → {mcp_param: bridge_param}).
 _PARAM_RENAMES: dict[str, dict[str, str]] = {
@@ -133,10 +138,16 @@ def _make_tool_fn(tool_name: str, params: dict | None = None):
         if arguments.pop("no_auto_position", False):
             arguments["auto_position"] = False
 
-        # Apply any per-tool parameter renames
+        # Apply any per-tool parameter renames. If MCP callers provide both the
+        # explicit canonical field and a legacy alias, keep the explicit field.
         for mcp_name, bridge_name_param in _PARAM_RENAMES.get(tool_name, {}).items():
-            if mcp_name in arguments:
+            if mcp_name in arguments and bridge_name_param not in arguments:
                 arguments[bridge_name_param] = arguments.pop(mcp_name)
+            else:
+                arguments.pop(mcp_name, None)
+        for default_name, default_value in _BRIDGE_TOOL_DEFAULTS.get(tool_name, {}).items():
+            arguments.setdefault(default_name, default_value)
+
         if tool_name == "exec-console-command" and isinstance(arguments.get("command"), (list, tuple)):
             arguments["command"] = " ".join(str(part) for part in arguments["command"])
 
@@ -150,6 +161,11 @@ def _make_tool_fn(tool_name: str, params: dict | None = None):
                     http_timeout = float(timeout_arg)
                 except (TypeError, ValueError):
                     http_timeout = None
+        elif tool_name == "pie-tick":
+            try:
+                http_timeout = float(arguments.get("timeout", 30.0)) + 60.0
+            except (TypeError, ValueError):
+                http_timeout = 90.0
 
         try:
             result = _client.call_tool(bridge_name, arguments, timeout=http_timeout)

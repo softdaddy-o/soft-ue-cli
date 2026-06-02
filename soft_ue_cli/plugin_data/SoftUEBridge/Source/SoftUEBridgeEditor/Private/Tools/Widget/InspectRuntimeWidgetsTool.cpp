@@ -2,6 +2,7 @@
 
 #include "Tools/Widget/InspectRuntimeWidgetsTool.h"
 #include "Tools/Widget/WidgetToolUtils.h"
+#include "Tools/Widget/WidgetPreviewRegistry.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "Editor.h"
 #include "Blueprint/UserWidget.h"
@@ -271,6 +272,7 @@ TArray<UUserWidget*> UInspectRuntimeWidgetsTool::CollectPIEWidgets(UWorld* PIEWo
 			Result.Add(Widget);
 		}
 	});
+	FWidgetPreviewRegistry::CollectPreviewWidgetsForWorld(PIEWorld, Result);
 	return Result;
 }
 

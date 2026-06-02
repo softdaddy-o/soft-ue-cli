@@ -12,6 +12,17 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ScopedTransaction.h"
 
+namespace
+{
+	bool ValidateCreatedPinLink(const UEdGraphPin* SourceGraphPin, const UEdGraphPin* TargetGraphPin)
+	{
+		return SourceGraphPin &&
+			TargetGraphPin &&
+			SourceGraphPin->LinkedTo.Contains(TargetGraphPin) &&
+			TargetGraphPin->LinkedTo.Contains(SourceGraphPin);
+	}
+}
+
 FString UConnectGraphPinsTool::GetToolDescription() const
 {
 	return TEXT("Connect two pins in a Blueprint or Material graph. For AnimBlueprints, also supports blend_stack, state_machine, and other animation graphs.");
@@ -149,8 +160,29 @@ FBridgeToolResult UConnectGraphPinsTool::Execute(
 			return FBridgeToolResult::Error(FString::Printf(TEXT("Target pin not found: %s"), *TargetPin));
 		}
 
+		if (!SourceGraphNode->GetGraph() || !TargetGraphNode->GetGraph())
+		{
+			return FBridgeToolResult::Error(TEXT("Source and target nodes must belong to valid graphs"));
+		}
+
+		if (SourceGraphNode->GetGraph() != TargetGraphNode->GetGraph())
+		{
+			Result->SetBoolField(TEXT("success"), false);
+			Result->SetStringField(TEXT("error_code"), TEXT("pins_in_different_graphs"));
+			Result->SetStringField(TEXT("error"), TEXT("Cannot connect pins across different graphs"));
+			Result->SetStringField(TEXT("source_graph"), SourceGraphNode->GetGraph()->GetPathName());
+			Result->SetStringField(TEXT("target_graph"), TargetGraphNode->GetGraph()->GetPathName());
+			Result->SetBoolField(TEXT("validated_link"), false);
+			return FBridgeToolResult::Json(Result);
+		}
+
 		// Check if connection is valid
 		const UEdGraphSchema* Schema = SourceGraphNode->GetGraph()->GetSchema();
+		if (!Schema)
+		{
+			return FBridgeToolResult::Error(TEXT("Source graph has no schema"));
+		}
+
 		FPinConnectionResponse Response = Schema->CanCreateConnection(SourceGraphPin, TargetGraphPin);
 
 		if (Response.Response == CONNECT_RESPONSE_DISALLOW)
@@ -160,13 +192,29 @@ FBridgeToolResult UConnectGraphPinsTool::Execute(
 
 		// Make the connection
 		bool bConnected = Schema->TryCreateConnection(SourceGraphPin, TargetGraphPin);
+		bool bValidatedLink = ValidateCreatedPinLink(SourceGraphPin, TargetGraphPin);
+		FString ConnectionMethod = TEXT("schema_try_create_connection");
 
-		if (bConnected)
+		if (!bValidatedLink && !bConnected)
+		{
+			SourceGraphNode->Modify();
+			TargetGraphNode->Modify();
+			SourceGraphPin->MakeLinkTo(TargetGraphPin);
+			SourceGraphNode->PinConnectionListChanged(SourceGraphPin);
+			TargetGraphNode->PinConnectionListChanged(TargetGraphPin);
+			ConnectionMethod = TEXT("manual_make_link_to");
+			bConnected = true;
+			bValidatedLink = ValidateCreatedPinLink(SourceGraphPin, TargetGraphPin);
+		}
+
+		if (bConnected && bValidatedLink)
 		{
 			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 			FBridgeAssetModifier::MarkPackageDirty(Blueprint);
 
 			Result->SetBoolField(TEXT("success"), true);
+			Result->SetBoolField(TEXT("validated_link"), true);
+			Result->SetStringField(TEXT("connection_method"), ConnectionMethod);
 			Result->SetBoolField(TEXT("needs_compile"), true);
 			Result->SetBoolField(TEXT("needs_save"), true);
 
@@ -176,6 +224,9 @@ FBridgeToolResult UConnectGraphPinsTool::Execute(
 		{
 			Result->SetBoolField(TEXT("success"), false);
 			Result->SetStringField(TEXT("error"), TEXT("Failed to connect pins"));
+			Result->SetStringField(TEXT("connection_method"), ConnectionMethod);
+			Result->SetBoolField(TEXT("validated_link"), false);
+			Result->SetStringField(TEXT("connection_response"), Response.Message.ToString());
 		}
 
 		return FBridgeToolResult::Json(Result);

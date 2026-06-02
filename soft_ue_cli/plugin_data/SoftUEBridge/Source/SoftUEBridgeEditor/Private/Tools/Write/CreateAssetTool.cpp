@@ -215,7 +215,7 @@ UObject* UCreateAssetTool::CreateAssetOfClass(
 	// WidgetBlueprint (check before Blueprint — UWidgetBlueprint is a UBlueprint subclass)
 	if (AssetClass->IsChildOf<UWidgetBlueprint>() || AssetClass == UWidgetBlueprint::StaticClass())
 	{
-		return CreateWidgetBlueprint(PackagePath, AssetName, AssetTools, Result, OutError);
+		return CreateWidgetBlueprint(PackagePath, AssetName, ParentClass, AssetTools, Result, OutError);
 	}
 
 	// Blueprint (generic — after subclass checks)
@@ -288,7 +288,7 @@ UObject* UCreateAssetTool::CreateAssetByName(
 
 	if (LowerName == TEXT("widgetblueprint") || LowerName == TEXT("widget") || LowerName == TEXT("userwidget"))
 	{
-		return CreateWidgetBlueprint(PackagePath, AssetName, AssetTools, Result, OutError);
+		return CreateWidgetBlueprint(PackagePath, AssetName, ParentClass, AssetTools, Result, OutError);
 	}
 
 	if (LowerName == TEXT("animblueprint") || LowerName == TEXT("animbp"))
@@ -420,18 +420,40 @@ UObject* UCreateAssetTool::CreateLevel(
 UObject* UCreateAssetTool::CreateWidgetBlueprint(
 	const FString& PackagePath,
 	const FString& AssetName,
+	const FString& ParentClassName,
 	IAssetTools& AssetTools,
 	TSharedPtr<FJsonObject>& Result,
 	FString& OutError)
 {
+	UClass* ParentUClass = UUserWidget::StaticClass();
+	if (!ParentClassName.IsEmpty())
+	{
+		FString ClassError;
+		UClass* ResolvedParent = FBridgePropertySerializer::ResolveClass(ParentClassName, ClassError);
+		if (!ResolvedParent)
+		{
+			OutError = FString::Printf(TEXT("WidgetBlueprint parent class not found: %s"), *ParentClassName);
+			return nullptr;
+		}
+		if (!ResolvedParent->IsChildOf(UUserWidget::StaticClass()))
+		{
+			OutError = FString::Printf(
+				TEXT("WidgetBlueprint parent class must derive from UserWidget: %s"),
+				*ResolvedParent->GetPathName());
+			return nullptr;
+		}
+		ParentUClass = ResolvedParent;
+	}
+
 	UBlueprintFactory* Factory = NewObject<UBlueprintFactory>();
-	Factory->ParentClass = UUserWidget::StaticClass();
+	Factory->ParentClass = ParentUClass;
 
 	UObject* CreatedAsset = AssetTools.CreateAsset(AssetName, PackagePath, UBlueprint::StaticClass(), Factory);
 
 	if (CreatedAsset)
 	{
-		Result->SetStringField(TEXT("parent_class"), TEXT("UserWidget"));
+		Result->SetStringField(TEXT("parent_class"), ParentUClass->GetName());
+		Result->SetStringField(TEXT("parent_class_path"), ParentUClass->GetPathName());
 	}
 	else
 	{

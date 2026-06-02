@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 
 def test_normalize_layout_extracts_widget_bounds_and_contract():
@@ -34,6 +32,87 @@ def test_normalize_layout_extracts_widget_bounds_and_contract():
     assert widget["normalized_bounds"] == [0.0625, 0.7037, 0.1354, 0.0667]
     assert widget["z_order"] == 20
     assert widget["opacity"] == 0.75
+
+
+def test_normalize_layout_flattens_runtime_root_widgets_tree():
+    from soft_ue_cli.umg_layout import normalize_layout
+
+    raw = {
+        "source_type": "runtime",
+        "world_name": "UEDPIE_0_SoftUETestLevel",
+        "widget_count": 2,
+        "root_widgets": [
+            {
+                "name": "WBP_Menu_C_0",
+                "class": "WBP_Menu_C",
+                "geometry": {
+                    "absolute_position": [0, 0],
+                    "local_size": [1000, 500],
+                },
+                "children": [
+                    {
+                        "name": "StartButton",
+                        "class": "Button",
+                        "geometry": {
+                            "absolute_position": [120, 320],
+                            "local_size": [240, 72],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+
+    layout = normalize_layout(raw, canvas_size=[1000, 500])
+
+    assert [widget["name"] for widget in layout["widgets"]] == ["WBP_Menu_C_0", "StartButton"]
+    assert layout["widgets"][1]["bounds"] == [120, 320, 240, 72]
+    assert layout["widgets"][1]["normalized_bounds"] == [0.12, 0.64, 0.24, 0.144]
+
+
+def test_normalize_layout_computes_designer_canvas_slot_bounds_from_anchors():
+    from soft_ue_cli.umg_layout import normalize_layout
+
+    raw = {
+        "asset_path": "/Game/UI/WBP_Menu",
+        "root_widget": {
+            "name": "RootCanvas",
+            "class": "CanvasPanel",
+            "children": [
+                {
+                    "name": "AnchoredButton",
+                    "class": "Button",
+                    "slot": {
+                        "type": "CanvasPanelSlot",
+                        "anchors": {"min": [0.25, 0.5], "max": [0.25, 0.5]},
+                        "offsets": {"left": 100, "top": 20, "right": 200, "bottom": 50},
+                        "position": [100, 20],
+                        "size": [200, 50],
+                        "alignment": [0.5, 1.0],
+                        "z_order": 7,
+                    },
+                },
+                {
+                    "name": "StretchedPanel",
+                    "class": "Overlay",
+                    "slot": {
+                        "type": "CanvasPanelSlot",
+                        "anchors": {"min": [0.1, 0.2], "max": [0.9, 0.8]},
+                        "offsets": {"left": 10, "top": 20, "right": 30, "bottom": 40},
+                    },
+                },
+            ],
+        },
+    }
+
+    layout = normalize_layout(raw, canvas_size=[1000, 500])
+    widgets = {widget["name"]: widget for widget in layout["widgets"]}
+
+    assert widgets["AnchoredButton"]["bounds"] == [250, 220, 200, 50]
+    assert widgets["AnchoredButton"]["normalized_bounds"] == [0.25, 0.44, 0.2, 0.1]
+    assert widgets["AnchoredButton"]["z_order"] == 7
+    assert widgets["StretchedPanel"]["bounds"] == [110, 120, 760, 240]
+    assert widgets["StretchedPanel"]["normalized_bounds"] == [0.11, 0.24, 0.76, 0.48]
 
 
 def test_compare_layouts_reports_bounds_z_order_and_opacity_deltas():

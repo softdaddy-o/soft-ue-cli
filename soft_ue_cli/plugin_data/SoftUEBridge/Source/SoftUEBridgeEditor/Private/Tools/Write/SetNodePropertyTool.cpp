@@ -7,6 +7,7 @@
 #include "Engine/Blueprint.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
+#include "K2Node_CallFunction.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "ScopedTransaction.h"
 
@@ -123,6 +124,64 @@ namespace
 		bSyncedAny |= SetInnerAnimNodePropertyValue(Node, TEXT("NameOfCache"), NameValue, Errors);
 		return bSyncedAny;
 	}
+
+	static bool ApplyCallFunctionReferenceStringShortcut(
+		UEdGraphNode* GraphNode,
+		UBlueprint* Blueprint,
+		const FString& PropertyName,
+		const TSharedPtr<FJsonValue>& Value,
+		TArray<FString>& Errors)
+	{
+		if (!PropertyName.Equals(TEXT("FunctionReference"), ESearchCase::IgnoreCase))
+		{
+			return false;
+		}
+
+		UK2Node_CallFunction* CallNode = Cast<UK2Node_CallFunction>(GraphNode);
+		if (!CallNode)
+		{
+			return false;
+		}
+
+		FString MemberName;
+		if (!Value.IsValid() || !Value->TryGetString(MemberName) || MemberName.IsEmpty())
+		{
+			return false;
+		}
+
+		TArray<UClass*> SearchClasses;
+		auto AddSearchClass = [&SearchClasses](UClass* Candidate)
+		{
+			if (Candidate && !SearchClasses.Contains(Candidate))
+			{
+				SearchClasses.Add(Candidate);
+			}
+		};
+
+		if (UFunction* CurrentFunction = CallNode->GetTargetFunction())
+		{
+			AddSearchClass(Cast<UClass>(CurrentFunction->GetOuter()));
+		}
+		AddSearchClass(Blueprint ? Blueprint->GeneratedClass : nullptr);
+		AddSearchClass(Blueprint ? Blueprint->SkeletonGeneratedClass : nullptr);
+		AddSearchClass(Blueprint ? Blueprint->ParentClass : nullptr);
+
+		for (UClass* CandidateClass : SearchClasses)
+		{
+			if (UFunction* Function = CandidateClass->FindFunctionByName(FName(*MemberName)))
+			{
+				CallNode->SetFromFunction(Function);
+				CallNode->ReconstructNode();
+				return true;
+			}
+		}
+
+		Errors.Add(FString::Printf(
+			TEXT("FunctionReference string shorthand could not resolve MemberName '%s'; use object form {\"FunctionReference\":{\"MemberName\":\"%s\"}} if the function lives on a different target class."),
+			*MemberName,
+			*MemberName));
+		return true;
+	}
 }
 
 FString USetNodePropertyTool::GetToolDescription() const
@@ -218,7 +277,7 @@ FBridgeToolResult USetNodePropertyTool::Execute(
 	FBridgeAssetModifier::MarkModified(Blueprint);
 
 	// Apply properties
-	TArray<FString> Errors = ApplyProperties(Node, Properties);
+	TArray<FString> Errors = ApplyProperties(Blueprint, Node, Properties);
 
 	// Reconstruct node to reflect property changes in pins
 	Node->ReconstructNode();
@@ -243,7 +302,7 @@ FBridgeToolResult USetNodePropertyTool::Execute(
 	return FBridgeToolResult::Json(Result);
 }
 
-TArray<FString> USetNodePropertyTool::ApplyProperties(UObject* Node, const TSharedPtr<FJsonObject>& Properties)
+TArray<FString> USetNodePropertyTool::ApplyProperties(UBlueprint* Blueprint, UObject* Node, const TSharedPtr<FJsonObject>& Properties)
 {
 	TArray<FString> Errors;
 	if (!Node || !Properties.IsValid())
@@ -260,6 +319,11 @@ TArray<FString> USetNodePropertyTool::ApplyProperties(UObject* Node, const TShar
 	{
 		const FString& PropertyName = Pair.Key;
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
+
+		if (ApplyCallFunctionReferenceStringShortcut(Cast<UEdGraphNode>(Node), Blueprint, PropertyName, Value, Errors))
+		{
+			continue;
+		}
 
 		FProperty* Property = Node->GetClass()->FindPropertyByName(*PropertyName);
 		void* Container = Node;

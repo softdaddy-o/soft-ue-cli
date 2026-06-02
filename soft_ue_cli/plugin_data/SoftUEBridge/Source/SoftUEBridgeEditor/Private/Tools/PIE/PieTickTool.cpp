@@ -10,7 +10,56 @@
 #include "LevelEditor.h"
 #include "LevelEditorSubsystem.h"
 #include "Modules/ModuleManager.h"
-#include "Containers/Ticker.h"
+
+namespace
+{
+	TSharedPtr<FJsonObject> BuildPieTickFailureResult(
+		const FString& ActivePhase,
+		const FString& Message,
+		double OperationStartSeconds,
+		double OperationDeadlineSeconds,
+		int32 RequestedFrames,
+		int32 FramesCompleted)
+	{
+		const double NowSeconds = FPlatformTime::Seconds();
+		const double TimeoutSeconds = FMath::Max(0.0, OperationDeadlineSeconds - OperationStartSeconds);
+		const double ElapsedSeconds = FMath::Max(0.0, NowSeconds - OperationStartSeconds);
+		const double RemainingBudgetSeconds = FMath::Max(0.0, OperationDeadlineSeconds - NowSeconds);
+
+		TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("status"), TEXT("failed"));
+		Result->SetStringField(TEXT("tool"), TEXT("pie-tick"));
+		Result->SetStringField(TEXT("active_phase"), ActivePhase);
+		Result->SetStringField(TEXT("message"), Message);
+		Result->SetNumberField(TEXT("requested_frames"), RequestedFrames);
+		Result->SetNumberField(TEXT("frames_completed"), FramesCompleted);
+		Result->SetNumberField(TEXT("elapsed_seconds"), ElapsedSeconds);
+		Result->SetNumberField(TEXT("timeout_seconds"), TimeoutSeconds);
+		Result->SetNumberField(TEXT("remaining_budget_seconds"), RemainingBudgetSeconds);
+		return Result;
+	}
+
+	TSharedPtr<FJsonObject> BuildPieTickTimeoutResult(
+		const FString& ActivePhase,
+		const FString& Message,
+		double OperationStartSeconds,
+		double OperationDeadlineSeconds,
+		int32 RequestedFrames,
+		int32 FramesCompleted)
+	{
+		TSharedPtr<FJsonObject> Result = BuildPieTickFailureResult(
+			ActivePhase,
+			Message,
+			OperationStartSeconds,
+			OperationDeadlineSeconds,
+			RequestedFrames,
+			FramesCompleted);
+		Result->SetStringField(TEXT("status"), TEXT("timeout"));
+		Result->SetStringField(TEXT("error_code"), TEXT("pie_tick_timeout"));
+		return Result;
+	}
+}
 
 FString UPieTickTool::GetToolDescription() const
 {
@@ -42,6 +91,11 @@ TMap<FString, FBridgeSchemaProperty> UPieTickTool::GetInputSchema() const
 	Map.Description = TEXT("Optional map path to load when auto-starting PIE");
 	Schema.Add(TEXT("map"), Map);
 
+	FBridgeSchemaProperty Timeout;
+	Timeout.Type = TEXT("number");
+	Timeout.Description = TEXT("Maximum seconds to wait for PIE start and tick completion (default: 30)");
+	Schema.Add(TEXT("timeout"), Timeout);
+
 	return Schema;
 }
 
@@ -61,8 +115,16 @@ FBridgeToolResult UPieTickTool::Execute(
 		return FBridgeToolResult::Error(TEXT("pie-tick: 'delta' must be > 0"));
 	}
 
+	const float TimeoutSeconds = GetFloatArgOrDefault(Arguments, TEXT("timeout"), 30.0f);
+	if (TimeoutSeconds <= 0.0f)
+	{
+		return FBridgeToolResult::Error(TEXT("pie-tick: 'timeout' must be > 0"));
+	}
+
 	const bool bAutoStart = GetBoolArgOrDefault(Arguments, TEXT("auto_start"), true);
 	const FString MapPath = GetStringArgOrDefault(Arguments, TEXT("map"));
+	const double OperationStartSeconds = FPlatformTime::Seconds();
+	const double OperationDeadlineSeconds = OperationStartSeconds + static_cast<double>(TimeoutSeconds);
 
 	bool bPieStartedByCall = false;
 	UWorld* PIEWorld = GetPIEWorld();
@@ -73,10 +135,10 @@ FBridgeToolResult UPieTickTool::Execute(
 			return FBridgeToolResult::Error(TEXT("pie-tick: PIE is not running and auto_start=false"));
 		}
 
-		FString StartError;
-		if (!StartPIEForTick(MapPath, StartError))
+		TSharedPtr<FJsonObject> StartFailure;
+		if (!StartPIEForTick(MapPath, OperationStartSeconds, OperationDeadlineSeconds, Frames, StartFailure))
 		{
-			return FBridgeToolResult::Error(FString::Printf(TEXT("pie-tick: %s"), *StartError));
+			return FBridgeToolResult::Json(StartFailure);
 		}
 
 		bPieStartedByCall = true;
@@ -87,13 +149,54 @@ FBridgeToolResult UPieTickTool::Execute(
 		}
 	}
 
-	const float TotalSimTime = TickWorldFrames(PIEWorld, Frames, Delta);
+	float WorldTimeBefore = 0.0f;
+	float WorldTimeAfter = 0.0f;
+	int32 FramesTicked = 0;
+	TSharedPtr<FJsonObject> TickFailure;
+	const float TickTimeoutSeconds = static_cast<float>(OperationDeadlineSeconds - FPlatformTime::Seconds());
+	if (TickTimeoutSeconds <= 0.0f)
+	{
+		return FBridgeToolResult::Json(BuildPieTickTimeoutResult(
+			TEXT("tick_frames"),
+			FString::Printf(TEXT("Timeout expired before ticking (%0.2fs)."), TimeoutSeconds),
+			OperationStartSeconds,
+			OperationDeadlineSeconds,
+			Frames,
+			0));
+	}
+	if (!TickWorldFrames(
+		PIEWorld,
+		Frames,
+		Delta,
+		TickTimeoutSeconds,
+		OperationStartSeconds,
+		OperationDeadlineSeconds,
+		FramesTicked,
+		WorldTimeBefore,
+		WorldTimeAfter,
+		TickFailure))
+	{
+		return FBridgeToolResult::Json(TickFailure);
+	}
+
+	const float WorldTimeDelta = WorldTimeAfter - WorldTimeBefore;
+	if (WorldTimeDelta <= 0.0f)
+	{
+		return FBridgeToolResult::Error(TEXT("pie-tick: world time did not advance"));
+	}
+	const float TotalSimTime = WorldTimeDelta;
 
 	TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
 	Response->SetStringField(TEXT("status"), TEXT("ok"));
-	Response->SetNumberField(TEXT("ticks"), Frames);
+	Response->SetNumberField(TEXT("ticks"), FramesTicked);
 	Response->SetNumberField(TEXT("delta"), Delta);
 	Response->SetNumberField(TEXT("total_sim_time"), TotalSimTime);
+	Response->SetNumberField(TEXT("world_time_before"), WorldTimeBefore);
+	Response->SetNumberField(TEXT("world_time_after"), WorldTimeAfter);
+	Response->SetNumberField(TEXT("world_time_delta"), WorldTimeDelta);
+	Response->SetStringField(TEXT("tick_mode"), TEXT("direct_world_tick"));
+	Response->SetStringField(TEXT("execution_context"), BridgeToolExecutionContextToString(GetExecutionContextRequirement()));
+	Response->SetStringField(TEXT("active_phase"), TEXT("complete"));
 	Response->SetBoolField(TEXT("pie_started_by_call"), bPieStartedByCall);
 	Response->SetStringField(TEXT("world_name"), PIEWorld->GetName());
 	return FBridgeToolResult::Json(Response);
@@ -104,11 +207,22 @@ UWorld* UPieTickTool::GetPIEWorld() const
 	return GEditor ? GEditor->PlayWorld : nullptr;
 }
 
-bool UPieTickTool::StartPIEForTick(const FString& MapPath, FString& OutError)
+bool UPieTickTool::StartPIEForTick(
+	const FString& MapPath,
+	double OperationStartSeconds,
+	double OperationDeadlineSeconds,
+	int32 RequestedFrames,
+	TSharedPtr<FJsonObject>& OutFailure)
 {
 	if (!GEditor)
 	{
-		OutError = TEXT("GEditor is not available");
+		OutFailure = BuildPieTickFailureResult(
+			TEXT("request_play_session"),
+			TEXT("GEditor is not available."),
+			OperationStartSeconds,
+			OperationDeadlineSeconds,
+			RequestedFrames,
+			0);
 		return false;
 	}
 
@@ -122,17 +236,33 @@ bool UPieTickTool::StartPIEForTick(const FString& MapPath, FString& OutError)
 		ULevelEditorSubsystem* LevelEditorSubsystem = GEditor->GetEditorSubsystem<ULevelEditorSubsystem>();
 		if (!LevelEditorSubsystem || !LevelEditorSubsystem->LoadLevel(MapPath))
 		{
-			OutError = FString::Printf(TEXT("Failed to load map: %s"), *MapPath);
+			OutFailure = BuildPieTickFailureResult(
+				TEXT("map_load"),
+				FString::Printf(TEXT("Failed to load map: %s"), *MapPath),
+				OperationStartSeconds,
+				OperationDeadlineSeconds,
+				RequestedFrames,
+				0);
 			return false;
 		}
+	}
+
+	if (FPlatformTime::Seconds() >= OperationDeadlineSeconds)
+	{
+		OutFailure = BuildPieTickTimeoutResult(
+			TEXT("map_load"),
+			TEXT("Timeout expired while loading the map before RequestPlaySession."),
+			OperationStartSeconds,
+			OperationDeadlineSeconds,
+			RequestedFrames,
+			0);
+		return false;
 	}
 
 	FRequestPlaySessionParams Params;
 	GEditor->RequestPlaySession(Params);
 
-	constexpr double StartTimeoutSeconds = 30.0;
-	const double Deadline = FPlatformTime::Seconds() + StartTimeoutSeconds;
-	while (FPlatformTime::Seconds() < Deadline)
+	while (FPlatformTime::Seconds() < OperationDeadlineSeconds)
 	{
 		if (GEditor->PlayWorld)
 		{
@@ -146,85 +276,97 @@ bool UPieTickTool::StartPIEForTick(const FString& MapPath, FString& OutError)
 		FPlatformProcess::Sleep(0.01f);
 	}
 
-	OutError = TEXT("PIE did not start within 30 seconds");
+	OutFailure = BuildPieTickTimeoutResult(
+		TEXT("wait_for_play_world"),
+		TEXT("PIE did not start before the timeout budget expired."),
+		OperationStartSeconds,
+		OperationDeadlineSeconds,
+		RequestedFrames,
+		0);
 	return false;
 }
 
-float UPieTickTool::TickWorldFrames(UWorld* World, int32 Frames, float DeltaSeconds)
+bool UPieTickTool::TickWorldFrames(
+	UWorld* World,
+	int32 Frames,
+	float DeltaSeconds,
+	float TimeoutSeconds,
+	double OperationStartSeconds,
+	double OperationDeadlineSeconds,
+	int32& OutFramesTicked,
+	float& OutWorldTimeBefore,
+	float& OutWorldTimeAfter,
+	TSharedPtr<FJsonObject>& OutFailure)
 {
+	OutFramesTicked = 0;
 	if (!World || Frames <= 0 || DeltaSeconds <= 0.0f)
 	{
-		return 0.0f;
+		OutWorldTimeBefore = 0.0f;
+		OutWorldTimeAfter = 0.0f;
+		OutFailure = BuildPieTickFailureResult(
+			TEXT("tick_frames"),
+			TEXT("Invalid tick arguments."),
+			OperationStartSeconds,
+			OperationDeadlineSeconds,
+			Frames,
+			0);
+		return false;
 	}
 
-	// We cannot call World->Tick() directly from the bridge tool handler because
-	// it runs inside AsyncTask(GameThread), which is itself a task graph task.
-	// When any FTickableEditorObject (e.g., UMassEntityEditorSubsystem) posts a
-	// game-thread task and waits synchronously during its Tick(), it causes
-	// re-entrant TaskGraph execution → assertion failure + crash.
-	//
-	// Fix: Defer each frame tick to a FTSTicker delegate that fires during the
-	// normal engine tick loop (via FSlateApplication::Tick). This ensures
-	// World->Tick() runs in the Slate/engine context, not the task graph context.
-
-	struct FTickState
+	OutWorldTimeBefore = World->GetTimeSeconds();
+	if (World->bInTick)
 	{
-		TWeakObjectPtr<UWorld> WorldPtr;
-		int32 FramesRemaining;
-		float DeltaSeconds;
-		float TotalTime;
-		bool bComplete;
-	};
+		OutWorldTimeAfter = OutWorldTimeBefore;
+		OutFailure = BuildPieTickFailureResult(
+			TEXT("tick_frames"),
+			TEXT("World is already ticking."),
+			OperationStartSeconds,
+			OperationDeadlineSeconds,
+			Frames,
+			0);
+		return false;
+	}
 
-	auto State = MakeShared<FTickState>();
-	State->WorldPtr = World;
-	State->FramesRemaining = Frames;
-	State->DeltaSeconds = DeltaSeconds;
-	State->TotalTime = 0.0f;
-	State->bComplete = false;
-
-	FTSTicker::FDelegateHandle TickHandle = FTSTicker::GetCoreTicker().AddTicker(
-		FTickerDelegate::CreateLambda([State](float) -> bool
-		{
-			UWorld* W = State->WorldPtr.Get();
-			if (!W || State->FramesRemaining <= 0)
-			{
-				State->bComplete = true;
-				return false;
-			}
-
-			W->Tick(ELevelTick::LEVELTICK_All, State->DeltaSeconds);
-			State->TotalTime += State->DeltaSeconds;
-			State->FramesRemaining--;
-
-			if (State->FramesRemaining <= 0)
-			{
-				State->bComplete = true;
-				return false;
-			}
-			return true;
-		}),
-		0.0f
-	);
-
-	// Pump Slate to drive the ticker (same pattern as StartPIEForTick)
-	constexpr double TimeoutSeconds = 300.0;
-	const double Deadline = FPlatformTime::Seconds() + TimeoutSeconds;
-	while (!State->bComplete && FPlatformTime::Seconds() < Deadline)
+	const double StartSeconds = FPlatformTime::Seconds();
+	const double DeadlineSeconds = StartSeconds + static_cast<double>(TimeoutSeconds);
+	for (int32 FrameIndex = 0; FrameIndex < Frames; ++FrameIndex)
 	{
-		if (FSlateApplication::IsInitialized())
+		if (FPlatformTime::Seconds() >= DeadlineSeconds)
 		{
-			FSlateApplication::Get().Tick();
+			OutWorldTimeAfter = World->GetTimeSeconds();
+			OutFailure = BuildPieTickTimeoutResult(
+				TEXT("tick_frames"),
+				FString::Printf(TEXT("Tick timed out after %.2fs (%d/%d frames)."),
+				TimeoutSeconds,
+				OutFramesTicked,
+				Frames),
+				OperationStartSeconds,
+				OperationDeadlineSeconds,
+				Frames,
+				OutFramesTicked);
+			return false;
 		}
-		FPlatformProcess::Sleep(0.001f);
+
+		World->Tick(ELevelTick::LEVELTICK_All, DeltaSeconds);
+		++OutFramesTicked;
+
+		if (FPlatformTime::Seconds() > DeadlineSeconds)
+		{
+			OutWorldTimeAfter = World->GetTimeSeconds();
+			OutFailure = BuildPieTickTimeoutResult(
+				TEXT("tick_frames"),
+				FString::Printf(TEXT("Tick timed out after %.2fs (%d/%d frames)."),
+				TimeoutSeconds,
+				OutFramesTicked,
+				Frames),
+				OperationStartSeconds,
+				OperationDeadlineSeconds,
+				Frames,
+				OutFramesTicked);
+			return false;
+		}
 	}
 
-	if (!State->bComplete)
-	{
-		// Timeout — remove ticker if still active
-		FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
-		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("PieTickTool: timed out after %.0fs"), TimeoutSeconds);
-	}
-
-	return State->TotalTime;
+	OutWorldTimeAfter = World->GetTimeSeconds();
+	return true;
 }

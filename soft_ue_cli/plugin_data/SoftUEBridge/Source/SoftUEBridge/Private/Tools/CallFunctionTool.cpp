@@ -77,6 +77,121 @@ namespace
 		}
 	}
 
+	TArray<TSharedPtr<FJsonValue>> BuildFunctionFlagNames(UFunction* Function)
+	{
+		TArray<TSharedPtr<FJsonValue>> FlagNames;
+		if (!Function)
+		{
+			return FlagNames;
+		}
+
+		const uint64 Flags = static_cast<uint64>(Function->FunctionFlags);
+		auto AddFlag = [&FlagNames, Flags](uint64 Flag, const TCHAR* Name)
+		{
+			if ((Flags & Flag) != 0)
+			{
+				FlagNames.Add(MakeShared<FJsonValueString>(Name));
+			}
+		};
+
+		AddFlag(static_cast<uint64>(FUNC_Native), TEXT("Native"));
+		AddFlag(static_cast<uint64>(FUNC_BlueprintCallable), TEXT("BlueprintCallable"));
+		AddFlag(static_cast<uint64>(FUNC_BlueprintEvent), TEXT("BlueprintEvent"));
+		AddFlag(static_cast<uint64>(FUNC_BlueprintPure), TEXT("BlueprintPure"));
+		AddFlag(static_cast<uint64>(FUNC_Exec), TEXT("Exec"));
+		AddFlag(static_cast<uint64>(FUNC_Static), TEXT("Static"));
+		AddFlag(static_cast<uint64>(FUNC_Public), TEXT("Public"));
+		AddFlag(static_cast<uint64>(FUNC_Protected), TEXT("Protected"));
+		AddFlag(static_cast<uint64>(FUNC_Private), TEXT("Private"));
+		AddFlag(static_cast<uint64>(FUNC_Net), TEXT("Net"));
+		AddFlag(static_cast<uint64>(FUNC_Const), TEXT("Const"));
+
+		return FlagNames;
+	}
+
+	TSharedPtr<FJsonObject> BuildInvocationEvidence(
+		UObject* TargetObject,
+		UFunction* Function,
+		bool bProcessEventDispatched)
+	{
+		TSharedPtr<FJsonObject> Evidence = MakeShared<FJsonObject>();
+		Evidence->SetBoolField(TEXT("process_event_dispatched"), bProcessEventDispatched);
+		Evidence->SetStringField(TEXT("dispatch_path"), TEXT("UObject::ProcessEvent"));
+
+		UClass* TargetClass = TargetObject ? TargetObject->GetClass() : nullptr;
+		Evidence->SetStringField(TEXT("target_name"), TargetObject ? TargetObject->GetName() : TEXT(""));
+		Evidence->SetStringField(TEXT("target_class"), TargetClass ? TargetClass->GetPathName() : TEXT(""));
+		Evidence->SetStringField(TEXT("target_path"), TargetObject ? TargetObject->GetPathName() : TEXT(""));
+
+		const uint64 FunctionFlags = Function ? static_cast<uint64>(Function->FunctionFlags) : 0;
+		auto HasFunctionFlag = [FunctionFlags](uint64 Flag)
+		{
+			return (FunctionFlags & Flag) != 0;
+		};
+
+		Evidence->SetStringField(TEXT("function_name"), Function ? Function->GetName() : TEXT(""));
+		Evidence->SetStringField(TEXT("function_path"), Function ? Function->GetPathName() : TEXT(""));
+		Evidence->SetStringField(TEXT("function_owner"), Function && Function->GetOuter()
+			? Function->GetOuter()->GetPathName()
+			: TEXT(""));
+		Evidence->SetArrayField(TEXT("function_flags"), BuildFunctionFlagNames(Function));
+		Evidence->SetBoolField(TEXT("is_native"), HasFunctionFlag(static_cast<uint64>(FUNC_Native)));
+		Evidence->SetBoolField(TEXT("is_blueprint_callable"), HasFunctionFlag(static_cast<uint64>(FUNC_BlueprintCallable)));
+		Evidence->SetBoolField(TEXT("is_blueprint_event"), HasFunctionFlag(static_cast<uint64>(FUNC_BlueprintEvent)));
+		Evidence->SetBoolField(TEXT("is_exec"), HasFunctionFlag(static_cast<uint64>(FUNC_Exec)));
+		Evidence->SetBoolField(TEXT("is_static"), HasFunctionFlag(static_cast<uint64>(FUNC_Static)));
+
+		int32 ParamCount = 0;
+		int32 InputParamCount = 0;
+		int32 OutParamCount = 0;
+		bool bHasReturnValue = false;
+		TArray<TSharedPtr<FJsonValue>> InputParamNames;
+		TArray<TSharedPtr<FJsonValue>> OutParamNames;
+		FString ReturnParamName;
+
+		if (Function)
+		{
+			for (TFieldIterator<FProperty> PropIt(Function); PropIt && (PropIt->PropertyFlags & CPF_Parm); ++PropIt)
+			{
+				FProperty* Prop = *PropIt;
+				++ParamCount;
+
+				if (Prop->HasAnyPropertyFlags(CPF_ReturnParm))
+				{
+					bHasReturnValue = true;
+					ReturnParamName = Prop->GetName();
+					continue;
+				}
+
+				if (Prop->HasAnyPropertyFlags(CPF_OutParm))
+				{
+					++OutParamCount;
+					OutParamNames.Add(MakeShared<FJsonValueString>(Prop->GetName()));
+					continue;
+				}
+
+				++InputParamCount;
+				InputParamNames.Add(MakeShared<FJsonValueString>(Prop->GetName()));
+			}
+		}
+
+		Evidence->SetNumberField(TEXT("param_count"), ParamCount);
+		Evidence->SetNumberField(TEXT("input_param_count"), InputParamCount);
+		Evidence->SetNumberField(TEXT("out_param_count"), OutParamCount);
+		Evidence->SetBoolField(TEXT("has_return_value"), bHasReturnValue);
+		Evidence->SetStringField(TEXT("return_param"), ReturnParamName);
+		Evidence->SetArrayField(TEXT("input_params"), InputParamNames);
+		Evidence->SetArrayField(TEXT("out_params"), OutParamNames);
+
+		const bool bNoReturnOrOutParams = !bHasReturnValue && OutParamCount == 0;
+		Evidence->SetBoolField(TEXT("no_return_or_out_params"), bNoReturnOrOutParams);
+		Evidence->SetStringField(TEXT("side_effect_evidence"), bNoReturnOrOutParams
+			? TEXT("unobservable_no_return_or_out_params")
+			: TEXT("return_or_out_params_present"));
+
+		return Evidence;
+	}
+
 	TSharedPtr<FJsonObject> InvokeWithArgs(
 		UObject* TargetObject,
 		UFunction* Function,
@@ -89,6 +204,8 @@ namespace
 			Result->SetStringField(TEXT("error"), TEXT("internal: null target or function"));
 			return Result;
 		}
+
+		TSharedPtr<FJsonObject> Evidence = BuildInvocationEvidence(TargetObject, Function, false);
 
 		TArray<uint8> ParamBuffer;
 		ParamBuffer.SetNumZeroed(Function->ParmsSize);
@@ -119,7 +236,19 @@ namespace
 		}
 
 		TargetObject->ProcessEvent(Function, ParamBuffer.GetData());
+		Evidence->SetBoolField(TEXT("process_event_dispatched"), true);
 		Result->SetBoolField(TEXT("success"), true);
+		Result->SetBoolField(TEXT("process_event_dispatched"), true);
+		Result->SetObjectField(TEXT("invocation_evidence"), Evidence);
+
+		bool bNoReturnOrOutParams = false;
+		if (Evidence->TryGetBoolField(TEXT("no_return_or_out_params"), bNoReturnOrOutParams)
+			&& bNoReturnOrOutParams)
+		{
+			Result->SetStringField(
+				TEXT("warning"),
+				TEXT("call-function dispatched UObject::ProcessEvent, but this function has no return or out parameters; native side effects cannot be proven from the bridge response alone."));
+		}
 
 		for (TFieldIterator<FProperty> PropIt(Function); PropIt && (PropIt->PropertyFlags & CPF_Parm); ++PropIt)
 		{

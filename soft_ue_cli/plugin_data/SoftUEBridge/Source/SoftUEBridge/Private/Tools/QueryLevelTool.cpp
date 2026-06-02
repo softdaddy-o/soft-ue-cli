@@ -7,6 +7,7 @@
 #include "Components/ActorComponent.h"
 #include "EngineUtils.h"
 #include "UObject/UnrealType.h"
+#include "UObject/TextProperty.h"
 
 #if WITH_EDITOR
 #include "InstancedFoliageActor.h"

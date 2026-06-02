@@ -4,7 +4,9 @@
 #include "SoftUEBridgeModule.h"
 #include "Modules/ModuleManager.h"
 #include "Interfaces/IPluginManager.h"
+#include "Misc/Paths.h"
 #include "ModuleDescriptor.h"
+#include "UObject/Package.h"
 
 FBridgeToolRegistry* FBridgeToolRegistry::Instance = nullptr;
 
@@ -140,6 +142,12 @@ int32 FBridgeToolRegistry::GetToolCount() const
 	return ToolClasses.Num();
 }
 
+EBridgeToolExecutionContext FBridgeToolRegistry::GetToolExecutionContext(const FString& ToolName)
+{
+	UBridgeToolBase* Tool = FindTool(ToolName);
+	return Tool ? Tool->GetExecutionContextRequirement() : EBridgeToolExecutionContext::GameThread;
+}
+
 FBridgeToolResult FBridgeToolRegistry::ExecuteTool(
 	const FString& ToolName,
 	const TSharedPtr<FJsonObject>& Arguments,
@@ -197,6 +205,17 @@ FBridgeToolResult FBridgeToolRegistry::ExecuteTool(
 		}
 	}
 
+	const EBridgeToolExecutionContext RequiredContext = Tool->GetExecutionContextRequirement();
+	if (RequiredContext != EBridgeToolExecutionContext::GameThread && Context.ExecutionContext != RequiredContext)
+	{
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("unsafe_execution_context: tool '%s' requires %s but was invoked from %s. "
+			     "Use the bridge scheduler instead of direct native invocation."),
+			*ToolName,
+			*BridgeToolExecutionContextToString(RequiredContext),
+			*BridgeToolExecutionContextToString(Context.ExecutionContext)));
+	}
+
 	UE_LOG(LogSoftUEBridge, Log, TEXT("Executing tool: %s"), *ToolName);
 	return Tool->Execute(Arguments, Context);
 }
@@ -245,7 +264,16 @@ TArray<FString> FBridgeToolRegistry::GetLoadedModulePaths() const
 			continue;
 		}
 
-		FString ModuleFilePath = ModuleManager.GetModuleFilename(ModuleFName);
+		FString ModuleFilePath;
+#if !IS_MONOLITHIC
+		ModuleFilePath = ModuleManager.GetModuleFilename(ModuleFName);
+#else
+		FModuleStatus ModuleStatus;
+		if (ModuleManager.QueryModule(ModuleFName, ModuleStatus))
+		{
+			ModuleFilePath = ModuleStatus.FilePath;
+		}
+#endif
 		for (const FString& Extension : Extensions)
 		{
 			if (!ModuleFilePath.IsEmpty())

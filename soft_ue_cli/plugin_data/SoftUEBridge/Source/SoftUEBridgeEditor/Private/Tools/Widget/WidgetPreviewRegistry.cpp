@@ -130,6 +130,28 @@ int32 FWidgetPreviewRegistry::CountPreviewsForWorld(UWorld* World)
 	return Count;
 }
 
+void FWidgetPreviewRegistry::CollectPreviewWidgetsForWorld(UWorld* World, TArray<UUserWidget*>& OutWidgets)
+{
+	if (!World)
+	{
+		return;
+	}
+
+	for (const FRegisteredWidgetPreview& Entry : GetWidgetPreviewRegistry())
+	{
+		UWorld* EntryWorld = Entry.World.Get();
+		UUserWidget* Widget = Entry.Widget.Get();
+		if (!EntryWorld || !Widget || EntryWorld != World)
+		{
+			continue;
+		}
+		if (!OutWidgets.Contains(Widget))
+		{
+			OutWidgets.Add(Widget);
+		}
+	}
+}
+
 void FWidgetPreviewRegistry::ListPreviewsForWorld(UWorld* World, TArray<FWidgetPreviewSummary>& OutSummaries)
 {
 	OutSummaries.Reset();

@@ -18,6 +18,10 @@ class SOFTUEBRIDGEEDITOR_API UPieSessionTool : public UBridgeToolBase
 public:
 	virtual FString GetToolName() const override { return TEXT("pie-session"); }
 	virtual FString GetToolDescription() const override;
+	virtual EBridgeToolExecutionContext GetExecutionContextRequirement() const override
+	{
+		return EBridgeToolExecutionContext::SlateTicker;
+	}
 	virtual TMap<FString, FBridgeSchemaProperty> GetInputSchema() const override;
 	virtual TArray<FString> GetRequiredParams() const override { return {TEXT("action")}; }
 	virtual FBridgeToolResult Execute(

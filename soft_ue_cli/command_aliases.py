@@ -32,6 +32,7 @@ COMMAND_ALIAS_PREFIXES: dict[tuple[str, ...], str] = {
     ("anim", "state-machine", "add"): "add-anim-state-machine",
     ("anim", "state", "add"): "add-anim-state",
     ("anim", "transition", "add"): "add-anim-transition",
+    ("anim", "retarget", "repoint-references"): "anim-repoint-references",
     ("anim", "rewind", "start"): "rewind-start",
     ("anim", "rewind", "stop"): "rewind-stop",
     ("anim", "rewind", "status"): "rewind-status",
@@ -60,6 +61,8 @@ COMMAND_ALIAS_PREFIXES: dict[tuple[str, ...], str] = {
     ("blueprint", "pin", "connect"): "connect-graph-pins",
     ("blueprint", "pin", "disconnect"): "disconnect-graph-pin",
     ("blueprint", "interface", "modify"): "modify-interface",
+    ("automation", "tests", "run"): "run-automation-tests",
+    ("umg", "runtime", "inspect"): "inspect-runtime-widgets",
 }
 
 

@@ -28,6 +28,7 @@ public:
 	UBridgeToolBase* FindTool(const FString& ToolName);
 	bool HasTool(const FString& ToolName) const;
 	int32 GetToolCount() const;
+	EBridgeToolExecutionContext GetToolExecutionContext(const FString& ToolName);
 
 	FBridgeToolResult ExecuteTool(
 		const FString& ToolName,

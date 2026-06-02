@@ -6,6 +6,7 @@
 #include "HttpServerModule.h"
 #include "HttpPath.h"
 #include "Async/Async.h"
+#include "Containers/Ticker.h"
 #include "Serialization/JsonSerializer.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Guid.h"
@@ -22,6 +23,39 @@ namespace
 		FUnattendedScriptGuard()  : bPrevious(GIsRunningUnattendedScript) { GIsRunningUnattendedScript = true; }
 		~FUnattendedScriptGuard() { GIsRunningUnattendedScript = bPrevious; }
 	};
+
+	FString ExtractToolName(const FBridgeRequest& Request)
+	{
+		FString ToolName;
+		if (Request.Params.IsValid())
+		{
+			Request.Params->TryGetStringField(TEXT("name"), ToolName);
+		}
+		return ToolName;
+	}
+
+	void ScheduleToolRequest(EBridgeToolExecutionContext ExecutionContext, TFunction<void()> ExecuteRequest)
+	{
+		const TSharedRef<TFunction<void()>> SharedExecute = MakeShared<TFunction<void()>>(MoveTemp(ExecuteRequest));
+		AsyncTask(ENamedThreads::GameThread, [ExecutionContext, SharedExecute]()
+		{
+			if (ExecutionContext == EBridgeToolExecutionContext::SlateTicker ||
+				ExecutionContext == EBridgeToolExecutionContext::PIEWorldTickSafe)
+			{
+				FTSTicker::GetCoreTicker().AddTicker(
+					FTickerDelegate::CreateLambda([SharedExecute](float) -> bool
+					{
+						(*SharedExecute)();
+						return false;
+					}),
+					0.0f
+				);
+				return;
+			}
+
+			(*SharedExecute)();
+		});
+	}
 }
 
 FBridgeServer::FBridgeServer() = default;
@@ -196,9 +230,13 @@ bool FBridgeServer::HandleRequest(const FHttpServerRequest& Request, const FHttp
 	}
 
 	FBridgeRequest BridgeReq = Parsed.GetValue();
+	const FString RequestedToolName = ExtractToolName(BridgeReq);
+	const EBridgeToolExecutionContext ExecutionContext =
+		BridgeReq.ParsedMethod == EBridgeMethod::ToolsCall
+			? FBridgeToolRegistry::Get().GetToolExecutionContext(RequestedToolName)
+			: EBridgeToolExecutionContext::GameThread;
 
-	// Execute on game thread (UE API requires it)
-	AsyncTask(ENamedThreads::GameThread, [this, BridgeReq, OnComplete]()
+	auto ExecuteRequest = [this, BridgeReq, OnComplete, ExecutionContext]()
 	{
 		FBridgeResponse Response;
 #if PLATFORM_EXCEPTIONS_DISABLED
@@ -229,7 +267,19 @@ bool FBridgeServer::HandleRequest(const FHttpServerRequest& Request, const FHttp
 		}
 
 		SendResponse(OnComplete, Response);
-	});
+	};
+
+	if (BridgeReq.ParsedMethod == EBridgeMethod::ToolsCall)
+	{
+		ScheduleToolRequest(ExecutionContext, MoveTemp(ExecuteRequest));
+	}
+	else
+	{
+		AsyncTask(ENamedThreads::GameThread, [ExecuteRequest]()
+		{
+			ExecuteRequest();
+		});
+	}
 
 	return true;
 }
@@ -369,6 +419,7 @@ FBridgeResponse FBridgeServer::HandleToolsCall(const FBridgeRequest& Request)
 
 	FBridgeToolContext Context;
 	Context.RequestId = Request.Id;
+	Context.ExecutionContext = FBridgeToolRegistry::Get().GetToolExecutionContext(ToolName);
 
 	// Suppress modal dialogs during tool execution.  UE checks this flag in
 	// dialog code paths and auto-selects the default response instead of

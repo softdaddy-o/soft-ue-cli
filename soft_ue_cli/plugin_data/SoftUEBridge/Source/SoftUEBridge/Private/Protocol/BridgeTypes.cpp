@@ -145,6 +145,7 @@ TSharedPtr<FJsonObject> FBridgeToolDefinition::ToJson() const
 	TSharedPtr<FJsonObject> Obj = MakeShareable(new FJsonObject);
 	Obj->SetStringField(TEXT("name"), Name);
 	Obj->SetStringField(TEXT("description"), Description);
+	Obj->SetStringField(TEXT("executionContext"), ExecutionContext);
 
 	TSharedPtr<FJsonObject> Schema = MakeShareable(new FJsonObject);
 	Schema->SetStringField(TEXT("type"), TEXT("object"));

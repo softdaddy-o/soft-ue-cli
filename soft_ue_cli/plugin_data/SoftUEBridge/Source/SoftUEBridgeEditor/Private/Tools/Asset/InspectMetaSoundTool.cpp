@@ -12,7 +12,7 @@ FString UInspectMetaSoundTool::GetToolDescription() const
 {
 	return TEXT(
 		"Inspect a MetaSound Source or Patch asset. Returns the declared interface inputs/outputs, "
-		"graph nodes with their class names and input defaults, and the edges (connections) between nodes.");
+		"graph nodes with their class names and input defaults, and the edges between nodes.");
 }
 
 TMap<FString, FBridgeSchemaProperty> UInspectMetaSoundTool::GetInputSchema() const
@@ -30,7 +30,7 @@ TMap<FString, FBridgeSchemaProperty> UInspectMetaSoundTool::GetInputSchema() con
 
 TArray<FString> UInspectMetaSoundTool::GetRequiredParams() const
 {
-	return {TEXT("asset_path")};
+	return { TEXT("asset_path") };
 }
 
 FBridgeToolResult UInspectMetaSoundTool::Execute(
@@ -43,7 +43,7 @@ FBridgeToolResult UInspectMetaSoundTool::Execute(
 		return FBridgeToolResult::Error(TEXT("Missing required parameter: asset_path"));
 	}
 
-	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+	IAssetRegistry& AssetRegistry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
 	const FAssetData AssetData = AssetRegistry.GetAssetByObjectPath(FSoftObjectPath(AssetPath));
 	UObject* AssetObject = AssetData.IsValid() ? AssetData.GetAsset() : nullptr;
 	if (!AssetObject)

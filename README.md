@@ -14,7 +14,7 @@
 Built and maintained by a solo developer. [Support this project](#support-this-project) if it saves you time.
 
 
-**Control Unreal Engine 5 from your AI agent or terminal.** soft-ue-cli gives any LLM -- via **MCP server** or **CLI** -- 120+ commands and tools to spawn actors, edit Blueprints, inspect materials, build UMG screens, read and patch UE config files, run Play-In-Editor sessions, capture token-efficient screenshots, profile performance, and inspect local Unreal assets.
+**Control Unreal Engine 5 from your AI agent or terminal.** soft-ue-cli gives any LLM -- via **MCP server** or **CLI** -- 120+ commands and tools to spawn actors, edit Blueprints, inspect materials and MetaSounds, build UMG screens, read and patch UE config files, run Play-In-Editor sessions, capture token-efficient screenshots, profile performance, and inspect local Unreal assets.
 
 Two connection paths. One package. Bridge tools when Unreal is running, offline tools when it is not, and a command catalog that tells agents which surface is canonical, which removed flat names map to which canonical tools, and which optional Unreal plugins are required.
 
@@ -42,8 +42,8 @@ soft-ue-cli  (CLI or MCP server)
 
 - **MCP server + CLI in one package** -- use as an MCP server (`mcp-serve`) for Claude Desktop, Cursor, Windsurf, and other MCP clients, **or** as a standard CLI for Claude Code, shell scripts, and CI/CD. Same 120+ tool surface either way.
 - **AI-native UE automation** -- purpose-built so LLM agents can read, modify, and test Unreal Engine projects without a human touching the editor.
-- **120+ commands and tools** covering actors, Blueprints, materials, StateTrees, Mutable/CustomizableObject, widgets, assets, config files, PIE sessions, profiling, screenshots, and local Unreal file analysis.
-- **Canonical command families only** -- UMG, capture, Mutable, StateTree, animation, asset, and Blueprint workflows are grouped under `umg`, `capture`, `mutable`, `statetree`, `anim`, `asset`, and `blueprint`. Removed flat names are discoverable with `commands --include-removed`.
+- **120+ commands and tools** covering actors, Blueprints, materials, MetaSounds, StateTrees, Mutable/CustomizableObject, widgets, assets, config files, PIE sessions, profiling, screenshots, and local Unreal file analysis.
+- **Canonical command families only** -- UMG, capture, Mutable, StateTree, MetaSound, animation, asset, and Blueprint workflows are grouped under `umg`, `capture`, `mutable`, `statetree`, `metasound`, `anim`, `asset`, and `blueprint`. Removed flat names are discoverable with `commands --include-removed`.
 - **Plugin-aware metadata** -- `soft-ue-cli commands --json` reports bridge/editor/PIE requirements plus optional Unreal plugin dependencies, and bridge tools return structured `plugin_unavailable` errors when a plugin is missing.
 - **Token-aware visual feedback** -- viewport and screenshot capture can resize output by scale, width, or height and can emit color, grayscale, or monochrome images for lower LLM token cost.
 - **Online + offline workflows** -- bridge-backed UE mutation and runtime inspection when Unreal is open, plus direct local inspection, diff, and config tooling when it is not.
@@ -59,7 +59,7 @@ soft-ue-cli  (CLI or MCP server)
 Recent releases moved soft-ue-cli from a flat list of one-off bridge calls toward a discoverable automation surface for agents:
 
 - `commands` is the source of truth for command status, replacement names, runtime requirements, optional plugin requirements, and examples.
-- Canonical families (`umg`, `capture`, `mutable`, `statetree`, `anim`, `asset`, `blueprint`) are now the supported public command surface. Removed flat commands are listed only as migration metadata via `commands --include-removed`.
+- Canonical families (`umg`, `capture`, `mutable`, `statetree`, `metasound`, `anim`, `asset`, `blueprint`) are now the supported public command surface. Removed flat commands are listed only as migration metadata via `commands --include-removed`.
 - UMG and screenshot workflows now support the full agent loop: author, inspect, run PIE, capture visual evidence, compare layout, and keep image payloads small.
 - Optional plugin workflows are expected to compile cleanly without those plugins installed, then fail at runtime with actionable `plugin_unavailable` diagnostics.
 - CLI/Python/bridge probing is treated as the exploration layer; durable gameplay regressions should move into project-native C++ Automation Specs.
@@ -241,7 +241,7 @@ The JSON output marks each command as canonical, removed, or deprecated, and inc
 }
 ```
 
-UMG, capture, Mutable, StateTree, animation, asset, and Blueprint workflows now use canonical command families. Old one-off command names were removed from the public parser; use this migration table or `soft-ue-cli commands --include-removed --json` when updating scripts:
+UMG, capture, Mutable, StateTree, MetaSound, animation, asset, and Blueprint workflows now use canonical command families. Old one-off command names were removed from the public parser; use this migration table or `soft-ue-cli commands --include-removed --json` when updating scripts:
 
 | Removed flat command | Migrate to |
 |----------------------|------------|
@@ -314,7 +314,7 @@ UMG, capture, Mutable, StateTree, animation, asset, and Blueprint workflows now 
 
 ## Complete Command Reference
 
-Canonical commands are grouped under command families such as `blueprint`, `asset`, `mutable`, `anim`, `capture`, `umg`, and `statetree`. Run `soft-ue-cli <family> --help` or `soft-ue-cli <family> <subcommand> --help` for detailed options.
+Canonical commands are grouped under command families such as `blueprint`, `asset`, `mutable`, `metasound`, `anim`, `capture`, `umg`, and `statetree`. Run `soft-ue-cli <family> --help` or `soft-ue-cli <family> <subcommand> --help` for detailed options.
 
 ### Setup and Diagnostics
 
@@ -399,6 +399,8 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 |---------|-------------|
 | `query-material` | Inspect Material, Material Instance, or Material Function -- parameters, nodes, connections, `--parent-chain` |
 | `query-mpc` | Read or write Material Parameter Collection scalar/vector values |
+| `metasound` | Canonical MetaSound inspection command family |
+| `metasound inspect` | Read a MetaSound Source or Patch graph -- interface inputs/outputs, nodes, edges, and input defaults |
 
 ### Class and Type Inspection
 
@@ -420,6 +422,8 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 | `anim sync-marker compare` | Compare sync marker names and timing across AnimSequence assets |
 | `anim sync-marker add` | Add an AuthoredSyncMarker to an AnimSequence asset |
 | `anim sync-marker remove` | Remove AuthoredSyncMarkers from an AnimSequence asset |
+| `anim retarget` | Canonical animation retarget and reference repointing command family |
+| `anim retarget repoint-references` | Safely repoint AnimSequence references inside AnimMontage and BlendSpace assets |
 | `inspect-pawn-possession` | Inspect controller/pawn links, AI auto-possession, and hidden state in a running world |
 | `trigger-input` | Send input events to a running game (PIE or packaged build) |
 

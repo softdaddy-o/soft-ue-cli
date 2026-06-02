@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -244,7 +245,7 @@ def cmd_commands(args: argparse.Namespace) -> None:
         )
 
 
-def _run_tool(tool_name: str, arguments: dict) -> dict:
+def _run_tool(tool_name: str, arguments: dict, *, timeout: float | None = None) -> dict:
     """Call a bridge tool, handle errors with nudge hints, and track streak.
 
     On success: records the daily streak, prints testimonial nudge if earned, returns result.
@@ -253,7 +254,10 @@ def _run_tool(tool_name: str, arguments: dict) -> dict:
     from .errors import BridgeError, ErrorKind, format_bug_nudge
 
     try:
-        result = call_tool(tool_name, arguments)
+        if timeout is None:
+            result = call_tool(tool_name, arguments)
+        else:
+            result = call_tool(tool_name, arguments, timeout=timeout)
     except BridgeError as exc:
         print(f"error: {exc.message}", file=sys.stderr)
         if exc.kind == ErrorKind.UNEXPECTED:
@@ -293,6 +297,21 @@ def _parse_int_list(csv: str) -> list[int]:
         return [int(x) for x in csv.split(",")]
     except ValueError:
         print(f"error: expected comma-separated integers, got '{csv}'", file=sys.stderr)
+        sys.exit(1)
+
+
+def _parse_float_list_arg(value: object, flag: str, length: int) -> list[float]:
+    if isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        parts = str(value).split(",")
+    if len(parts) != length:
+        print(f"error: {flag} must contain {length} comma-separated numbers", file=sys.stderr)
+        sys.exit(1)
+    try:
+        return [float(part) for part in parts]
+    except (TypeError, ValueError):
+        print(f"error: {flag} must contain numeric values", file=sys.stderr)
         sys.exit(1)
 
 
@@ -437,6 +456,87 @@ def _bridge_health_is_ready(health: dict) -> bool:
     return "error" not in health and bool(health)
 
 
+_BLOCKING_EDITOR_MODAL_TITLES = (
+    "Restore Packages",
+)
+
+
+def _detect_blocking_editor_modal() -> dict | None:
+    """Best-effort Unreal Editor modal detection that does not depend on the bridge."""
+    if os.name != "nt":
+        return None
+
+    title_pattern = "|".join(re.escape(title) for title in _BLOCKING_EDITOR_MODAL_TITLES)
+    script = (
+        "$ErrorActionPreference = 'SilentlyContinue'; "
+        "$p = Get-Process UnrealEditor* | "
+        f"Where-Object {{ $_.MainWindowTitle -match '{title_pattern}' }} | "
+        "Select-Object -First 1 Id,ProcessName,MainWindowTitle; "
+        "if ($p) { $p | ConvertTo-Json -Compress }"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    payload = (completed.stdout or "").strip()
+    if completed.returncode != 0 or not payload:
+        return None
+
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    if not isinstance(data, dict):
+        return None
+
+    title = str(data.get("MainWindowTitle") or "")
+    if not title:
+        return None
+
+    return {
+        "kind": "editor_startup_modal",
+        "title": title,
+        "process_id": data.get("Id"),
+        "process_name": data.get("ProcessName"),
+        "recovery_hint": "Close the editor, clear the Unreal package restore marker, then relaunch.",
+    }
+
+
+def _bridge_readiness_diagnostics(health: dict, *, modal: dict | None = None) -> dict:
+    error = str(health.get("error", ""))
+    lifecycle_state = "bridge_not_ready"
+    error_code = "bridge_not_ready"
+    if modal:
+        lifecycle_state = "editor_blocked_by_modal"
+        error_code = "editor_startup_modal_blocked"
+    elif "404" in error:
+        lifecycle_state = "stale_endpoint_or_wrong_service"
+        error_code = "http_404_not_bridge"
+    elif "timed out" in error.lower() or "timeout" in error.lower():
+        lifecycle_state = "bridge_health_timeout"
+        error_code = "bridge_health_timeout"
+    elif "connect" in error.lower() or "refused" in error.lower():
+        lifecycle_state = "bridge_unreachable"
+        error_code = "bridge_unreachable"
+
+    result = {
+        "lifecycle_state": lifecycle_state,
+        "error_code": error_code,
+        "last_health": health,
+    }
+    if modal:
+        result["modal"] = modal
+    return result
+
+
 def cmd_wait_for_ready(args: argparse.Namespace) -> None:
     timeout = float(getattr(args, "timeout", 120.0) or 120.0)
     poll_interval = float(getattr(args, "poll_interval", 2.0) or 2.0)
@@ -449,6 +549,7 @@ def cmd_wait_for_ready(args: argparse.Namespace) -> None:
     attempts = 0
     last_error = ""
     last_health: dict = {}
+    last_diagnostics: dict = {}
 
     while True:
         attempts += 1
@@ -468,20 +569,28 @@ def cmd_wait_for_ready(args: argparse.Namespace) -> None:
             return
 
         last_error = str(health.get("error", "bridge not ready"))
+        modal = _detect_blocking_editor_modal()
+        last_diagnostics = _bridge_readiness_diagnostics(health, modal=modal)
         elapsed = time.monotonic() - start
         if elapsed >= timeout:
+            lifecycle_state = str(last_diagnostics.get("lifecycle_state") or "timeout")
+            status = "editor_blocked_by_modal" if lifecycle_state == "editor_blocked_by_modal" else "timeout"
             print(f"error: bridge did not become ready within {timeout:g}s at {server_url}", file=sys.stderr)
             if last_error:
                 print(f"last error: {last_error}", file=sys.stderr)
+            if modal:
+                print(f"blocking editor modal: {modal.get('title')}", file=sys.stderr)
+                print(f"recovery: {modal.get('recovery_hint')}", file=sys.stderr)
             _print_json({
                 "success": False,
-                "status": "timeout",
+                "status": status,
                 "server_url": server_url,
                 "timeout_seconds": timeout,
                 "elapsed_seconds": round(elapsed, 1),
                 "attempts": attempts,
                 "last_error": last_error,
                 "last_health": last_health,
+                "diagnostics": last_diagnostics,
             })
             sys.exit(1)
 
@@ -1201,6 +1310,12 @@ def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
         arguments["skip_relaunch"] = True
     if args.startup_marker_timeout is not None:
         arguments["startup_marker_timeout"] = args.startup_marker_timeout
+    if args.compiler:
+        arguments["compiler"] = args.compiler
+    if args.compiler_version:
+        arguments["compiler_version"] = args.compiler_version
+    if args.toolchain:
+        arguments["toolchain"] = args.toolchain
     result = _run_tool("build-and-relaunch", arguments)
 
     if not args.wait:
@@ -1356,6 +1471,12 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
         "-WaitMutex",
         "-FromMsBuild",
     ]
+    compiler = getattr(args, "compiler", None)
+    compiler_version = getattr(args, "compiler_version", None) or getattr(args, "toolchain", None)
+    if compiler:
+        command.append(f"-Compiler={compiler}")
+    if compiler_version:
+        command.append(f"-CompilerVersion={compiler_version}")
 
     try:
         completed = subprocess.run(
@@ -1406,6 +1527,8 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
             "project": str(project_path),
             "build_command": command,
             "build_output": build_output,
+            "compiler": compiler,
+            "compiler_version": compiler_version,
             "message": "Offline build completed successfully (editor not relaunched).",
         }
 
@@ -1438,6 +1561,8 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
             "build_command": command,
             "launch_command": launch_command,
             "build_output": build_output,
+            "compiler": compiler,
+            "compiler_version": compiler_version,
             "message": "Offline build succeeded and editor launch was started.",
         }
 
@@ -1454,6 +1579,8 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
                 "build_command": command,
                 "launch_command": launch_command,
                 "build_output": build_output,
+                "compiler": compiler,
+                "compiler_version": compiler_version,
                 "ready_time_seconds": round(time.monotonic() - start, 1),
                 "health": last_health,
                 "message": "Offline build succeeded, editor launched, and bridge is ready.",
@@ -1468,6 +1595,8 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
         "build_command": command,
         "launch_command": launch_command,
         "build_output": build_output,
+        "compiler": compiler,
+        "compiler_version": compiler_version,
         "last_health": last_health,
         "message": f"Editor launched but bridge did not become ready within {relaunch_timeout:.0f}s.",
     }
@@ -1501,6 +1630,15 @@ def _build_and_relaunch_status_is_terminal(status: dict) -> bool:
     return "complete" not in status and not stage and "success" in status
 
 
+def _read_build_status_file(status_path: Path) -> dict | None:
+    if not status_path.exists():
+        return None
+    try:
+        return json.loads(status_path.read_text(encoding="utf-8-sig").strip())
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+
+
 def _read_text_tail(path: Path, *, max_chars: int = 4000) -> str:
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
@@ -1531,11 +1669,9 @@ def _wait_for_build_and_relaunch(
     relaunch_timeout: float = 120.0,
 ) -> None:
     """Poll for build completion and (optionally) editor relaunch."""
-    import json as _json
     import time
     from pathlib import Path
 
-    from .client import health_check
     from .startup_recovery import StartupRecoveryBlocked, handle_startup_recovery_prompt
 
     status_path = Path(initiation_result.get("build_status_path", ""))
@@ -1556,7 +1692,24 @@ def _wait_for_build_and_relaunch(
     last_progress_at = start
     while True:
         now = time.monotonic()
+        latest_status = _read_build_status_file(status_path)
+        if latest_status is not None:
+            build_status = latest_status
+            stage = _build_and_relaunch_stage(build_status)
+            message = build_status.get("message")
+            progress_key = (stage, message if isinstance(message, str) else "", build_status.get("exit_code"))
+            if progress_key != last_progress_key or now - last_progress_at >= progress_interval:
+                print(_format_build_and_relaunch_progress(build_status), file=sys.stderr)
+                last_progress_key = progress_key
+                last_progress_at = now
+            if _build_and_relaunch_status_is_terminal(build_status):
+                break
         if now - start >= build_timeout:
+            latest_status = _read_build_status_file(status_path)
+            if latest_status is not None:
+                build_status = latest_status
+                if _build_and_relaunch_status_is_terminal(build_status):
+                    break
             last_stage = _build_and_relaunch_stage(build_status) or (
                 "worker_status_missing" if not status_path.exists() else "unknown"
             )
@@ -1588,22 +1741,6 @@ def _wait_for_build_and_relaunch(
                 result["build_output_tail"] = log_tail
             _print_json(result)
             sys.exit(1)
-
-        if status_path.exists():
-            try:
-                build_status = _json.loads(status_path.read_text(encoding="utf-8-sig").strip())
-            except (_json.JSONDecodeError, OSError, UnicodeDecodeError):
-                time.sleep(poll_interval)
-                continue
-            stage = _build_and_relaunch_stage(build_status)
-            message = build_status.get("message")
-            progress_key = (stage, message if isinstance(message, str) else "", build_status.get("exit_code"))
-            if progress_key != last_progress_key or now - last_progress_at >= progress_interval:
-                print(_format_build_and_relaunch_progress(build_status), file=sys.stderr)
-                last_progress_key = progress_key
-                last_progress_at = now
-            if _build_and_relaunch_status_is_terminal(build_status):
-                break
         elif now - last_progress_at >= progress_interval:
             print("Build status: waiting for worker status file...", file=sys.stderr)
             last_progress_at = now
@@ -1659,9 +1796,14 @@ def _wait_for_build_and_relaunch(
     # --- Phase 2: wait for editor to come back (bridge health) ---
     print("Waiting for editor to relaunch...", file=sys.stderr)
     relaunch_start = time.monotonic()
+    last_health: dict = {}
+    last_diagnostics: dict = {}
     while time.monotonic() - relaunch_start < relaunch_timeout:
         time.sleep(poll_interval)
         hc = health_check()
+        last_health = hc
+        modal = _detect_blocking_editor_modal()
+        last_diagnostics = _bridge_readiness_diagnostics(hc, modal=modal)
         if "error" not in hc and hc.get("running"):
             total = time.monotonic() - start
             _print_json({
@@ -1689,11 +1831,16 @@ def _wait_for_build_and_relaunch(
             sys.exit(1)
 
     total = time.monotonic() - start
+    final_status = "build_succeeded_relaunch_pending"
+    if last_diagnostics.get("lifecycle_state") == "editor_blocked_by_modal":
+        final_status = "build_succeeded_relaunch_blocked"
     _print_json({
         "success": True,
-        "status": "build_succeeded_relaunch_pending",
+        "status": final_status,
         "build_time_seconds": round(build_elapsed, 1),
         "total_time_seconds": round(total, 1),
+        "last_health": last_health,
+        "diagnostics": last_diagnostics,
         "message": f"Build succeeded but editor did not respond within {relaunch_timeout:.0f}s. It may still be loading.",
     })
 
@@ -1716,7 +1863,32 @@ def cmd_reload_bridge_module(args: argparse.Namespace) -> None:
     _print_json(_run_tool("reload-bridge-module", arguments))
 
 
-def cmd_capture_screenshot(args: argparse.Namespace) -> None:
+def _materialize_capture_output(result: dict, output_file: str | None) -> dict:
+    if not output_file:
+        return result
+
+    target = Path(output_file)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    bridge_path = result.get("file_path")
+    if not bridge_path:
+        print("error: --output-file requires file output from capture-screenshot", file=sys.stderr)
+        sys.exit(1)
+
+    source = Path(str(bridge_path))
+    if not source.exists():
+        print(f"error: bridge screenshot file not found: {source}", file=sys.stderr)
+        sys.exit(1)
+
+    if source.resolve() != target.resolve():
+        shutil.copyfile(source, target)
+    updated = dict(result)
+    updated["bridge_file_path"] = str(source)
+    updated["file_path"] = str(target)
+    updated["output_file"] = str(target)
+    return updated
+
+
+def _capture_screenshot_result(args: argparse.Namespace) -> dict:
     arguments: dict = {"mode": args.mode}
     if args.window_name:
         arguments["window_name"] = args.window_name
@@ -1728,6 +1900,8 @@ def cmd_capture_screenshot(args: argparse.Namespace) -> None:
         arguments["format"] = args.format
     if args.output:
         arguments["output"] = args.output
+    if getattr(args, "output_file", None):
+        arguments["output"] = "file"
     if args.scale is not None:
         arguments["scale"] = args.scale
     if args.width is not None:
@@ -1738,7 +1912,12 @@ def cmd_capture_screenshot(args: argparse.Namespace) -> None:
         arguments["color_mode"] = args.color_mode
     if args.cleanup_previous:
         arguments["cleanup_previous"] = True
-    _print_json(_run_tool("capture-screenshot", arguments))
+    result = _run_tool("capture-screenshot", arguments)
+    return _materialize_capture_output(result, getattr(args, "output_file", None))
+
+
+def cmd_capture_screenshot(args: argparse.Namespace) -> None:
+    _print_json(_capture_screenshot_result(args))
 
 
 def cmd_capture_pie_screenshot(args: argparse.Namespace) -> None:
@@ -1830,9 +2009,56 @@ def _compare_umg_screenshot_result(
         sys.exit(1)
 
 
+def _preview_handle_to_root_widget(preview_handle: str, pie_index: int | None) -> str:
+    arguments: dict = {}
+    if pie_index is not None:
+        arguments["pie_index"] = pie_index
+    result = _run_tool("umg-preview-list", arguments)
+    previews = result.get("previews") or []
+    for preview in previews:
+        if isinstance(preview, dict) and preview.get("preview_handle") == preview_handle:
+            widget_name = preview.get("widget_name")
+            if widget_name:
+                return str(widget_name)
+            break
+    print(
+        f"error: preview handle not found or missing widget_name: {preview_handle}. "
+        "Run `soft-ue-cli umg preview list` to inspect active previews.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _augment_runtime_layout_metadata(
+    layout: dict,
+    raw: dict,
+    *,
+    preview_handle: str | None,
+    root_widget: str | None,
+    canvas_size: list[int] | None,
+) -> dict:
+    layout = dict(layout)
+    root_widgets = raw.get("root_widgets") if isinstance(raw, dict) else None
+    root_node = next((node for node in root_widgets if isinstance(node, dict)), None) if isinstance(root_widgets, list) else None
+    if preview_handle:
+        layout["preview_handle"] = preview_handle
+    if root_widget:
+        layout["runtime_root_widget"] = root_widget
+    layout["coordinate_space"] = {
+        "canvas_size": layout.get("canvas_size") or canvas_size,
+        "normalization": "bounds divided by canvas_size",
+        "root_geometry": root_node.get("geometry") if isinstance(root_node, dict) else None,
+        "world_name": raw.get("world_name") if isinstance(raw, dict) else None,
+        "pie_index": raw.get("pie_index") if isinstance(raw, dict) else None,
+    }
+    return layout
+
+
 def cmd_extract_umg_layout(args: argparse.Namespace) -> None:
     from .umg_layout import extract_concept_image_layout, normalize_figma_layout, normalize_layout
 
+    preview_handle = getattr(args, "preview_handle", None)
+    runtime_root_widget: str | None = None
     if args.source == "designer":
         if not args.asset_path:
             print("error: --asset-path is required for designer layout extraction", file=sys.stderr)
@@ -1846,9 +2072,16 @@ def cmd_extract_umg_layout(args: argparse.Namespace) -> None:
             },
         )
     elif args.source == "runtime":
+        if preview_handle and args.root_widget:
+            print("error: use either --preview-handle or --root-widget, not both", file=sys.stderr)
+            sys.exit(1)
+        if preview_handle:
+            runtime_root_widget = _preview_handle_to_root_widget(preview_handle, args.pie_index)
+        elif args.root_widget:
+            runtime_root_widget = args.root_widget
         tool_args: dict = {"pie_index": args.pie_index}
-        if args.root_widget:
-            tool_args["root_widget"] = args.root_widget
+        if runtime_root_widget:
+            tool_args["root_widget"] = runtime_root_widget
         if getattr(args, "full_geometry", False):
             tool_args["include_geometry"] = True
             tool_args["include_slate"] = True
@@ -1883,6 +2116,14 @@ def cmd_extract_umg_layout(args: argparse.Namespace) -> None:
 
     canvas_size = _parse_int_list(args.canvas_size) if args.canvas_size else None
     result = normalize_layout(raw, canvas_size=canvas_size)
+    if args.source == "runtime":
+        result = _augment_runtime_layout_metadata(
+            result,
+            raw,
+            preview_handle=preview_handle,
+            root_widget=runtime_root_widget,
+            canvas_size=canvas_size,
+        )
     if args.output_file:
         Path(args.output_file).write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
         result["output_file"] = str(args.output_file)
@@ -2098,13 +2339,19 @@ def cmd_inspect_pawn_possession(args: argparse.Namespace) -> None:
 
 def cmd_pie_tick(args: argparse.Namespace) -> None:
     arguments: dict = {"frames": args.frames}
+    tool_timeout = args.timeout if args.timeout is not None else 30.0
     if args.delta is not None:
         arguments["delta"] = args.delta
     if args.no_auto_start:
         arguments["auto_start"] = False
     if args.map:
         arguments["map"] = args.map
-    _print_json(_run_tool("pie-tick", arguments))
+    if args.timeout is not None:
+        arguments["timeout"] = args.timeout
+    result = _run_tool("pie-tick", arguments, timeout=tool_timeout + 60.0)
+    _print_json(result)
+    if result.get("success") is False:
+        sys.exit(1)
 
 
 def cmd_inspect_anim_instance(args: argparse.Namespace) -> None:
@@ -2164,6 +2411,47 @@ def cmd_remove_sync_marker(args: argparse.Namespace) -> None:
     if args.checkout:
         arguments["checkout"] = True
     _print_json(_run_tool("remove-sync-marker", arguments))
+
+
+def _parse_anim_repoint_map(values: list[str]) -> dict[str, str]:
+    replacement_map: dict[str, str] = {}
+    for value in values:
+        if "=" in value:
+            old_path, new_path = value.split("=", 1)
+        elif ":" in value:
+            old_path, new_path = value.split(":", 1)
+        else:
+            print(f"error: --map must be OLD=NEW or OLD:NEW, got '{value}'", file=sys.stderr)
+            sys.exit(1)
+        old_path = _fix_msys_asset_path(old_path.strip())
+        new_path = _fix_msys_asset_path(new_path.strip())
+        if not old_path or not new_path:
+            print(f"error: --map must include both OLD and NEW asset paths, got '{value}'", file=sys.stderr)
+            sys.exit(1)
+        replacement_map[old_path] = new_path
+    return replacement_map
+
+
+def cmd_anim_repoint_references(args: argparse.Namespace) -> None:
+    if hasattr(args, "replacement_map") and args.replacement_map is not None:
+        replacement_map = {
+            _fix_msys_asset_path(str(old_path)): _fix_msys_asset_path(str(new_path))
+            for old_path, new_path in dict(args.replacement_map).items()
+        }
+    else:
+        replacement_map = _parse_anim_repoint_map(args.replacements)
+
+    arguments: dict = {
+        "asset_paths": [_fix_msys_asset_path(path) for path in args.asset_paths],
+        "replacement_map": replacement_map,
+    }
+    if args.target_skeleton:
+        arguments["target_skeleton"] = _fix_msys_asset_path(args.target_skeleton)
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("anim-repoint-references", arguments))
 
 
 def cmd_trigger_input(args: argparse.Namespace) -> None:
@@ -2577,6 +2865,16 @@ def _run_umg_preview_tool(args: argparse.Namespace, tool_name: str) -> None:
         arguments["pie_index"] = args.pie_index
     if getattr(args, "viewport_z_order", None) is not None:
         arguments["viewport_z_order"] = args.viewport_z_order
+    if getattr(args, "fullscreen", False):
+        arguments["fullscreen"] = True
+    if getattr(args, "viewport_anchors", None) is not None:
+        arguments["viewport_anchors"] = _parse_float_list_arg(args.viewport_anchors, "--viewport-anchors", 4)
+    if getattr(args, "viewport_position", None) is not None:
+        arguments["viewport_position"] = _parse_float_list_arg(args.viewport_position, "--viewport-position", 2)
+    if getattr(args, "viewport_size", None) is not None:
+        arguments["viewport_size"] = _parse_float_list_arg(args.viewport_size, "--viewport-size", 2)
+    if getattr(args, "viewport_alignment", None) is not None:
+        arguments["viewport_alignment"] = _parse_float_list_arg(args.viewport_alignment, "--viewport-alignment", 2)
     if getattr(args, "capture_after", False):
         arguments["capture_after"] = True
     _print_json(_run_tool(tool_name, arguments))
@@ -2592,6 +2890,184 @@ def cmd_umg_verify_text(args: argparse.Namespace) -> None:
 
 def cmd_umg_verify_navigation(args: argparse.Namespace) -> None:
     _run_verify_umg_workflow_from_namespace(args)
+
+
+def _read_json_file(path: str | Path) -> object:
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
+
+
+def _write_json_file(path: str | Path, payload: object) -> str:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return str(target)
+
+
+def _ensure_pie_for_workflow(args: argparse.Namespace) -> dict:
+    status = _run_tool("pie-session", {"action": "status"}, timeout=args.workflow_timeout)
+    state = str(status.get("state") or "").lower()
+    if state in {"running", "playing", "active", "started"}:
+        return status
+    if getattr(args, "no_start_pie", False):
+        print("error: no PIE session is running. Re-run without --no-start-pie or start PIE first.", file=sys.stderr)
+        sys.exit(1)
+    return _run_tool(
+        "pie-session",
+        {"action": "start", "timeout": args.workflow_timeout, "blueprint_error_action": "report"},
+        timeout=args.workflow_timeout,
+    )
+
+
+def _copy_workflow_capture(result: dict, screenshot_path: Path) -> dict:
+    copied = _materialize_capture_output(result, str(screenshot_path))
+    if "file_path" not in copied:
+        print("error: capture-screenshot did not return a file_path", file=sys.stderr)
+        sys.exit(1)
+    return copied
+
+
+def cmd_umg_workflow_iterate_layout(args: argparse.Namespace) -> None:
+    from .umg_layout import compare_layouts, fit_layout_to_spec, normalize_layout
+
+    max_iterations = max(1, int(args.max_iterations))
+    if max_iterations > 1 and not args.apply:
+        max_iterations = 1
+    if args.apply and not args.asset_path:
+        print("error: --asset-path is required when --apply is used", file=sys.stderr)
+        sys.exit(1)
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    concept_layout = _read_json_file(args.concept_layout)
+    current_spec_path = Path(args.spec)
+    canvas_size = _parse_int_list(args.canvas_size) if args.canvas_size else None
+    pie_result = _ensure_pie_for_workflow(args)
+    iterations: list[dict] = []
+
+    for index in range(1, max_iterations + 1):
+        prefix = f"iteration_{index:02d}"
+        current_spec = _read_json_file(current_spec_path)
+        apply_result = None
+        if args.apply:
+            apply_arguments = {
+                "asset_path": args.asset_path,
+                "spec": current_spec,
+                "replace": True,
+            }
+            if args.compile:
+                apply_arguments["compile"] = True
+            if args.save:
+                apply_arguments["save"] = True
+            apply_result = _run_tool("apply-widget-tree", apply_arguments, timeout=args.workflow_timeout)
+
+        preview_args = {
+            "widget_class": args.widget_class,
+            "pie_index": args.pie_index,
+        }
+        if args.viewport_z_order is not None:
+            preview_args["viewport_z_order"] = args.viewport_z_order
+        if args.capture:
+            preview_args["capture_after"] = True
+        preview_result = _run_tool("umg-preview-replace", preview_args, timeout=args.workflow_timeout)
+        preview_handle = preview_result.get("preview_handle")
+        root_widget = preview_result.get("widget_name")
+        if not preview_handle or not root_widget:
+            print("error: umg preview replace did not return preview_handle and widget_name", file=sys.stderr)
+            sys.exit(1)
+
+        screenshot_path = None
+        capture_result = None
+        if args.capture:
+            screenshot_path = output_dir / f"{prefix}_screenshot.png"
+            capture_result = _copy_workflow_capture(
+                _run_tool(
+                    "capture-screenshot",
+                    {"mode": "pie-window", "output": "file"},
+                    timeout=args.workflow_timeout,
+                ),
+                screenshot_path,
+            )
+
+        raw_runtime = _run_tool(
+            "inspect-runtime-widgets",
+            {
+                "pie_index": args.pie_index,
+                "root_widget": str(root_widget),
+                "include_geometry": True,
+                "include_slate": True,
+            },
+            timeout=args.workflow_timeout,
+        )
+        runtime_layout = normalize_layout(raw_runtime, canvas_size=canvas_size)
+        runtime_layout = _augment_runtime_layout_metadata(
+            runtime_layout,
+            raw_runtime,
+            preview_handle=str(preview_handle),
+            root_widget=str(root_widget),
+            canvas_size=canvas_size,
+        )
+        if capture_result:
+            runtime_layout["capture_image"] = {
+                "file_path": capture_result.get("file_path"),
+                "width": capture_result.get("width"),
+                "height": capture_result.get("height"),
+            }
+
+        runtime_layout_path = output_dir / f"{prefix}_actual_runtime_layout.json"
+        comparison_path = output_dir / f"{prefix}_comparison_report.json"
+        corrected_spec_path = output_dir / f"{prefix}_corrected_spec.json"
+        _write_json_file(runtime_layout_path, runtime_layout)
+
+        comparison = compare_layouts(
+            concept_layout,
+            runtime_layout,
+            bounds_tolerance=args.bounds_tolerance,
+            opacity_tolerance=args.opacity_tolerance,
+            subset=args.subset,
+        )
+        _write_json_file(comparison_path, comparison)
+
+        fit_result = fit_layout_to_spec(concept_layout, runtime_layout, current_spec)
+        _write_json_file(corrected_spec_path, fit_result["corrected_spec"])
+
+        record = {
+            "index": index,
+            "success": bool(comparison.get("success")),
+            "preview_handle": str(preview_handle),
+            "runtime_root_widget": str(root_widget),
+            "runtime_layout": str(runtime_layout_path),
+            "comparison_report": str(comparison_path),
+            "corrected_spec": str(corrected_spec_path),
+            "screenshot": str(screenshot_path) if screenshot_path else None,
+            "apply_result": apply_result,
+            "preview_result": preview_result,
+            "capture_result": capture_result,
+            "comparison_summary": comparison.get("summary", {}),
+            "fit_corrections": fit_result.get("corrections", []),
+        }
+        iterations.append(record)
+        current_spec_path = corrected_spec_path
+        if record["success"]:
+            break
+
+    manifest = {
+        "schema": "soft-ue.umg-layout-iteration.v1",
+        "success": bool(iterations and iterations[-1]["success"]),
+        "asset_path": args.asset_path,
+        "widget_class": args.widget_class,
+        "concept_layout": str(Path(args.concept_layout)),
+        "initial_spec": str(Path(args.spec)),
+        "output_dir": str(output_dir),
+        "requested_max_iterations": int(args.max_iterations),
+        "executed_iterations": len(iterations),
+        "pie_result": pie_result,
+        "iterations": iterations,
+    }
+    manifest_path = output_dir / "iteration_manifest.json"
+    _write_json_file(manifest_path, manifest)
+    response = dict(manifest)
+    response["manifest_file"] = str(manifest_path)
+    _print_json(response)
 
 
 def cmd_umg_workflow_run(args: argparse.Namespace) -> None:
@@ -2658,8 +3134,9 @@ def cmd_add_graph_node(args: argparse.Namespace) -> None:
     }
     if args.graph_name:
         arguments["graph_name"] = args.graph_name
-    if args.position:
-        arguments["position"] = _parse_int_list(args.position)
+    position = _parse_optional_int_list(getattr(args, "position", None))
+    if position is not None:
+        arguments["position"] = position
     if args.no_auto_position:
         arguments["auto_position"] = False
     if args.connect_to_node:
@@ -2680,8 +3157,9 @@ def cmd_add_anim_state_machine(args: argparse.Namespace) -> None:
         arguments["graph_name"] = args.graph_name
     if args.default_state:
         arguments["default_state"] = args.default_state
-    if args.position:
-        arguments["position"] = _parse_int_list(args.position)
+    position = _parse_optional_int_list(getattr(args, "position", None))
+    if position is not None:
+        arguments["position"] = position
     _print_json(_run_tool("add-anim-state-machine", arguments))
 
 
@@ -2693,8 +3171,9 @@ def cmd_add_anim_state(args: argparse.Namespace) -> None:
     }
     if args.entry:
         arguments["entry"] = True
-    if args.position:
-        arguments["position"] = _parse_int_list(args.position)
+    position = _parse_optional_int_list(getattr(args, "position", None))
+    if position is not None:
+        arguments["position"] = position
     _print_json(_run_tool("add-anim-state", arguments))
 
 
@@ -2768,7 +3247,7 @@ def cmd_disconnect_graph_pin(args: argparse.Namespace) -> None:
 def cmd_set_node_position(args: argparse.Namespace) -> None:
     arguments: dict = {
         "asset_path": args.asset_path,
-        "positions": _parse_json_arg(args.positions, "--positions"),
+        "positions": _parse_json_array_arg(args.positions, "--positions"),
     }
     if args.graph_name:
         arguments["graph_name"] = args.graph_name
@@ -3544,6 +4023,33 @@ def cmd_rewind_save(args: argparse.Namespace) -> None:
     _print_json(_run_tool("rewind-save", arguments))
 
 
+def cmd_run_automation_tests(args: argparse.Namespace) -> None:
+    arguments: dict = {}
+    if args.test:
+        arguments["test"] = args.test
+    if args.tests:
+        arguments["tests"] = [t for t in args.tests.split(",") if t]
+    if args.filter:
+        arguments["filter"] = args.filter
+    if args.flags:
+        arguments["flags"] = args.flags
+    if args.timeout is not None:
+        arguments["timeout"] = args.timeout
+    if args.include_developer:
+        arguments["include_developer"] = True
+    if args.list_only:
+        arguments["list_only"] = True
+    if args.max_tests is not None:
+        arguments["max_tests"] = args.max_tests
+
+    request_timeout = args.request_timeout
+    if request_timeout is None and args.timeout is not None:
+        test_count_hint = args.max_tests or max(1, len(arguments.get("tests", [])) or 1)
+        request_timeout = args.timeout * test_count_hint + 30
+
+    _print_json(_run_tool("run-automation-tests", arguments, timeout=request_timeout))
+
+
 # -- Argument parser -----------------------------------------------------------
 
 
@@ -3578,7 +4084,7 @@ def _add_capture_transform_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     parser = SoftUEArgumentParser(
         prog="soft-ue-cli",
         description=(
@@ -4607,6 +5113,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=120.0,
         help="Seconds to wait for the editor bridge to come back after a successful build (default: 120)",
     )
+    p_bar.add_argument("--compiler", metavar="NAME", help="Forward -Compiler=<NAME> to Unreal Build Tool")
+    p_bar.add_argument(
+        "--compiler-version",
+        metavar="VERSION",
+        help="Forward -CompilerVersion=<VERSION> to Unreal Build Tool",
+    )
+    p_bar.add_argument(
+        "--toolchain",
+        metavar="VERSION",
+        help="Alias for --compiler-version when pinning a specific installed toolchain",
+    )
     p_bar.add_argument("--project", metavar="PATH", help=".uproject path for offline fallback when the bridge is unavailable")
     p_bar.add_argument("--editor-exe", metavar="PATH", help="UnrealEditor.exe path for offline fallback")
     p_bar.add_argument("--build-bat", metavar="PATH", help="Unreal Build.bat path for offline fallback")
@@ -4694,6 +5211,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_cs2.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
     p_cs2.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
+    p_cs2.add_argument("--output-file", metavar="PATH", help="Copy file output to a deterministic local path")
     _add_capture_transform_args(p_cs2)
     p_cs2.set_defaults(func=cmd_capture_screenshot)
 
@@ -4800,6 +5318,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_capture_screenshot.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
     p_capture_screenshot.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
+    p_capture_screenshot.add_argument("--output-file", metavar="PATH", help="Copy file output to a deterministic local path")
     _add_capture_transform_args(p_capture_screenshot)
     p_capture_screenshot.set_defaults(func=cmd_capture_screenshot)
 
@@ -4863,6 +5382,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_eul.add_argument("source", choices=["designer", "runtime", "concept-image", "figma"], help="Layout source to inspect")
     p_eul.add_argument("--asset-path", metavar="PATH", help="Widget Blueprint asset path for designer extraction")
     p_eul.add_argument("--root-widget", metavar="NAME", help="Runtime root widget name for runtime extraction")
+    p_eul.add_argument("--preview-handle", metavar="HANDLE", help="Runtime preview handle returned by umg preview create/replace")
     p_eul.add_argument("--input", metavar="PATH", help="Concept image or Figma/Stitch JSON input path")
     p_eul.add_argument("--pie-index", type=int, default=0, help="PIE instance index for runtime extraction (default: 0)")
     p_eul.add_argument("--depth-limit", type=int, default=12, help="Designer widget tree depth limit (default: 12)")
@@ -5004,6 +5524,11 @@ def build_parser() -> argparse.ArgumentParser:
         p_preview.add_argument("--widget-class", required=True, help="Widget class or WidgetBlueprint asset path")
         p_preview.add_argument("--pie-index", type=int, help="PIE instance index")
         p_preview.add_argument("--viewport-z-order", type=int, help="Viewport Z order")
+        p_preview.add_argument("--fullscreen", action="store_true", help="Apply full-screen viewport layout defaults")
+        p_preview.add_argument("--viewport-anchors", metavar="MINX,MINY,MAXX,MAXY", help="Viewport anchors for the preview widget")
+        p_preview.add_argument("--viewport-position", metavar="X,Y", help="Viewport position for the preview widget")
+        p_preview.add_argument("--viewport-size", metavar="W,H", help="Desired viewport size for the preview widget")
+        p_preview.add_argument("--viewport-alignment", metavar="X,Y", help="Viewport alignment for the preview widget")
         p_preview.add_argument("--capture-after", action="store_true", help="Return a capture recommendation")
         p_preview.set_defaults(func=preview_func)
     p_preview_remove = umg_preview_sub.add_parser("remove", help="Remove tool-owned preview widgets")
@@ -5058,6 +5583,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_umg_layout_extract.add_argument("--input", metavar="PATH", help="Concept image or Figma/Stitch JSON input path")
     p_umg_layout_extract.add_argument("--asset-path", metavar="PATH", help="Widget Blueprint asset path for designer extraction")
     p_umg_layout_extract.add_argument("--root-widget", metavar="NAME", help="Runtime root widget name for runtime extraction")
+    p_umg_layout_extract.add_argument("--preview-handle", metavar="HANDLE", help="Runtime preview handle returned by umg preview create/replace")
     p_umg_layout_extract.add_argument("--pie-index", type=int, default=0, help="PIE instance index")
     p_umg_layout_extract.add_argument("--depth-limit", type=int, default=12, help="Designer widget tree depth limit")
     p_umg_layout_extract.add_argument("--canvas-size", metavar="W,H", help="Canvas size used for normalized bounds")
@@ -5092,6 +5618,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_umg_workflow_run = umg_workflow_sub.add_parser("run", help="Run a UMG workflow JSON plan")
     p_umg_workflow_run.add_argument("--plan", required=True, help="Path to a UMG workflow JSON plan")
     p_umg_workflow_run.set_defaults(func=cmd_umg_workflow_run)
+    p_umg_workflow_iterate = umg_workflow_sub.add_parser(
+        "iterate-layout",
+        help="Run one or more concept-to-runtime UMG layout feedback iterations",
+    )
+    p_umg_workflow_iterate.add_argument("--asset-path", help="Widget Blueprint asset path for optional apply/compile/save")
+    p_umg_workflow_iterate.add_argument("--widget-class", required=True, help="Widget class or WidgetBlueprint class path to preview")
+    p_umg_workflow_iterate.add_argument("--concept-layout", required=True, help="Concept or expected normalized layout JSON")
+    p_umg_workflow_iterate.add_argument("--spec", required=True, help="Current apply-widget-tree spec JSON")
+    p_umg_workflow_iterate.add_argument("--output-dir", required=True, help="Directory for manifest and iteration artifacts")
+    p_umg_workflow_iterate.add_argument("--canvas-size", metavar="W,H", help="Canvas size used for runtime normalization")
+    p_umg_workflow_iterate.add_argument("--bounds-tolerance", type=float, default=0.02, help="Normalized bounds tolerance")
+    p_umg_workflow_iterate.add_argument("--opacity-tolerance", type=float, default=0.05, help="Opacity tolerance")
+    p_umg_workflow_iterate.add_argument("--max-iterations", type=int, default=1, help="Maximum fit/apply iterations")
+    p_umg_workflow_iterate.add_argument("--apply", action="store_true", help="Apply the current spec before each preview")
+    p_umg_workflow_iterate.add_argument("--compile", action="store_true", help="Compile after applying the spec")
+    p_umg_workflow_iterate.add_argument("--save", action="store_true", help="Save after applying the spec")
+    p_umg_workflow_iterate.add_argument("--capture", action="store_true", help="Capture a PIE-window screenshot artifact")
+    p_umg_workflow_iterate.add_argument("--subset", action="store_true", help="Ignore extra runtime widgets during layout comparison")
+    p_umg_workflow_iterate.add_argument("--pie-index", type=int, default=0, help="PIE instance index")
+    p_umg_workflow_iterate.add_argument("--viewport-z-order", type=int, help="Viewport Z order for the preview widget")
+    p_umg_workflow_iterate.add_argument("--workflow-timeout", type=float, default=120.0, metavar="SEC", help="Per-bridge-call workflow timeout")
+    p_umg_workflow_iterate.add_argument("--no-start-pie", action="store_true", help="Fail instead of starting PIE when no session is running")
+    p_umg_workflow_iterate.set_defaults(func=cmd_umg_workflow_iterate_layout)
 
     # -------------------------------------------------------------------------
     # Editor tools — Material
@@ -5237,6 +5786,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pt.add_argument("--delta", type=float, metavar="SEC", help="Pinned delta seconds per frame (default: 1/60)")
     p_pt.add_argument("--no-auto-start", action="store_true", help="Error out if PIE is not already running")
     p_pt.add_argument("--map", metavar="PATH", help="Map to load when auto-starting PIE")
+    p_pt.add_argument("--timeout", type=float, metavar="SEC", help="Timeout for PIE start + ticking (default: 30)")
     p_pt.set_defaults(func=cmd_pie_tick)
 
     p_iai = sub.add_parser(
@@ -5304,6 +5854,32 @@ def build_parser() -> argparse.ArgumentParser:
     p_rsm.add_argument("--save", action="store_true", help="Save the asset after mutation")
     p_rsm.add_argument("--checkout", action="store_true", help="Checkout the asset before mutation when source control is active")
     p_rsm.set_defaults(func=cmd_remove_sync_marker)
+
+    p_arr = sub.add_parser(
+        "anim-repoint-references",
+        help="Safely repoint montage/blendspace animation references.",
+        description=(
+            "Safely repoint referenced AnimSequence assets inside AnimMontage and BlendSpace assets without raw Python "
+            "montage property traversal.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli anim retarget repoint-references /Game/Anim/AM_Attack \\\n"
+            "      --map /Game/Anim/AS_Attack=/Game/Anim/RTG/AS_Attack --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_arr.add_argument("asset_paths", nargs="+", help="AnimMontage or BlendSpace asset paths to update")
+    p_arr.add_argument(
+        "--map",
+        dest="replacements",
+        action="append",
+        required=True,
+        metavar="OLD=NEW",
+        help="AnimSequence replacement mapping; repeat for multiple old/new pairs",
+    )
+    p_arr.add_argument("--target-skeleton", metavar="PATH", help="Optional target skeleton to assign to updated assets")
+    p_arr.add_argument("--save", action="store_true", help="Save each changed asset after mutation")
+    p_arr.add_argument("--checkout", action="store_true", help="Checkout each asset before mutation when source control is active")
+    p_arr.set_defaults(func=cmd_anim_repoint_references)
 
     p_ipp = sub.add_parser(
         "inspect-pawn-possession",
@@ -6576,7 +7152,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_snap.add_argument(
         "--include", metavar="LIST",
-        help="Comma-separated sections: state-machines,montages,notifies,blend-weights,curves",
+        help="Comma-separated sections: state-machines,montages,notifies,blend-weights,curves,anim-graph",
     )
     p_rw_snap.set_defaults(func=cmd_rewind_snapshot)
 
@@ -6598,8 +7174,60 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rw_save.set_defaults(func=cmd_rewind_save)
 
+    # -- run-automation-tests --
+    p_auto_tests = sub.add_parser(
+        "run-automation-tests",
+        help="Run Unreal Automation tests with structured JSON results.",
+        description=(
+            "Run editor Automation tests by exact name, list, or filter and return per-test JSON results.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli automation tests run --test Project.MySpec\n"
+            "  soft-ue-cli automation tests run --filter MyFeature --timeout 180\n"
+            "  soft-ue-cli automation tests run --filter Project. --list-only"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_auto_tests.add_argument(
+        "--test", metavar="NAME",
+        help="Exact, substring, or wildcard test name/path to run",
+    )
+    p_auto_tests.add_argument(
+        "--tests", metavar="LIST",
+        help="Comma-separated exact, substring, or wildcard test names/paths to run",
+    )
+    p_auto_tests.add_argument(
+        "--filter", metavar="TEXT",
+        help="Substring or wildcard filter matched against test name, display name, and full path",
+    )
+    p_auto_tests.add_argument(
+        "--flags", default="all",
+        help="Comma-separated automation filters: all, smoke, engine, product, perf, stress, negative",
+    )
+    p_auto_tests.add_argument(
+        "--timeout", type=float, default=120.0, metavar="SECONDS",
+        help="Per-test timeout in seconds (default: 120)",
+    )
+    p_auto_tests.add_argument(
+        "--request-timeout", type=float, metavar="SECONDS",
+        help="HTTP request timeout for the whole automation run",
+    )
+    p_auto_tests.add_argument(
+        "--include-developer", action="store_true",
+        help="Include tests from Developer directories",
+    )
+    p_auto_tests.add_argument(
+        "--list-only", action="store_true",
+        help="Return matched tests without running them",
+    )
+    p_auto_tests.add_argument(
+        "--max-tests", type=int, metavar="N",
+        help="Maximum number of matched tests to run",
+    )
+    p_auto_tests.set_defaults(func=cmd_run_automation_tests)
+
     _add_canonical_command_families(sub)
-    _remove_top_level_commands(sub, set(REMOVED_COMMAND_MIGRATIONS))
+    if not include_removed:
+        _remove_top_level_commands(sub, set(REMOVED_COMMAND_MIGRATIONS))
 
     return parser
 

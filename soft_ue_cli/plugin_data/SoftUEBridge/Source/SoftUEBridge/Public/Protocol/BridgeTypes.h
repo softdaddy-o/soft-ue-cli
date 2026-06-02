@@ -97,6 +97,7 @@ struct SOFTUEBRIDGE_API FBridgeToolDefinition
 
 	UPROPERTY() FString Name;
 	UPROPERTY() FString Description;
+	UPROPERTY() FString ExecutionContext;
 	TMap<FString, FBridgeSchemaProperty> InputSchema;
 	UPROPERTY() TArray<FString> Required;
 

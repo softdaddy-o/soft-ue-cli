@@ -85,6 +85,7 @@ private:
 		int32 TargetHeight,
 		const FString& ColorMode,
 		bool bCleanupPrevious,
+		bool bSafeMode,
 		const FString& RequestedMode,
 		const FString& FallbackReason);
 

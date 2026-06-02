@@ -25,15 +25,81 @@ def _as_float_list(value: Any, length: int) -> list[float] | None:
         return None
 
 
+def _is_zero_bounds(bounds: list[float] | None) -> bool:
+    return bounds is not None and all(abs(part) < 0.0001 for part in bounds)
+
+
+def _margin_values(value: Any) -> list[float] | None:
+    if isinstance(value, dict):
+        try:
+            return [
+                float(value.get("left", 0.0)),
+                float(value.get("top", 0.0)),
+                float(value.get("right", 0.0)),
+                float(value.get("bottom", 0.0)),
+            ]
+        except (TypeError, ValueError):
+            return None
+    return _as_float_list(value, 4)
+
+
+def _anchor_min_max(value: Any) -> tuple[list[float], list[float]] | None:
+    if isinstance(value, dict):
+        min_value = _as_float_list(value.get("min") or value.get("minimum"), 2)
+        max_value = _as_float_list(value.get("max") or value.get("maximum"), 2)
+        if min_value is not None and max_value is not None:
+            return min_value, max_value
+    anchors = _as_float_list(value, 4)
+    if anchors is not None:
+        return anchors[:2], anchors[2:]
+    return None
+
+
+def _canvas_slot_bounds(slot: dict[str, Any], canvas_size: list[float] | None) -> list[float] | None:
+    if canvas_size is None:
+        return None
+    if slot.get("type") != "CanvasPanelSlot" and "anchors" not in slot:
+        return None
+
+    offsets = _margin_values(slot.get("offsets"))
+    if offsets is None:
+        return None
+
+    anchors = _anchor_min_max(slot.get("anchors")) or ([0.0, 0.0], [0.0, 0.0])
+    anchor_min, anchor_max = anchors
+    width, height = float(canvas_size[0] or 1.0), float(canvas_size[1] or 1.0)
+
+    if anchor_min == anchor_max:
+        position = _as_float_list(slot.get("position"), 2) or offsets[:2]
+        size = _as_float_list(slot.get("size"), 2) or offsets[2:]
+        alignment = _as_float_list(slot.get("alignment"), 2) or [0.0, 0.0]
+        return [
+            anchor_min[0] * width + position[0] - size[0] * alignment[0],
+            anchor_min[1] * height + position[1] - size[1] * alignment[1],
+            size[0],
+            size[1],
+        ]
+
+    return [
+        anchor_min[0] * width + offsets[0],
+        anchor_min[1] * height + offsets[1],
+        (anchor_max[0] - anchor_min[0]) * width - offsets[0] - offsets[2],
+        (anchor_max[1] - anchor_min[1]) * height - offsets[1] - offsets[3],
+    ]
+
+
 def _widget_name(widget: dict[str, Any]) -> str:
     return str(widget.get("path") or widget.get("name") or widget.get("widget_name") or "")
 
 
-def _extract_bounds(widget: dict[str, Any]) -> list[float] | None:
-    for key in ("bounds", "absolute_bounds", "normalized_bounds"):
+def _extract_bounds(widget: dict[str, Any], canvas_size: list[float] | None = None) -> list[float] | None:
+    explicit_bounds: list[float] | None = None
+    for key in ("bounds", "absolute_bounds"):
         bounds = _as_float_list(widget.get(key), 4)
         if bounds is not None:
-            return bounds
+            explicit_bounds = bounds
+            if not _is_zero_bounds(bounds):
+                return bounds
 
     geometry = widget.get("geometry")
     if isinstance(geometry, dict):
@@ -44,18 +110,19 @@ def _extract_bounds(widget: dict[str, Any]) -> list[float] | None:
 
     slot = widget.get("slot")
     if isinstance(slot, dict):
-        offsets = slot.get("offsets")
-        if isinstance(offsets, dict):
-            try:
-                return [
-                    float(offsets.get("left", 0.0)),
-                    float(offsets.get("top", 0.0)),
-                    float(offsets.get("right", 0.0)),
-                    float(offsets.get("bottom", 0.0)),
-                ]
-            except (TypeError, ValueError):
-                return None
-        return _as_float_list(offsets, 4)
+        canvas_bounds = _canvas_slot_bounds(slot, canvas_size)
+        if canvas_bounds is not None:
+            return canvas_bounds
+        offsets = _margin_values(slot.get("offsets"))
+        if offsets is not None:
+            return offsets
+
+    if explicit_bounds is not None:
+        return explicit_bounds
+
+    normalized_bounds = _as_float_list(widget.get("normalized_bounds"), 4)
+    if normalized_bounds is not None:
+        return normalized_bounds
 
     return None
 
@@ -82,28 +149,43 @@ def _absolute_bounds(widget: dict[str, Any], canvas_size: list[float]) -> list[f
             normalized[3] * canvas_size[1],
         ]
 
-    return _extract_bounds(widget)
+    return _extract_bounds(widget, canvas_size)
+
+
+def _flatten_widget_tree(root: dict[str, Any]) -> list[dict[str, Any]]:
+    collected: list[dict[str, Any]] = []
+
+    def visit(node: dict[str, Any]) -> None:
+        collected.append(node)
+        children = node.get("children")
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, dict):
+                    visit(child)
+
+    visit(root)
+    return collected
 
 
 def _iter_widgets(raw: Any) -> list[dict[str, Any]]:
     if isinstance(raw, dict):
-        widgets = raw.get("widgets") or raw.get("runtime_widgets") or raw.get("designer_widgets")
-        if isinstance(widgets, list):
-            return [widget for widget in widgets if isinstance(widget, dict)]
+        for key in ("widgets", "runtime_widgets", "designer_widgets"):
+            widgets = raw.get(key)
+            if isinstance(widgets, list) and widgets:
+                return [widget for widget in widgets if isinstance(widget, dict)]
+
+        root_widgets = raw.get("root_widgets")
+        if isinstance(root_widgets, list):
+            collected: list[dict[str, Any]] = []
+            for root_widget in root_widgets:
+                if isinstance(root_widget, dict):
+                    collected.extend(_flatten_widget_tree(root_widget))
+            if collected:
+                return collected
+
         root = raw.get("root") or raw.get("root_widget")
         if isinstance(root, dict):
-            collected: list[dict[str, Any]] = []
-
-            def visit(node: dict[str, Any]) -> None:
-                collected.append(node)
-                children = node.get("children")
-                if isinstance(children, list):
-                    for child in children:
-                        if isinstance(child, dict):
-                            visit(child)
-
-            visit(root)
-            return collected
+            return _flatten_widget_tree(root)
     return []
 
 
@@ -116,7 +198,7 @@ def normalize_layout(raw: dict[str, Any], canvas_size: list[int] | None = None) 
         name = _widget_name(widget)
         if not name:
             continue
-        bounds = _extract_bounds(widget)
+        bounds = _extract_bounds(widget, canvas)
         normalized_bounds = widget.get("normalized_bounds")
         if _as_float_list(normalized_bounds, 4) is None:
             normalized_bounds = _normalize_bounds(bounds, canvas)

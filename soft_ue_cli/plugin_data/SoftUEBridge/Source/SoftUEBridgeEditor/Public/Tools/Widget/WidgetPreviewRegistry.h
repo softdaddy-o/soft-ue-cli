@@ -23,5 +23,6 @@ public:
 	static int32 RemovePreviewsForWorld(UWorld* World, TArray<FString>* OutRemovedHandles = nullptr);
 	static int32 RemovePreviewByHandle(const FString& Handle, TArray<FString>* OutRemovedHandles = nullptr);
 	static int32 CountPreviewsForWorld(UWorld* World);
+	static void CollectPreviewWidgetsForWorld(UWorld* World, TArray<UUserWidget*>& OutWidgets);
 	static void ListPreviewsForWorld(UWorld* World, TArray<FWidgetPreviewSummary>& OutSummaries);
 };

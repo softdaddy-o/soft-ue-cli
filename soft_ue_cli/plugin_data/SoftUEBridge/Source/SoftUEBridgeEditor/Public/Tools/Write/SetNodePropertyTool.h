@@ -6,6 +6,8 @@
 #include "Tools/BridgeToolBase.h"
 #include "SetNodePropertyTool.generated.h"
 
+class UBlueprint;
+
 UCLASS()
 class SOFTUEBRIDGEEDITOR_API USetNodePropertyTool : public UBridgeToolBase
 {
@@ -21,5 +23,5 @@ public:
 		const FBridgeToolContext& Context) override;
 
 private:
-	TArray<FString> ApplyProperties(UObject* Node, const TSharedPtr<FJsonObject>& Properties);
+	TArray<FString> ApplyProperties(UBlueprint* Blueprint, UObject* Node, const TSharedPtr<FJsonObject>& Properties);
 };

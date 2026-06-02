@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from typing import Any
 
 from .command_aliases import REMOVED_COMMAND_MIGRATIONS
@@ -10,6 +11,36 @@ from .command_aliases import REMOVED_COMMAND_MIGRATIONS
 
 def _canonical_name(canonical_command: str) -> str:
     return canonical_command.split(" --", 1)[0]
+
+
+def _mcp_tool_name_from_removed(canonical_command: str) -> str:
+    """Convert a canonical removed command string to its MCP tool name."""
+    parts: list[str] = []
+    for part in canonical_command.split():
+        if part.startswith("--") or (part.startswith("<") and part.endswith(">")):
+            break
+        parts.append(part)
+    return " ".join(parts)
+
+
+def _build_alias_tool_map() -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for alias_name, canonical_command in REMOVED_COMMAND_MIGRATIONS.items():
+        canonical_tool = _mcp_tool_name_from_removed(canonical_command)
+        if canonical_tool and canonical_tool != alias_name:
+            aliases[alias_name] = canonical_tool
+    return aliases
+
+
+MCP_TOOL_ALIASES: dict[str, str] = _build_alias_tool_map()
+MCP_ALIAS_OVERRIDES: dict[str, dict[str, Any]] = {
+    "capture-pie-screenshot": {
+        "properties": {
+            "mode": {"type": "string", "default": "pie-window", "enum": ["window", "tab", "region", "viewport", "pie-window"]},
+        },
+        "required_remove": ["mode"],
+    },
+}
 
 
 EXCLUDED_COMMANDS: frozenset[str] = frozenset({
@@ -38,7 +69,7 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
     "submit-testimonial",
     "request-feature",
     "config",
-} | {_canonical_name(command) for command in REMOVED_COMMAND_MIGRATIONS.values()})
+} | {_canonical_name(command) for command in REMOVED_COMMAND_MIGRATIONS.values()} | set(REMOVED_COMMAND_MIGRATIONS))
 
 # Per-tool schema overrides. Merged into auto-generated schemas after extraction.
 #
@@ -49,6 +80,8 @@ CLIENT_SIDE_COMMANDS: frozenset[str] = frozenset({
 #       "array" — accepts a JSON array (maps to Python list)
 #   "required_remove": list of field names to remove from the required list.
 #     Use when a positional argparse arg should be optional in MCP.
+#   "required_add": list of field names to require in MCP.
+#   "properties_remove": list of argparse-only fields to hide from MCP.
 TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
     # spawn-actor: location/rotation are X,Y,Z arrays in MCP (not comma strings)
     "spawn-actor": {
@@ -92,15 +125,29 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
         "properties": {
             "calls": {"type": "array", "description": "Array of {tool, args} entries"},
         },
+        "properties_remove": ["calls_file"],
+        "required_add": ["calls"],
     },
     # exec-console-command: MCP callers may pass a complete command string while
     # argparse exposes the legacy command_parts positional.
     "exec-console-command": {
         "properties": {
             "command": {"type": "string", "description": "Console command to execute"},
-            "command_parts": {"type": "array", "description": "Console command tokens"},
         },
+        "properties_remove": ["command_parts"],
         "required_remove": ["command_parts"],
+    },
+    # call-function: legacy positional CLI args stay supported by argparse but
+    # MCP should expose the explicit bridge argument names only.
+    "call-function": {
+        "properties": {
+            "function_name": {"type": "string", "description": "Function or event name to call"},
+            "args": {"type": "object", "description": "Named function arguments object. Mutually exclusive with batch."},
+            "batch": {"type": "array", "description": "Array of named function argument objects. Mutually exclusive with args."},
+        },
+        "properties_remove": ["legacy_actor_name", "legacy_function_name", "batch_json", "output"],
+        "required_remove": ["legacy_actor_name", "legacy_function_name"],
+        "required_add": ["function_name"],
     },
     # add-graph-node: position is an [X, Y] array
     "add-graph-node": {
@@ -218,6 +265,15 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "asset_paths": {"type": "array", "description": "Array of AnimSequence asset paths to compare"},
         },
     },
+    "anim-repoint-references": {
+        "properties": {
+            "asset_paths": {"type": "array", "description": "Array of AnimMontage or BlendSpace asset paths to update"},
+            "replacement_map": {"type": "object", "description": "Object mapping old AnimSequence asset paths to new AnimSequence asset paths"},
+        },
+        "properties_remove": ["replacements"],
+        "required_remove": ["replacements"],
+        "required_add": ["replacement_map"],
+    },
 }
 
 EXTRA_BRIDGE_TOOLS: tuple[dict[str, Any], ...] = (
@@ -232,7 +288,7 @@ EXTRA_BRIDGE_TOOLS: tuple[dict[str, Any], ...] = (
                 "config_type": {"type": "string", "description": "Config type, e.g. Engine, Game, Input"},
                 "platform": {"type": "string", "description": "Optional config platform"},
             },
-            "required": ["section", "key"],
+            "required": ["section", "key", "config_type"],
         },
     },
     {
@@ -243,11 +299,11 @@ EXTRA_BRIDGE_TOOLS: tuple[dict[str, Any], ...] = (
             "properties": {
                 "section": {"type": "string", "description": "Config section name"},
                 "key": {"type": "string", "description": "Config key name"},
-                "value": {"type": "any", "description": "Config value to write"},
+                "value": {"type": "string", "description": "Config value to write"},
                 "config_type": {"type": "string", "description": "Config type, e.g. Engine, Game, Input"},
                 "platform": {"type": "string", "description": "Optional config platform"},
             },
-            "required": ["section", "key", "value"],
+            "required": ["section", "key", "value", "config_type"],
         },
     },
     {
@@ -261,7 +317,7 @@ EXTRA_BRIDGE_TOOLS: tuple[dict[str, Any], ...] = (
                 "config_type": {"type": "string", "description": "Config type, e.g. Engine, Game, Input"},
                 "platform": {"type": "string", "description": "Optional config platform"},
             },
-            "required": ["section", "key"],
+            "required": ["section", "key", "config_type"],
         },
     },
 )
@@ -296,6 +352,22 @@ TOOL_OVERRIDES.update({
             "click_sequence": {"type": "array", "description": "Array of named button click validation steps"},
         },
     },
+    "umg preview create": {
+        "properties": {
+            "viewport_anchors": {"type": "array", "description": "[MinX, MinY, MaxX, MaxY] viewport anchors"},
+            "viewport_position": {"type": "array", "description": "[X, Y] viewport position"},
+            "viewport_size": {"type": "array", "description": "[W, H] desired viewport size"},
+            "viewport_alignment": {"type": "array", "description": "[X, Y] viewport alignment"},
+        },
+    },
+    "umg preview replace": {
+        "properties": {
+            "viewport_anchors": {"type": "array", "description": "[MinX, MinY, MaxX, MaxY] viewport anchors"},
+            "viewport_position": {"type": "array", "description": "[X, Y] viewport position"},
+            "viewport_size": {"type": "array", "description": "[W, H] desired viewport size"},
+            "viewport_alignment": {"type": "array", "description": "[X, Y] viewport alignment"},
+        },
+    },
     "capture screenshot": TOOL_OVERRIDES["capture-screenshot"],
     "umg layout compare": {
         "properties": {
@@ -310,6 +382,7 @@ TOOL_OVERRIDES.update({
         },
     },
     "anim sync-marker compare": TOOL_OVERRIDES["compare-sync-markers"],
+    "anim retarget repoint-references": TOOL_OVERRIDES["anim-repoint-references"],
 })
 
 
@@ -435,9 +508,14 @@ def _iter_nested_leaf_commands(
 
 
 def _apply_tool_overrides(tool_name: str, params: dict[str, Any]) -> None:
-    if tool_name not in TOOL_OVERRIDES:
+    override = {
+        **TOOL_OVERRIDES.get(tool_name, {}),
+        **MCP_ALIAS_OVERRIDES.get(tool_name, {}),
+    }
+    if not override:
         return
-    override = TOOL_OVERRIDES[tool_name]
+    for prop_name in override.get("properties_remove", []):
+        params["properties"].pop(prop_name, None)
     for prop_name, prop_override in override.get("properties", {}).items():
         if prop_name in params["properties"]:
             params["properties"][prop_name].update(prop_override)
@@ -447,6 +525,12 @@ def _apply_tool_overrides(tool_name: str, params: dict[str, Any]) -> None:
     if "required_remove" in override:
         required = params.get("required", [])
         params["required"] = [r for r in required if r not in override["required_remove"]]
+    if "required_add" in override:
+        required = list(params.get("required", []))
+        for prop_name in override["required_add"]:
+            if prop_name in params["properties"] and prop_name not in required:
+                required.append(prop_name)
+        params["required"] = required
 
 
 def _tool_def(name: str, sub_parser: argparse.ArgumentParser, description: str = "") -> dict[str, Any]:
@@ -468,7 +552,7 @@ def extract_tools() -> list[dict[str, Any]]:
     """
     from .__main__ import build_parser
 
-    parser = build_parser()
+    parser = build_parser(include_removed=True)
 
     tools: list[dict[str, Any]] = []
 
@@ -497,8 +581,22 @@ def extract_tools() -> list[dict[str, Any]]:
         tools.append(_tool_def(cmd_name, sub_parser, choice_help.get(cmd_name, "")))
 
     existing_names = {tool["name"] for tool in tools}
+    canonical_tools_by_name = {tool["name"]: tool for tool in tools}
     for tool_def in EXTRA_BRIDGE_TOOLS:
         if tool_def["name"] not in existing_names:
             tools.append({**tool_def, "func": None})
+            existing_names.add(tool_def["name"])
+
+    for alias_name, canonical_name in sorted(MCP_TOOL_ALIASES.items()):
+        if alias_name in existing_names:
+            continue
+        canonical_tool = canonical_tools_by_name.get(canonical_name)
+        if not canonical_tool:
+            continue
+        alias_tool = copy.deepcopy(canonical_tool)
+        alias_tool["name"] = alias_name
+        _apply_tool_overrides(alias_name, alias_tool["parameters"])
+        tools.append(alias_tool)
+        existing_names.add(alias_name)
 
     return tools

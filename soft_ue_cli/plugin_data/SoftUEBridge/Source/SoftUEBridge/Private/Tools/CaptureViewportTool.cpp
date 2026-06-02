@@ -2,7 +2,9 @@
 
 #include "Tools/CaptureViewportTool.h"
 #include "SoftUEBridgeModule.h"
+#include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
+#include "Engine/World.h"
 #include "UnrealClient.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"

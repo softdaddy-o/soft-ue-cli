@@ -148,6 +148,35 @@ FBridgeToolResult UVerifyUMGWorkflowTool::Execute(
 		RootWidgets.Add(CreatedWidget);
 	}
 
+	auto BuildRootLookupDiagnostics = [&]() -> FString
+	{
+		TArray<FString> RootNames;
+		for (UUserWidget* Root : RootWidgets)
+		{
+			if (Root)
+			{
+				RootNames.Add(Root->GetName());
+			}
+		}
+
+		TArray<FWidgetPreviewSummary> PreviewSummaries;
+		FWidgetPreviewRegistry::ListPreviewsForWorld(PIEWorld, PreviewSummaries);
+		TArray<FString> PreviewNames;
+		for (const FWidgetPreviewSummary& Summary : PreviewSummaries)
+		{
+			PreviewNames.Add(FString::Printf(
+				TEXT("%s handle=%s class=%s"),
+				*Summary.WidgetName,
+				*Summary.Handle,
+				*Summary.WidgetClass));
+		}
+
+		return FString::Printf(
+			TEXT(" Current root widgets: [%s]. current tool previews: [%s]."),
+			*FString::Join(RootNames, TEXT(", ")),
+			*FString::Join(PreviewNames, TEXT(", ")));
+	};
+
 	auto Fail = [&](const FString& Message) -> FBridgeToolResult
 	{
 		if (CreatedWidget && bRemovePreview)
@@ -172,7 +201,10 @@ FBridgeToolResult UVerifyUMGWorkflowTool::Execute(
 		}
 		if (!SearchRoot)
 		{
-			return Fail(FString::Printf(TEXT("Runtime root widget not found: %s"), *RootWidgetName));
+			return Fail(FString::Printf(
+				TEXT("Runtime root widget not found: %s.%s"),
+				*RootWidgetName,
+				*BuildRootLookupDiagnostics()));
 		}
 	}
 
@@ -457,6 +489,7 @@ TArray<UUserWidget*> UVerifyUMGWorkflowTool::CollectPIEWidgets(UWorld* PIEWorld)
 			Result.Add(Widget);
 		}
 	});
+	FWidgetPreviewRegistry::CollectPreviewWidgetsForWorld(PIEWorld, Result);
 	return Result;
 }
 

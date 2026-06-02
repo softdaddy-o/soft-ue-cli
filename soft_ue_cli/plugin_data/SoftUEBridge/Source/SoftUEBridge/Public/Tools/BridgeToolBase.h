@@ -8,6 +8,16 @@
 #include "Tools/BridgeToolResult.h"
 #include "BridgeToolBase.generated.h"
 
+UENUM()
+enum class EBridgeToolExecutionContext : uint8
+{
+	GameThread,
+	SlateTicker,
+	PIEWorldTickSafe,
+};
+
+SOFTUEBRIDGE_API FString BridgeToolExecutionContextToString(EBridgeToolExecutionContext Context);
+
 /** Context passed to every tool execution */
 USTRUCT()
 struct SOFTUEBRIDGE_API FBridgeToolContext
@@ -15,6 +25,7 @@ struct SOFTUEBRIDGE_API FBridgeToolContext
 	GENERATED_BODY()
 
 	FString RequestId;
+	EBridgeToolExecutionContext ExecutionContext = EBridgeToolExecutionContext::GameThread;
 };
 
 /** Abstract base class for all bridge tools */
@@ -29,6 +40,11 @@ public:
 
 	virtual FString GetToolDescription() const
 		PURE_VIRTUAL(UBridgeToolBase::GetToolDescription, return TEXT(""););
+
+	virtual EBridgeToolExecutionContext GetExecutionContextRequirement() const
+	{
+		return EBridgeToolExecutionContext::GameThread;
+	}
 
 	virtual TMap<FString, FBridgeSchemaProperty> GetInputSchema() const { return {}; }
 	virtual TArray<FString> GetRequiredParams() const { return {}; }

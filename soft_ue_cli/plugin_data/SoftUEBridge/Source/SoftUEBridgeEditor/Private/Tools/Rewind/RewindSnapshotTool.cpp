@@ -35,7 +35,7 @@ TMap<FString, FBridgeSchemaProperty> URewindSnapshotTool::GetInputSchema() const
 	FBridgeSchemaProperty Include;
 	Include.Type = TEXT("array");
 	Include.ItemsType = TEXT("string");
-	Include.Description = TEXT("Sections to include: 'state-machines', 'montages', 'notifies', 'blend-weights', 'curves'. Default: all");
+	Include.Description = TEXT("Sections to include: 'state-machines', 'montages', 'notifies', 'blend-weights', 'curves', 'anim-graph'. Default: all");
 	Include.bRequired = false;
 	Schema.Add(TEXT("include"), Include);
 

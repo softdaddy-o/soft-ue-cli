@@ -18,6 +18,8 @@
 #include "Misc/Paths.h"
 #include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "Tools/BridgeToolRegistry.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/SViewport.h"
@@ -252,6 +254,51 @@ namespace
 		}
 	}
 
+	bool TryGetToolResultText(const FBridgeToolResult& ToolResult, FString& OutText)
+	{
+		if (ToolResult.Content.Num() != 1 || !ToolResult.Content[0].IsValid())
+		{
+			return false;
+		}
+		return ToolResult.Content[0]->TryGetStringField(TEXT("text"), OutText);
+	}
+
+	TSharedPtr<FJsonObject> ParseJsonToolResult(const FBridgeToolResult& ToolResult)
+	{
+		FString JsonText;
+		if (!TryGetToolResultText(ToolResult, JsonText) || JsonText.IsEmpty())
+		{
+			return nullptr;
+		}
+
+		TSharedPtr<FJsonObject> ParsedObject;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+		if (!FJsonSerializer::Deserialize(Reader, ParsedObject) || !ParsedObject.IsValid())
+		{
+			return nullptr;
+		}
+		return ParsedObject;
+	}
+
+	FBridgeToolResult AddJsonFieldsToToolResult(
+		const FBridgeToolResult& ToolResult,
+		const TSharedPtr<FJsonObject>& ExtraFields)
+	{
+		if (ToolResult.bIsError)
+		{
+			return ToolResult;
+		}
+
+		TSharedPtr<FJsonObject> ParsedObject = ParseJsonToolResult(ToolResult);
+		if (!ParsedObject.IsValid())
+		{
+			return ToolResult;
+		}
+
+		CopyJsonFields(ExtraFields, ParsedObject);
+		return FBridgeToolResult::Json(ParsedObject);
+	}
+
 	bool IsUnsafeWindowScreenshotDuringPIE()
 	{
 		if (!GEngine)
@@ -280,7 +327,7 @@ TMap<FString, FBridgeSchemaProperty> UCaptureScreenshotTool::GetInputSchema() co
 	Schema.Add(TEXT("mode"), FBridgeSchemaProperty{
 		TEXT("string"),
 		TEXT("Capture mode: 'window' (entire editor), 'tab' (specific panel), 'region' (coordinates), 'viewport' (render target), or 'pie-window' (composited PIE viewport with UMG)"),
-		true,
+		false,
 		{TEXT("window"), TEXT("tab"), TEXT("region"), TEXT("viewport"), TEXT("pie-window")}
 	});
 
@@ -358,14 +405,14 @@ TMap<FString, FBridgeSchemaProperty> UCaptureScreenshotTool::GetInputSchema() co
 
 TArray<FString> UCaptureScreenshotTool::GetRequiredParams() const
 {
-	return {TEXT("mode")};
+	return {};
 }
 
 FBridgeToolResult UCaptureScreenshotTool::Execute(
 	const TSharedPtr<FJsonObject>& Arguments,
 	const FBridgeToolContext& Context)
 {
-	const FString Mode = GetStringArgOrDefault(Arguments, TEXT("mode"), TEXT("window"));
+	const FString Mode = GetStringArgOrDefault(Arguments, TEXT("mode"), TEXT("viewport"));
 	const FString Format = GetStringArgOrDefault(Arguments, TEXT("format"), TEXT("png"));
 	const FString OutputMode = GetStringArgOrDefault(Arguments, TEXT("output"), TEXT("file"));
 	const float ScalePercent = GetFloatArgOrDefault(Arguments, TEXT("scale"), 100.0f);
@@ -394,6 +441,7 @@ FBridgeToolResult UCaptureScreenshotTool::Execute(
 			TargetHeight,
 			ColorMode,
 			bCleanupPrevious,
+			bSafeMode,
 			Mode,
 			TEXT(""));
 	}
@@ -483,6 +531,7 @@ FBridgeToolResult UCaptureScreenshotTool::CaptureWindow(
 			TargetHeight,
 			ColorMode,
 			bCleanupPrevious,
+			true,
 			TEXT("window"),
 			TEXT("safe_mode_pie_window_fallback"));
 	}
@@ -773,9 +822,56 @@ FBridgeToolResult UCaptureScreenshotTool::CapturePIEWindow(
 	int32 TargetHeight,
 	const FString& ColorMode,
 	bool bCleanupPrevious,
+	bool bSafeMode,
 	const FString& RequestedMode,
 	const FString& FallbackReason)
 {
+	if (bSafeMode)
+	{
+		UE_LOG(LogSoftUEBridgeEditor, Warning, TEXT("capture-screenshot pie-window: defaulting to runtime viewport capture to avoid unsafe PIE Slate window screenshot; pass unsafe_slate_window_capture=true to opt in."));
+
+		TSharedPtr<FJsonObject> ExtraFields = MakeShareable(new FJsonObject);
+		ExtraFields->SetStringField(TEXT("requested_mode"), RequestedMode);
+		ExtraFields->SetStringField(TEXT("requested_capture_mode"), TEXT("pie-window"));
+		ExtraFields->SetStringField(TEXT("capture_mode"), TEXT("viewport"));
+		ExtraFields->SetStringField(TEXT("capture_source"), TEXT("runtime_viewport_readpixels"));
+		ExtraFields->SetStringField(TEXT("capture_fallback_kind"), TEXT("pie_window_safe_viewport_fallback"));
+		ExtraFields->SetStringField(TEXT("fallback_reason"), FallbackReason.IsEmpty()
+			? TEXT("pie_window_safe_viewport_fallback")
+			: FallbackReason);
+		ExtraFields->SetStringField(TEXT("fallback_command"), TEXT("capture-screenshot viewport"));
+		ExtraFields->SetBoolField(TEXT("safe_mode"), true);
+		ExtraFields->SetBoolField(TEXT("pie_running"), GEditor && GEditor->IsPlaySessionInProgress());
+		ExtraFields->SetBoolField(TEXT("unsafe_window_capture"), false);
+		ExtraFields->SetBoolField(TEXT("structured_exception"), false);
+
+		FBridgeToolResult ViewportResult = CaptureViewport(
+			Format,
+			OutputMode,
+			ScalePercent,
+			TargetWidth,
+			TargetHeight,
+			ColorMode,
+			bCleanupPrevious);
+
+		if (ViewportResult.bIsError)
+		{
+			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+			CopyJsonFields(ExtraFields, Result);
+			Result->SetBoolField(TEXT("success"), false);
+			Result->SetStringField(TEXT("error"), TEXT("PIE window safe viewport fallback failed"));
+
+			FString FallbackError;
+			if (TryGetToolResultText(ViewportResult, FallbackError) && !FallbackError.IsEmpty())
+			{
+				Result->SetStringField(TEXT("fallback_error"), FallbackError);
+			}
+			return FBridgeToolResult::Json(Result);
+		}
+
+		return AddJsonFieldsToToolResult(ViewportResult, ExtraFields);
+	}
+
 	if (!FSlateApplication::IsInitialized())
 	{
 		return FBridgeToolResult::Error(TEXT("Slate application not initialized"));
@@ -792,8 +888,10 @@ FBridgeToolResult UCaptureScreenshotTool::CapturePIEWindow(
 		Result->SetStringField(TEXT("capture_source"), TEXT("pie_composited_slate_widget"));
 		Result->SetStringField(TEXT("capture_failure_kind"), TEXT("no_pie_viewport_widget"));
 		Result->SetBoolField(TEXT("structured_exception"), false);
-		Result->SetBoolField(TEXT("safe_mode"), true);
+		Result->SetBoolField(TEXT("safe_mode"), bSafeMode);
 		Result->SetBoolField(TEXT("pie_running"), GEditor && GEditor->IsPlaySessionInProgress());
+		Result->SetBoolField(TEXT("unsafe_window_capture"), !bSafeMode);
+		Result->SetStringField(TEXT("capture_risk"), TEXT("pie_window_slate_capture_opt_in"));
 		Result->SetStringField(TEXT("fallback_command"), TEXT("capture-screenshot viewport"));
 		if (!FallbackReason.IsEmpty())
 		{
@@ -813,8 +911,10 @@ FBridgeToolResult UCaptureScreenshotTool::CapturePIEWindow(
 		Result->SetStringField(TEXT("capture_source"), TEXT("pie_composited_slate_widget"));
 		Result->SetStringField(TEXT("capture_failure_kind"), TEXT("invalid_widget_geometry"));
 		Result->SetBoolField(TEXT("structured_exception"), false);
-		Result->SetBoolField(TEXT("safe_mode"), true);
+		Result->SetBoolField(TEXT("safe_mode"), bSafeMode);
 		Result->SetBoolField(TEXT("pie_running"), GEditor && GEditor->IsPlaySessionInProgress());
+		Result->SetBoolField(TEXT("unsafe_window_capture"), !bSafeMode);
+		Result->SetStringField(TEXT("capture_risk"), TEXT("pie_window_slate_capture_opt_in"));
 		Result->SetStringField(TEXT("fallback_command"), TEXT("capture-screenshot viewport"));
 		if (!FallbackReason.IsEmpty())
 		{
@@ -836,8 +936,10 @@ FBridgeToolResult UCaptureScreenshotTool::CapturePIEWindow(
 		Result->SetStringField(TEXT("capture_source"), TEXT("pie_composited_slate_widget"));
 		Result->SetStringField(TEXT("capture_failure_kind"), TEXT("slate_capture_failed"));
 		Result->SetBoolField(TEXT("structured_exception"), false);
-		Result->SetBoolField(TEXT("safe_mode"), true);
+		Result->SetBoolField(TEXT("safe_mode"), bSafeMode);
 		Result->SetBoolField(TEXT("pie_running"), GEditor && GEditor->IsPlaySessionInProgress());
+		Result->SetBoolField(TEXT("unsafe_window_capture"), !bSafeMode);
+		Result->SetStringField(TEXT("capture_risk"), TEXT("pie_window_slate_capture_opt_in"));
 		Result->SetStringField(TEXT("fallback_command"), TEXT("capture-screenshot viewport"));
 		if (!FallbackReason.IsEmpty())
 		{
@@ -876,10 +978,11 @@ FBridgeToolResult UCaptureScreenshotTool::CapturePIEWindow(
 	ExtraFields->SetStringField(TEXT("requested_mode"), RequestedMode);
 	ExtraFields->SetStringField(TEXT("capture_mode"), TEXT("pie-window"));
 	ExtraFields->SetStringField(TEXT("capture_source"), TEXT("pie_composited_slate_widget"));
-	ExtraFields->SetBoolField(TEXT("safe_mode"), true);
+	ExtraFields->SetBoolField(TEXT("safe_mode"), bSafeMode);
 	ExtraFields->SetBoolField(TEXT("pie_running"), GEditor && GEditor->IsPlaySessionInProgress());
-	ExtraFields->SetBoolField(TEXT("unsafe_window_capture"), false);
+	ExtraFields->SetBoolField(TEXT("unsafe_window_capture"), !bSafeMode);
 	ExtraFields->SetBoolField(TEXT("structured_exception"), false);
+	ExtraFields->SetStringField(TEXT("capture_risk"), TEXT("pie_window_slate_capture_opt_in"));
 	if (!FallbackReason.IsEmpty())
 	{
 		ExtraFields->SetStringField(TEXT("fallback_reason"), FallbackReason);

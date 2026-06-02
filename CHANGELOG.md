@@ -2,6 +2,15 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.35.0] - 2026-06-03
+
+### Added
+- Added `metasound inspect` for read-only MetaSound Source/Patch graph inspection, including interface inputs/outputs, nodes, edges, and input defaults.
+- Added `anim retarget repoint-references` to safely batch-repoint AnimSequence references in AnimMontage and BlendSpace assets, with optional target skeleton assignment, checkout, and save support.
+
+### Fixed
+- Added a bridge-backed animation repointing path so agents can avoid editor hangs caused by raw Python dependency/internal property traversal on AnimMontage assets.
+
 ## [1.34.0] - 2026-05-25
 
 ### Changed

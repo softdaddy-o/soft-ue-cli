@@ -38,8 +38,9 @@ def test_list_skills_contains_blueprint_to_cpp():
     assert "author-anim-state-test" in names
     assert "author-bp-parity-test" in names
     assert "author-invariant-test" in names
-    assert "author-umg-designer" in names
-    assert "author-umg-workflow" in names
+    assert "author-umg" in names
+    assert "author-umg-designer" not in names
+    assert "author-umg-workflow" not in names
 
 
 # -- get_skill -----------------------------------------------------------------
@@ -180,8 +181,8 @@ def test_authoring_subskills_target_cpp_committed_tests():
     assert "Source/<Project>Tests/Private/Invariants/TEST_<Slug>.cpp" in invariant
 
 
-def test_author_umg_designer_skill_targets_apply_widget_tree():
-    content = get_skill("author-umg-designer")
+def test_author_umg_skill_targets_designer_navigation_and_runtime_verification():
+    content = get_skill("author-umg")
     assert content is not None
     assert "soft-ue-cli umg designer apply" in content
     assert "CanvasPanel" in content
@@ -194,12 +195,6 @@ def test_author_umg_designer_skill_targets_apply_widget_tree():
     assert "umg_expected_layout.json" in content
     assert "placeholder asset manifest" in content
     assert "umg layout compare" in content
-
-
-def test_author_umg_workflow_skill_targets_navigation_and_runtime_verification():
-    content = get_skill("author-umg-workflow")
-    assert content is not None
-    assert "soft-ue-cli umg designer apply" in content
     assert "soft-ue-cli umg navigation wire" in content
     assert "soft-ue-cli umg verify navigation" in content
     assert "stable widget-name contract" in content

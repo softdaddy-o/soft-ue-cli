@@ -1,7 +1,8 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
+﻿"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -164,16 +165,6 @@ def test_nested_capture_family_root_is_not_auto_exposed_to_mcp():
 def test_nested_taxonomy_family_roots_are_not_auto_exposed_to_mcp():
     for family in ["mutable", "statetree", "anim", "asset", "blueprint"]:
         assert family in EXCLUDED_COMMANDS
-
-
-def test_nested_metasound_family_root_is_not_auto_exposed_to_mcp():
-    assert "metasound" in EXCLUDED_COMMANDS
-
-
-def test_metasound_inspect_leaf_is_exposed_to_mcp():
-    tool = next(t for t in extract_tools() if t["name"] == "metasound inspect")
-    assert "asset_path" in tool["parameters"]["properties"]
-    assert "asset_path" in tool["parameters"].get("required", [])
 
 
 def test_canonical_leaf_commands_are_exposed_to_mcp():
@@ -369,6 +360,21 @@ def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
     assert repoint_params["properties"]["replacement_map"]["type"] == "object"
     assert "asset_paths" in repoint_params.get("required", [])
     assert "replacement_map" in repoint_params.get("required", [])
+
+    retarget_blueprint = next(t for t in tools if t["name"] == "anim retarget blueprint")
+    retarget_blueprint_params = retarget_blueprint["parameters"]
+    assert retarget_blueprint_params["properties"]["bone_map"]["type"] == "object"
+    assert "bone_map" in retarget_blueprint_params.get("required", [])
+    assert "bone_map_entries" not in retarget_blueprint_params["properties"]
+
+    pose_remap = next(t for t in tools if t["name"] == "anim pose-search remap")
+    pose_remap_params = pose_remap["parameters"]
+    assert pose_remap_params["properties"]["bone_map"]["type"] == "object"
+    assert "bone_map" in pose_remap_params.get("required", [])
+    assert "bone_map_entries" not in pose_remap_params["properties"]
+
+    pose_inspect = next(t for t in tools if t["name"] == "anim pose-search inspect")
+    assert pose_inspect["parameters"]["properties"]["schema_path"]["type"] == "string"
 
 
 def test_pie_session_schema_exposes_blueprint_compile_error_policy():

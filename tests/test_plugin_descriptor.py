@@ -1,4 +1,4 @@
-"""Tests for the exported SoftUEBridge plugin descriptor."""
+﻿"""Tests for the exported SoftUEBridge plugin descriptor."""
 
 from __future__ import annotations
 
@@ -38,16 +38,16 @@ def _plugin_source_path(relative: str) -> Path:
 def _agent_guide_path() -> Path:
     guide = _repo_root() / "AGENTS.md"
     if not guide.exists():
-        pytest.skip("AGENTS.md is not shipped in the public export")
+        pytest.skip("AGENTS.md is monorepo-only and is not exported")
     return guide
 
 
-def _skill_path(relative: str) -> Path:
+def _skills_dir() -> Path:
     root = _repo_root()
-    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / relative
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills"
     if monorepo_path.exists():
         return monorepo_path
-    return root / "soft_ue_cli" / "skills" / relative
+    return root / "soft_ue_cli" / "skills"
 
 
 def test_editor_dependency_plugins_are_editor_target_only():
@@ -381,6 +381,36 @@ def test_anim_repoint_references_tool_uses_deferred_registration():
     assert "ReplaceReferredAnimations" in source
 
 
+def test_anim_blueprint_and_pose_search_migration_tools_use_deferred_registration():
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+    anim_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Animation/AnimBlueprintRetargetTool.cpp"
+    ).read_text(encoding="utf-8")
+    pose_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Animation/PoseSearchSchemaTools.cpp"
+    ).read_text(encoding="utf-8")
+
+    startup_body = module.split("void FSoftUEBridgeEditorModule::StartupModule()", 1)[1].split(
+        "void FSoftUEBridgeEditorModule::ShutdownModule()", 1
+    )[0]
+
+    assert "Tools/Animation/AnimBlueprintRetargetTool.h" in module
+    assert "Tools/Animation/PoseSearchSchemaTools.h" in module
+    assert "Registry.RegisterToolClass<UAnimBlueprintRetargetTool>()" in module
+    assert "Registry.RegisterToolClass<UPoseSearchSchemaInspectTool>()" in module
+    assert "Registry.RegisterToolClass<UPoseSearchSchemaRemapTool>()" in module
+    assert "Registry.RegisterToolClass<UAnimBlueprintRetargetTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UPoseSearchSchemaInspectTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UPoseSearchSchemaRemapTool>()" not in startup_body
+    assert "REGISTER_BRIDGE_TOOL(UAnimBlueprintRetargetTool)" not in anim_source
+    assert "REGISTER_BRIDGE_TOOL(UPoseSearchSchemaInspectTool)" not in pose_source
+    assert "REGISTER_BRIDGE_TOOL(UPoseSearchSchemaRemapTool)" not in pose_source
+    assert "FBoneReference" in anim_source
+    assert "FBoneReference" in pose_source
+
+
 def test_metasound_inspect_tool_uses_deferred_registration():
     module = _plugin_source_path(
         "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
@@ -673,7 +703,7 @@ def test_set_node_position_supports_customizable_object_graphs():
 
 
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    content = _skill_path("test-tools.md").read_text(encoding="utf-8")
+    content = (_skills_dir() / "test-tools.md").read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
 

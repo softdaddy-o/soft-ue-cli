@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
+﻿"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
 
 from __future__ import annotations
 
@@ -2668,6 +2668,95 @@ def test_anim_retarget_repoint_references_routes_to_bridge_tool():
                 "/Game/Anim/AS_Run": "/Game/Anim/RTG/AS_Run",
             },
             "target_skeleton": "/Game/Characters/SKEL_Target",
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_anim_retarget_blueprint_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "retarget",
+        "blueprint",
+        "/Game/Anim/ABP_Hero",
+        "/Game/Anim/ABP_Hero_Target",
+        "--target-skeleton",
+        "/Game/Characters/SKEL_Target",
+        "--bone-map",
+        "upperarm_l=upperarm_l_target",
+        "--bone-map",
+        "spine_01:spine_a",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "anim-retarget-blueprint",
+        {
+            "source_blueprint": "/Game/Anim/ABP_Hero",
+            "target_blueprint": "/Game/Anim/ABP_Hero_Target",
+            "target_skeleton": "/Game/Characters/SKEL_Target",
+            "bone_map": {
+                "upperarm_l": "upperarm_l_target",
+                "spine_01": "spine_a",
+            },
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_anim_pose_search_inspect_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "pose-search",
+        "inspect",
+        "/Game/Motion/PS_Hero",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "pose-search-schema-inspect",
+        {
+            "schema_path": "/Game/Motion/PS_Hero",
+        },
+    )
+
+
+def test_anim_pose_search_remap_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "pose-search",
+        "remap",
+        "/Game/Motion/PS_Hero",
+        "--target-skeleton",
+        "/Game/Characters/SKEL_Target",
+        "--bone-map",
+        "pelvis=pelvis_target",
+        "--bone-map",
+        "spine_01:spine_a",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "pose-search-schema-remap",
+        {
+            "schema_path": "/Game/Motion/PS_Hero",
+            "target_skeleton": "/Game/Characters/SKEL_Target",
+            "bone_map": {
+                "pelvis": "pelvis_target",
+                "spine_01": "spine_a",
+            },
             "checkout": True,
             "save": True,
         },

@@ -85,8 +85,10 @@
 #include "Tools/Animation/AddAnimStateMachineTool.h"
 #include "Tools/Animation/AddAnimStateTool.h"
 #include "Tools/Animation/AddAnimTransitionTool.h"
+#include "Tools/Animation/AnimBlueprintRetargetTool.h"
 #include "Tools/Animation/AnimRepointReferencesTool.h"
 #include "Tools/Animation/AnimSyncMarkerTools.h"
+#include "Tools/Animation/PoseSearchSchemaTools.h"
 
 // Widget
 #include "Tools/Widget/ApplyWidgetTreeTool.h"
@@ -159,6 +161,18 @@ void FSoftUEBridgeEditorModule::RegisterAnimationTools()
 	if (!Registry.HasTool(TEXT("anim-repoint-references")))
 	{
 		Registry.RegisterToolClass<UAnimRepointReferencesTool>();
+	}
+	if (!Registry.HasTool(TEXT("anim-retarget-blueprint")))
+	{
+		Registry.RegisterToolClass<UAnimBlueprintRetargetTool>();
+	}
+	if (!Registry.HasTool(TEXT("pose-search-schema-inspect")))
+	{
+		Registry.RegisterToolClass<UPoseSearchSchemaInspectTool>();
+	}
+	if (!Registry.HasTool(TEXT("pose-search-schema-remap")))
+	{
+		Registry.RegisterToolClass<UPoseSearchSchemaRemapTool>();
 	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("Registered deferred editor bridge tools; total tools: %d"), Registry.GetToolCount());

@@ -2,6 +2,12 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.36.0] - 2026-06-03
+
+### Added
+- Added `anim retarget blueprint` to duplicate an AnimBlueprint onto a target skeleton and remap authored `FBoneReference` bone names using explicit bone maps.
+- Added `anim pose-search inspect` and `anim pose-search remap` to read PoseSearchSchema skeleton/channel bone references and remap sampled bone names for renamed skeleton migrations.
+
 ## [1.35.0] - 2026-06-03
 
 ### Added

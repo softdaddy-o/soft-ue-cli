@@ -1,4 +1,4 @@
-"""Guards for public package metadata and README freshness."""
+﻿"""Guards for public package metadata and README freshness."""
 
 from __future__ import annotations
 

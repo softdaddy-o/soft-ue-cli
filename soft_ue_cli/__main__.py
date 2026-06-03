@@ -2432,6 +2432,25 @@ def _parse_anim_repoint_map(values: list[str]) -> dict[str, str]:
     return replacement_map
 
 
+def _parse_bone_map(values: list[str]) -> dict[str, str]:
+    bone_map: dict[str, str] = {}
+    for value in values:
+        if "=" in value:
+            old_name, new_name = value.split("=", 1)
+        elif ":" in value:
+            old_name, new_name = value.split(":", 1)
+        else:
+            print(f"error: --bone-map must be OLD=NEW or OLD:NEW, got '{value}'", file=sys.stderr)
+            sys.exit(1)
+        old_name = old_name.strip()
+        new_name = new_name.strip()
+        if not old_name or not new_name:
+            print(f"error: --bone-map must include both OLD and NEW bone names, got '{value}'", file=sys.stderr)
+            sys.exit(1)
+        bone_map[old_name] = new_name
+    return bone_map
+
+
 def cmd_anim_repoint_references(args: argparse.Namespace) -> None:
     if hasattr(args, "replacement_map") and args.replacement_map is not None:
         replacement_map = {
@@ -2452,6 +2471,51 @@ def cmd_anim_repoint_references(args: argparse.Namespace) -> None:
     if args.save:
         arguments["save"] = True
     _print_json(_run_tool("anim-repoint-references", arguments))
+
+
+def cmd_anim_retarget_blueprint(args: argparse.Namespace) -> None:
+    if hasattr(args, "bone_map") and args.bone_map is not None:
+        bone_map = {str(old_name): str(new_name) for old_name, new_name in dict(args.bone_map).items()}
+    else:
+        bone_map = _parse_bone_map(args.bone_map_entries)
+
+    arguments: dict = {
+        "source_blueprint": _fix_msys_asset_path(args.source_blueprint),
+        "target_blueprint": _fix_msys_asset_path(args.target_blueprint),
+        "target_skeleton": _fix_msys_asset_path(args.target_skeleton),
+        "bone_map": bone_map,
+    }
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("anim-retarget-blueprint", arguments))
+
+
+def cmd_pose_search_schema_inspect(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "schema_path": _fix_msys_asset_path(args.schema_path),
+    }
+    _print_json(_run_tool("pose-search-schema-inspect", arguments))
+
+
+def cmd_pose_search_schema_remap(args: argparse.Namespace) -> None:
+    if hasattr(args, "bone_map") and args.bone_map is not None:
+        bone_map = {str(old_name): str(new_name) for old_name, new_name in dict(args.bone_map).items()}
+    else:
+        bone_map = _parse_bone_map(args.bone_map_entries)
+
+    arguments: dict = {
+        "schema_path": _fix_msys_asset_path(args.schema_path),
+        "bone_map": bone_map,
+    }
+    if args.target_skeleton:
+        arguments["target_skeleton"] = _fix_msys_asset_path(args.target_skeleton)
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("pose-search-schema-remap", arguments))
 
 
 def cmd_trigger_input(args: argparse.Namespace) -> None:
@@ -5880,6 +5944,68 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_arr.add_argument("--save", action="store_true", help="Save each changed asset after mutation")
     p_arr.add_argument("--checkout", action="store_true", help="Checkout each asset before mutation when source control is active")
     p_arr.set_defaults(func=cmd_anim_repoint_references)
+
+    p_arb = sub.add_parser(
+        "anim-retarget-blueprint",
+        help="Duplicate an AnimBlueprint onto a target skeleton and remap authored bone references.",
+        description=(
+            "Duplicate an AnimBlueprint, assign the target skeleton, and remap FBoneReference bone names inside "
+            "authored AnimGraph nodes.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli anim retarget blueprint /Game/Anim/ABP_Hero /Game/Anim/ABP_Hero_Target \\\n"
+            "      --target-skeleton /Game/Characters/SKEL_Target --bone-map upperarm_l=upperarm_l_target --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_arb.add_argument("source_blueprint", help="Source AnimBlueprint asset path")
+    p_arb.add_argument("target_blueprint", help="New duplicated AnimBlueprint asset path")
+    p_arb.add_argument("--target-skeleton", required=True, metavar="PATH", help="Target skeleton asset path")
+    p_arb.add_argument(
+        "--bone-map",
+        dest="bone_map_entries",
+        action="append",
+        required=True,
+        metavar="OLD=NEW",
+        help="Bone name replacement mapping; repeat for multiple old/new pairs",
+    )
+    p_arb.add_argument("--save", action="store_true", help="Save the duplicated Blueprint after mutation")
+    p_arb.add_argument("--checkout", action="store_true", help="Checkout the duplicated asset before saving when source control is active")
+    p_arb.set_defaults(func=cmd_anim_retarget_blueprint)
+
+    p_psi = sub.add_parser(
+        "pose-search-schema-inspect",
+        help="Inspect PoseSearchSchema skeletons and sampled bone references.",
+        description=(
+            "Read a PoseSearchSchema asset and list skeleton references plus FBoneReference bone names found in channels."
+        ),
+    )
+    p_psi.add_argument("schema_path", help="PoseSearchSchema asset path")
+    p_psi.set_defaults(func=cmd_pose_search_schema_inspect)
+
+    p_psr = sub.add_parser(
+        "pose-search-schema-remap",
+        help="Remap PoseSearchSchema sampled bone references and optionally target skeletons.",
+        description=(
+            "Update FBoneReference bone names in a PoseSearchSchema and optionally replace its skeleton references.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli anim pose-search remap /Game/Motion/PS_Hero \\\n"
+            "      --bone-map pelvis=pelvis_target --target-skeleton /Game/Characters/SKEL_Target --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_psr.add_argument("schema_path", help="PoseSearchSchema asset path")
+    p_psr.add_argument(
+        "--bone-map",
+        dest="bone_map_entries",
+        action="append",
+        required=True,
+        metavar="OLD=NEW",
+        help="Bone name replacement mapping; repeat for multiple old/new pairs",
+    )
+    p_psr.add_argument("--target-skeleton", metavar="PATH", help="Optional skeleton asset path to assign to schema skeleton references")
+    p_psr.add_argument("--save", action="store_true", help="Save the schema after mutation")
+    p_psr.add_argument("--checkout", action="store_true", help="Checkout the schema before mutation when source control is active")
+    p_psr.set_defaults(func=cmd_pose_search_schema_remap)
 
     p_ipp = sub.add_parser(
         "inspect-pawn-possession",

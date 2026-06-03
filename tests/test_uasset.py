@@ -1,9 +1,10 @@
-"""Tests for offline .uasset tagged property parsing."""
+﻿"""Tests for offline .uasset tagged property parsing."""
 
 from __future__ import annotations
 
 import io
 import struct
+import sys
 from pathlib import Path
 
 

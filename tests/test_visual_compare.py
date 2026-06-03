@@ -1,7 +1,8 @@
-"""Tests for offline UMG screenshot comparison."""
+﻿"""Tests for offline UMG screenshot comparison."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PIL import Image

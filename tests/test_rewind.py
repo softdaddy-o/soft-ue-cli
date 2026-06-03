@@ -1,4 +1,4 @@
-"""Tests for rewind-* CLI commands."""
+﻿"""Tests for rewind-* CLI commands."""
 
 from unittest.mock import patch, MagicMock
 

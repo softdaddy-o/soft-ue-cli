@@ -274,6 +274,22 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
         "required_remove": ["replacements"],
         "required_add": ["replacement_map"],
     },
+    "anim-retarget-blueprint": {
+        "properties": {
+            "bone_map": {"type": "object", "description": "Object mapping old bone names to new bone names"},
+        },
+        "properties_remove": ["bone_map_entries"],
+        "required_remove": ["bone_map_entries"],
+        "required_add": ["bone_map"],
+    },
+    "pose-search-schema-remap": {
+        "properties": {
+            "bone_map": {"type": "object", "description": "Object mapping old bone names to new bone names"},
+        },
+        "properties_remove": ["bone_map_entries"],
+        "required_remove": ["bone_map_entries"],
+        "required_add": ["bone_map"],
+    },
 }
 
 EXTRA_BRIDGE_TOOLS: tuple[dict[str, Any], ...] = (
@@ -383,6 +399,8 @@ TOOL_OVERRIDES.update({
     },
     "anim sync-marker compare": TOOL_OVERRIDES["compare-sync-markers"],
     "anim retarget repoint-references": TOOL_OVERRIDES["anim-repoint-references"],
+    "anim retarget blueprint": TOOL_OVERRIDES["anim-retarget-blueprint"],
+    "anim pose-search remap": TOOL_OVERRIDES["pose-search-schema-remap"],
 })
 
 

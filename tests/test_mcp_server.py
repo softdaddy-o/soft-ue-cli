@@ -1,8 +1,9 @@
-"""Tests for cli/soft_ue_cli/mcp_server.py ??MCP server tool/prompt registration."""
+﻿"""Tests for cli/soft_ue_cli/mcp_server.py ??MCP server tool/prompt registration."""
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import patch
 

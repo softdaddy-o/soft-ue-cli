@@ -250,10 +250,10 @@ The public command system is organized by domain:
 | `mutable` | Mutable/CustomizableObject inspection, graph editing, parameter authoring, and compilation |
 | `statetree` | StateTree inspection, state editing, task authoring, and transitions |
 | `metasound` | Read-only MetaSound Source/Patch graph inspection |
-| `anim` | Animation instance inspection, sync markers, AnimBlueprint graph authoring, reference repointing, and Rewind Debugger workflows |
+| `anim` | Animation instance inspection, sync markers, AnimBlueprint graph authoring, retarget migration, PoseSearch schema remapping, and Rewind Debugger workflows |
 | `umg` | Widget Blueprint designer trees, navigation contracts, runtime verification, preview lifecycle, and layout comparison |
 
-Use `soft-ue-cli <family> --help` to see the family, then drill down with subcommands such as `soft-ue-cli blueprint graph inspect --help`, `soft-ue-cli mutable graph add-node --help`, or `soft-ue-cli anim retarget repoint-references --help`.
+Use `soft-ue-cli <family> --help` to see the family, then drill down with subcommands such as `soft-ue-cli blueprint graph inspect --help`, `soft-ue-cli mutable graph add-node --help`, or `soft-ue-cli anim pose-search inspect --help`.
 
 ## Complete Command Reference
 
@@ -358,14 +358,18 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 | `exec-console-command` | Execute arbitrary UE console commands directly in editor, PIE, or game worlds |
 | `pie-session` | Start, stop, pause, resume PIE -- also query actor state during play |
 | `pie-tick` | Start PIE if needed and advance the world deterministically by frame count |
-| `anim` | Canonical animation instance, sync marker, graph authoring, transition, and Rewind command family |
+| `anim` | Canonical animation instance, sync marker, graph authoring, retarget migration, PoseSearch, transition, and Rewind command family |
 | `anim instance inspect` | Snapshot a target actor's live `UAnimInstance` state or inspect static AnimBlueprint topology with `--asset-path` |
 | `anim sync-marker inspect` | List AuthoredSyncMarkers on an AnimSequence asset |
 | `anim sync-marker compare` | Compare sync marker names and timing across AnimSequence assets |
 | `anim sync-marker add` | Add an AuthoredSyncMarker to an AnimSequence asset |
 | `anim sync-marker remove` | Remove AuthoredSyncMarkers from an AnimSequence asset |
-| `anim retarget` | Canonical animation retarget and reference repointing command family |
+| `anim retarget` | Canonical animation retarget, skeleton migration, and reference repointing command family |
 | `anim retarget repoint-references` | Safely repoint AnimSequence references inside AnimMontage and BlendSpace assets |
+| `anim retarget blueprint` | Duplicate an AnimBlueprint onto a target skeleton and remap authored `FBoneReference` bone names with `--bone-map OLD=NEW` |
+| `anim pose-search` | Canonical PoseSearch schema inspection and bone remapping command family |
+| `anim pose-search inspect` | Inspect PoseSearchSchema skeleton references and sampled bone names used by feature channels |
+| `anim pose-search remap` | Remap PoseSearchSchema sampled bone names and optionally replace schema skeleton references |
 | `inspect-pawn-possession` | Inspect controller/pawn links, AI auto-possession, and hidden state in a running world |
 | `trigger-input` | Send input events to a running game (PIE or packaged build) |
 

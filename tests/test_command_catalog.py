@@ -1,7 +1,8 @@
-"""Tests for public command taxonomy metadata."""
+﻿"""Tests for public command taxonomy metadata."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -160,6 +161,36 @@ def test_catalog_marks_anim_retarget_repoint_as_bridge_editor_command():
     assert meta["requires_pie"] is False
 
 
+def test_catalog_marks_anim_retarget_blueprint_as_bridge_editor_command():
+    meta = get_command_metadata("anim retarget blueprint")
+
+    assert meta["status"] == "canonical"
+    assert meta["layer"] == "bridge"
+    assert meta["category"] == "animation"
+    assert meta["requires_bridge"] is True
+    assert meta["requires_editor"] is True
+    assert meta["requires_pie"] is False
+
+
+def test_catalog_marks_pose_search_schema_commands_as_pose_search_plugin_tools():
+    inspect = get_command_metadata("anim pose-search inspect")
+    remap = get_command_metadata("anim pose-search remap")
+
+    assert inspect["status"] == "canonical"
+    assert inspect["layer"] == "bridge"
+    assert inspect["category"] == "animation"
+    assert inspect["requires_bridge"] is True
+    assert inspect["requires_editor"] is True
+    assert inspect["required_plugins"][0]["name"] == "PoseSearch"
+
+    assert remap["status"] == "canonical"
+    assert remap["layer"] == "bridge"
+    assert remap["category"] == "animation"
+    assert remap["requires_bridge"] is True
+    assert remap["requires_editor"] is True
+    assert remap["required_plugins"][0]["module"] == "PoseSearch"
+
+
 def test_catalog_marks_metasound_inspect_as_bridge_editor_command():
     meta = get_command_metadata("metasound inspect")
 
@@ -213,17 +244,6 @@ def test_commands_json_can_include_removed_migration_entries():
     assert removed_entry["status"] == "removed"
     assert removed_entry["canonical_command"] == "blueprint inspect"
     assert "Removed flat command" in removed_entry["summary"]
-
-
-def test_catalog_marks_metasound_inspect_as_bridge_editor_command():
-    meta = get_command_metadata("metasound inspect")
-
-    assert meta["status"] == "canonical"
-    assert meta["layer"] == "bridge"
-    assert meta["category"] == "inspect"
-    assert meta["requires_bridge"] is True
-    assert meta["requires_editor"] is True
-    assert meta["requires_pie"] is False
 
 
 def test_all_catalog_entries_have_required_metadata_fields():

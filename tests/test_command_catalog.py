@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 
 import pytest
 
@@ -175,6 +173,7 @@ def test_catalog_marks_anim_retarget_blueprint_as_bridge_editor_command():
 def test_catalog_marks_pose_search_schema_commands_as_pose_search_plugin_tools():
     inspect = get_command_metadata("anim pose-search inspect")
     remap = get_command_metadata("anim pose-search remap")
+    database_repoint = get_command_metadata("anim pose-search database-repoint")
 
     assert inspect["status"] == "canonical"
     assert inspect["layer"] == "bridge"
@@ -189,6 +188,24 @@ def test_catalog_marks_pose_search_schema_commands_as_pose_search_plugin_tools()
     assert remap["requires_bridge"] is True
     assert remap["requires_editor"] is True
     assert remap["required_plugins"][0]["module"] == "PoseSearch"
+
+    assert database_repoint["status"] == "canonical"
+    assert database_repoint["layer"] == "bridge"
+    assert database_repoint["category"] == "animation"
+    assert database_repoint["requires_bridge"] is True
+    assert database_repoint["requires_editor"] is True
+    assert database_repoint["required_plugins"][0]["name"] == "PoseSearch"
+
+
+def test_catalog_marks_asset_repoint_references_as_bridge_editor_command():
+    meta = get_command_metadata("asset repoint-references")
+
+    assert meta["status"] == "canonical"
+    assert meta["layer"] == "bridge"
+    assert meta["category"] == "asset"
+    assert meta["requires_bridge"] is True
+    assert meta["requires_editor"] is True
+    assert meta["requires_pie"] is False
 
 
 def test_catalog_marks_metasound_inspect_as_bridge_editor_command():

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 
 import pytest
 
@@ -364,8 +362,10 @@ def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
     retarget_blueprint = next(t for t in tools if t["name"] == "anim retarget blueprint")
     retarget_blueprint_params = retarget_blueprint["parameters"]
     assert retarget_blueprint_params["properties"]["bone_map"]["type"] == "object"
+    assert retarget_blueprint_params["properties"]["animation_asset_map"]["type"] == "object"
     assert "bone_map" in retarget_blueprint_params.get("required", [])
     assert "bone_map_entries" not in retarget_blueprint_params["properties"]
+    assert "animation_map_entries" not in retarget_blueprint_params["properties"]
 
     pose_remap = next(t for t in tools if t["name"] == "anim pose-search remap")
     pose_remap_params = pose_remap["parameters"]
@@ -375,6 +375,19 @@ def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
 
     pose_inspect = next(t for t in tools if t["name"] == "anim pose-search inspect")
     assert pose_inspect["parameters"]["properties"]["schema_path"]["type"] == "string"
+
+    pose_database = next(t for t in tools if t["name"] == "anim pose-search database-repoint")
+    pose_database_params = pose_database["parameters"]
+    assert pose_database_params["properties"]["animation_asset_map"]["type"] == "object"
+    assert pose_database_params["properties"]["schema_path"]["type"] == "string"
+    assert "animation_map_entries" not in pose_database_params["properties"]
+
+    asset_repoint = next(t for t in tools if t["name"] == "asset repoint-references")
+    asset_repoint_params = asset_repoint["parameters"]
+    assert asset_repoint_params["properties"]["asset_paths"]["type"] == "array"
+    assert asset_repoint_params["properties"]["replacement_map"]["type"] == "object"
+    assert "asset_paths" in asset_repoint_params.get("required", [])
+    assert "replacement_map" in asset_repoint_params.get("required", [])
 
 
 def test_pie_session_schema_exposes_blueprint_compile_error_policy():
@@ -450,7 +463,14 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 220
+    assert len(tools) <= 222
+
+
+def test_skeletal_socket_tools_are_exposed():
+    tools = extract_tools()
+    tool_names = {t["name"] for t in tools}
+    assert "asset skeletal-socket create" in tool_names
+    assert "asset skeletal-socket remove" in tool_names
 
 
 def test_skills_excluded():

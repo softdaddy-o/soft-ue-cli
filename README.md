@@ -244,13 +244,13 @@ The public command system is organized by domain:
 
 | Family | Use it for |
 |--------|------------|
-| `asset` | Content Browser assets, thumbnails, source-control diffs, local `.uasset` inspection, create/save/delete operations |
+| `asset` | Content Browser assets, thumbnails, source-control diffs, local `.uasset` inspection, create/save/delete operations, and nested reference repointing |
 | `blueprint` | Blueprint inspection, graph/node/pin editing, interfaces, and compilation |
 | `capture` | Viewport and screenshot capture with source, sizing, and color-mode controls |
 | `mutable` | Mutable/CustomizableObject inspection, graph editing, parameter authoring, and compilation |
 | `statetree` | StateTree inspection, state editing, task authoring, and transitions |
 | `metasound` | Read-only MetaSound Source/Patch graph inspection |
-| `anim` | Animation instance inspection, sync markers, AnimBlueprint graph authoring, retarget migration, PoseSearch schema remapping, and Rewind Debugger workflows |
+| `anim` | Animation instance inspection, sync markers, AnimBlueprint graph authoring, retarget migration, PoseSearch schema/database remapping, and Rewind Debugger workflows |
 | `umg` | Widget Blueprint designer trees, navigation contracts, runtime verification, preview lifecycle, and layout comparison |
 
 Use `soft-ue-cli <family> --help` to see the family, then drill down with subcommands such as `soft-ue-cli blueprint graph inspect --help`, `soft-ue-cli mutable graph add-node --help`, or `soft-ue-cli anim pose-search inspect --help`.
@@ -330,6 +330,9 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 | `asset delete` | Delete an asset |
 | `asset release-lock` | Best-effort close editors and release UE file handles for a specific asset |
 | `asset set-property` | Set a property on a Blueprint CDO or component, including nested `InstancedStruct` members |
+| `asset repoint-references` | Repoint nested hard and soft asset references inside arbitrary assets such as DataAssets |
+| `asset skeletal-socket create` | Create or update a mesh-owned SkeletalMesh socket, including socket and bone names |
+| `asset skeletal-socket remove` | Remove a mesh-owned SkeletalMesh socket by name |
 | `asset diff` | Get property-level diff of an asset vs. source control |
 | `asset preview` | Get a thumbnail/preview image of an asset |
 | `asset open` | Open an asset in the editor |
@@ -366,10 +369,11 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 | `anim sync-marker remove` | Remove AuthoredSyncMarkers from an AnimSequence asset |
 | `anim retarget` | Canonical animation retarget, skeleton migration, and reference repointing command family |
 | `anim retarget repoint-references` | Safely repoint AnimSequence references inside AnimMontage and BlendSpace assets |
-| `anim retarget blueprint` | Duplicate an AnimBlueprint onto a target skeleton and remap authored `FBoneReference` bone names with `--bone-map OLD=NEW` |
-| `anim pose-search` | Canonical PoseSearch schema inspection and bone remapping command family |
+| `anim retarget blueprint` | Duplicate an AnimBlueprint onto a target skeleton and remap authored `FBoneReference` bone names with `--bone-map OLD=NEW`, optionally repointing referenced animation assets with `--anim-map OLD=NEW` |
+| `anim pose-search` | Canonical PoseSearch schema, database, and skeleton migration command family |
 | `anim pose-search inspect` | Inspect PoseSearchSchema skeleton references and sampled bone names used by feature channels |
 | `anim pose-search remap` | Remap PoseSearchSchema sampled bone names and optionally replace schema skeleton references |
+| `anim pose-search database-repoint` | Repoint PoseSearchDatabase schema and animation asset references, optionally triggering best-effort reindexing |
 | `inspect-pawn-possession` | Inspect controller/pawn links, AI auto-possession, and hidden state in a running world |
 | `trigger-input` | Send input events to a running game (PIE or packaged build) |
 

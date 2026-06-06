@@ -2479,12 +2479,23 @@ def cmd_anim_retarget_blueprint(args: argparse.Namespace) -> None:
     else:
         bone_map = _parse_bone_map(args.bone_map_entries)
 
+    animation_asset_map = None
+    if hasattr(args, "animation_asset_map") and args.animation_asset_map is not None:
+        animation_asset_map = {
+            _fix_msys_asset_path(str(old_path)): _fix_msys_asset_path(str(new_path))
+            for old_path, new_path in dict(args.animation_asset_map).items()
+        }
+    elif getattr(args, "animation_map_entries", None):
+        animation_asset_map = _parse_anim_repoint_map(args.animation_map_entries)
+
     arguments: dict = {
         "source_blueprint": _fix_msys_asset_path(args.source_blueprint),
         "target_blueprint": _fix_msys_asset_path(args.target_blueprint),
         "target_skeleton": _fix_msys_asset_path(args.target_skeleton),
         "bone_map": bone_map,
     }
+    if animation_asset_map:
+        arguments["animation_asset_map"] = animation_asset_map
     if args.checkout:
         arguments["checkout"] = True
     if args.save:
@@ -2516,6 +2527,83 @@ def cmd_pose_search_schema_remap(args: argparse.Namespace) -> None:
     if args.save:
         arguments["save"] = True
     _print_json(_run_tool("pose-search-schema-remap", arguments))
+
+
+def cmd_pose_search_database_repoint(args: argparse.Namespace) -> None:
+    animation_asset_map = None
+    if hasattr(args, "animation_asset_map") and args.animation_asset_map is not None:
+        animation_asset_map = {
+            _fix_msys_asset_path(str(old_path)): _fix_msys_asset_path(str(new_path))
+            for old_path, new_path in dict(args.animation_asset_map).items()
+        }
+    elif getattr(args, "animation_map_entries", None):
+        animation_asset_map = _parse_anim_repoint_map(args.animation_map_entries)
+
+    arguments: dict = {
+        "database_path": _fix_msys_asset_path(args.database_path),
+    }
+    if args.schema_path:
+        arguments["schema_path"] = _fix_msys_asset_path(args.schema_path)
+    if animation_asset_map:
+        arguments["animation_asset_map"] = animation_asset_map
+    if args.reindex:
+        arguments["reindex"] = True
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("pose-search-database-repoint", arguments))
+
+
+def cmd_asset_repoint_references(args: argparse.Namespace) -> None:
+    if hasattr(args, "replacement_map") and args.replacement_map is not None:
+        replacement_map = {
+            _fix_msys_asset_path(str(old_path)): _fix_msys_asset_path(str(new_path))
+            for old_path, new_path in dict(args.replacement_map).items()
+        }
+    else:
+        replacement_map = _parse_anim_repoint_map(args.replacements)
+
+    arguments: dict = {
+        "asset_paths": [_fix_msys_asset_path(path) for path in args.asset_paths],
+        "replacement_map": replacement_map,
+    }
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("asset-repoint-references", arguments))
+
+
+def cmd_skeletal_mesh_socket_create(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": _fix_msys_asset_path(args.asset_path),
+        "socket_name": args.socket_name,
+        "bone_name": args.bone_name,
+    }
+    if args.location:
+        arguments["location"] = _parse_vector(args.location)
+    if args.rotation:
+        arguments["rotation"] = _parse_vector(args.rotation)
+    if args.scale:
+        arguments["scale"] = _parse_vector(args.scale)
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("skeletal-mesh-socket-create", arguments))
+
+
+def cmd_skeletal_mesh_socket_remove(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": _fix_msys_asset_path(args.asset_path),
+        "socket_name": args.socket_name,
+    }
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("skeletal-mesh-socket-remove", arguments))
 
 
 def cmd_trigger_input(args: argparse.Namespace) -> None:
@@ -5968,6 +6056,13 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
         metavar="OLD=NEW",
         help="Bone name replacement mapping; repeat for multiple old/new pairs",
     )
+    p_arb.add_argument(
+        "--anim-map",
+        dest="animation_map_entries",
+        action="append",
+        metavar="OLD=NEW",
+        help="Animation asset replacement mapping; repeat for AnimSequence, BlendSpace, montage, or PoseSearchDatabase refs",
+    )
     p_arb.add_argument("--save", action="store_true", help="Save the duplicated Blueprint after mutation")
     p_arb.add_argument("--checkout", action="store_true", help="Checkout the duplicated asset before saving when source control is active")
     p_arb.set_defaults(func=cmd_anim_retarget_blueprint)
@@ -6006,6 +6101,31 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_psr.add_argument("--save", action="store_true", help="Save the schema after mutation")
     p_psr.add_argument("--checkout", action="store_true", help="Checkout the schema before mutation when source control is active")
     p_psr.set_defaults(func=cmd_pose_search_schema_remap)
+
+    p_psd = sub.add_parser(
+        "pose-search-database-repoint",
+        help="Repoint a PoseSearchDatabase schema and animation assets.",
+        description=(
+            "Replace a PoseSearchDatabase schema reference and nested animation asset references using explicit maps.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli anim pose-search database-repoint /Game/Motion/PSD_Hero \\\n"
+            "      --schema /Game/Motion/PS_Hero_Target --anim-map /Game/Anim/AS_Walk=/Game/Anim/RTG/AS_Walk --reindex --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_psd.add_argument("database_path", help="PoseSearchDatabase asset path")
+    p_psd.add_argument("--schema", dest="schema_path", metavar="PATH", help="Optional target PoseSearchSchema asset path")
+    p_psd.add_argument(
+        "--anim-map",
+        dest="animation_map_entries",
+        action="append",
+        metavar="OLD=NEW",
+        help="Animation asset replacement mapping; repeat for multiple database entries",
+    )
+    p_psd.add_argument("--reindex", action="store_true", help="Best-effort trigger of PoseSearchDatabase reindexing after mutation")
+    p_psd.add_argument("--save", action="store_true", help="Save the database after mutation")
+    p_psd.add_argument("--checkout", action="store_true", help="Checkout the database before mutation when source control is active")
+    p_psd.set_defaults(func=cmd_pose_search_database_repoint)
 
     p_ipp = sub.add_parser(
         "inspect-pawn-possession",
@@ -6805,6 +6925,69 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_sa.add_argument("--checkout", action="store_true", help="Check out from source control before saving")
     p_sa.set_defaults(func=cmd_save_asset)
 
+    p_arp = sub.add_parser(
+        "asset-repoint-references",
+        help="Repoint nested hard and soft object references inside arbitrary assets.",
+        description=(
+            "Walk reflected UObject properties, including nested structs, arrays, sets, maps, hard object refs, "
+            "and soft object refs, replacing asset references that match an explicit OLD=NEW map.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli asset repoint-references /Game/Data/DA_SkillSet \\\n"
+            "      --map /Game/Anim/AM_Attack=/Game/Anim/RTG/AM_Attack --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_arp.add_argument("asset_paths", nargs="+", help="Asset paths to update")
+    p_arp.add_argument(
+        "--map",
+        dest="replacements",
+        action="append",
+        required=True,
+        metavar="OLD=NEW",
+        help="Asset replacement mapping; repeat for multiple old/new pairs",
+    )
+    p_arp.add_argument("--save", action="store_true", help="Save each changed asset after mutation")
+    p_arp.add_argument("--checkout", action="store_true", help="Checkout each asset before mutation when source control is active")
+    p_arp.set_defaults(func=cmd_asset_repoint_references)
+
+    p_smsc = sub.add_parser(
+        "skeletal-mesh-socket-create",
+        help="Create or update a mesh-owned SkeletalMesh socket.",
+        description=(
+            "Create or update a socket directly on a SkeletalMesh asset, including read-only-in-Python "
+            "fields such as socket_name and bone_name.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli asset skeletal-socket create /Game/Characters/SKM_Hero weapon_r hand_r \\\n"
+            "      --location 0,0,0 --rotation 0,90,0 --scale 1,1,1 --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_smsc.add_argument("asset_path", help="SkeletalMesh asset path")
+    p_smsc.add_argument("socket_name", help="Socket name to create or update")
+    p_smsc.add_argument("bone_name", help="Bone name to attach the socket to")
+    p_smsc.add_argument("--location", metavar="X,Y,Z", help="Relative socket location")
+    p_smsc.add_argument("--rotation", metavar="P,Y,R", help="Relative socket rotation")
+    p_smsc.add_argument("--scale", metavar="X,Y,Z", help="Relative socket scale")
+    p_smsc.add_argument("--save", action="store_true", help="Save the mesh after mutation")
+    p_smsc.add_argument("--checkout", action="store_true", help="Checkout the mesh before mutation when source control is active")
+    p_smsc.set_defaults(func=cmd_skeletal_mesh_socket_create)
+
+    p_smsr = sub.add_parser(
+        "skeletal-mesh-socket-remove",
+        help="Remove a mesh-owned SkeletalMesh socket.",
+        description=(
+            "Remove a socket directly from a SkeletalMesh asset's mesh-owned socket list.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli asset skeletal-socket remove /Game/Characters/SKM_Hero weapon_r --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_smsr.add_argument("asset_path", help="SkeletalMesh asset path")
+    p_smsr.add_argument("socket_name", help="Socket name to remove")
+    p_smsr.add_argument("--save", action="store_true", help="Save the mesh after mutation")
+    p_smsr.add_argument("--checkout", action="store_true", help="Checkout the mesh before mutation when source control is active")
+    p_smsr.set_defaults(func=cmd_skeletal_mesh_socket_remove)
+
     p_cb = sub.add_parser(
         "compile-blueprint",
         help="Compile a Blueprint or AnimBlueprint.",
@@ -6961,7 +7144,7 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
+        help="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

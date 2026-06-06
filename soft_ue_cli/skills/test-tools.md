@@ -1,7 +1,7 @@
 ---
 name: test-tools
 description: Exhaustive integration test of all soft-ue-cli tools against a live UE instance. Writes a JSON report.
-version: 2.6.2
+version: 2.6.3
 ---
 
 # test-tools — Integration Test Suite
@@ -113,6 +113,10 @@ class MCPClient:
         "anim-retarget-blueprint": "anim retarget blueprint",
         "pose-search-schema-inspect": "anim pose-search inspect",
         "pose-search-schema-remap": "anim pose-search remap",
+        "pose-search-database-repoint": "anim pose-search database-repoint",
+        "asset-repoint-references": "asset repoint-references",
+        "skeletal-mesh-socket-create": "asset skeletal-socket create",
+        "skeletal-mesh-socket-remove": "asset skeletal-socket remove",
         "metasound-inspect": "metasound inspect",
     }
 
@@ -1247,11 +1251,19 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_cli("anim retarget repoint-references help", "anim", "retarget", "repoint-references", "--help",
             check_stdout=lambda s: "anim retarget repoint-references" in s and "--target-skeleton" in s)
     run_cli("anim retarget blueprint help", "anim", "retarget", "blueprint", "--help",
-            check_stdout=lambda s: "anim retarget blueprint" in s and "--bone-map" in s and "--target-skeleton" in s)
+            check_stdout=lambda s: "anim retarget blueprint" in s and "--bone-map" in s and "--anim-map" in s and "--target-skeleton" in s)
     run_cli("anim pose-search inspect help", "anim", "pose-search", "inspect", "--help",
             check_stdout=lambda s: "anim pose-search inspect" in s and "schema_path" in s)
     run_cli("anim pose-search remap help", "anim", "pose-search", "remap", "--help",
             check_stdout=lambda s: "anim pose-search remap" in s and "--bone-map" in s)
+    run_cli("anim pose-search database-repoint help", "anim", "pose-search", "database-repoint", "--help",
+            check_stdout=lambda s: "anim pose-search database-repoint" in s and "--anim-map" in s and "--schema" in s)
+    run_cli("asset repoint-references help", "asset", "repoint-references", "--help",
+            check_stdout=lambda s: "asset repoint-references" in s and "--map" in s)
+    run_cli("asset skeletal-socket create help", "asset", "skeletal-socket", "create", "--help",
+            check_stdout=lambda s: "asset skeletal-socket create" in s and "socket_name" in s)
+    run_cli("asset skeletal-socket remove help", "asset", "skeletal-socket", "remove", "--help",
+            check_stdout=lambda s: "asset skeletal-socket remove" in s and "socket_name" in s)
     run_cli("metasound inspect help", "metasound", "inspect", "--help",
             check_stdout=lambda s: "metasound inspect" in s and "asset_path" in s)
     run_cli("asset preview help", "asset", "preview", "--help",
@@ -1427,6 +1439,14 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             "target_blueprint": _anim_bp_target,
             "target_skeleton": _anim_bp_skeleton,
             "bone_map": _anim_bp_bone_map,
+            **({
+                "animation_asset_map": {
+                    (_entry.split("=", 1)[0] if "=" in _entry else _entry.split(":", 1)[0]).strip():
+                    (_entry.split("=", 1)[1] if "=" in _entry else _entry.split(":", 1)[1]).strip()
+                    for _entry in os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_BLUEPRINT_ANIM_MAP", "").split(",")
+                    if _entry.strip() and ("=" in _entry or ":" in _entry)
+                }
+            } if os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_BLUEPRINT_ANIM_MAP", "").strip() else {}),
         }, lambda r: r.get("success") is True and r.get("target_blueprint"))
     else:
         _record("anim-retarget-blueprint smoke", "anim-retarget-blueprint", {},
@@ -1462,6 +1482,70 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     else:
         _record("pose-search-schema-remap smoke", "pose-search-schema-remap", {},
                 True, 0, "skipped: set SOFT_UE_TEST_POSE_SEARCH_SCHEMA and SOFT_UE_TEST_POSE_SEARCH_BONE_MAP")
+
+    _pose_database = os.environ.get("SOFT_UE_TEST_POSE_SEARCH_DATABASE", "").strip()
+    _pose_database_schema = os.environ.get("SOFT_UE_TEST_POSE_SEARCH_DATABASE_SCHEMA", "").strip()
+    _pose_database_anim_map_env = os.environ.get("SOFT_UE_TEST_POSE_SEARCH_DATABASE_ANIM_MAP", "").strip()
+    if _pose_database and (_pose_database_schema or _pose_database_anim_map_env):
+        _pose_database_args = {"database_path": _pose_database}
+        if _pose_database_schema:
+            _pose_database_args["schema_path"] = _pose_database_schema
+        if _pose_database_anim_map_env:
+            _pose_database_anim_map = {}
+            for _entry in _pose_database_anim_map_env.split(","):
+                if "=" in _entry:
+                    _old, _new = _entry.split("=", 1)
+                else:
+                    _old, _new = _entry.split(":", 1)
+                _pose_database_anim_map[_old.strip()] = _new.strip()
+            _pose_database_args["animation_asset_map"] = _pose_database_anim_map
+        run_test("pose-search-database-repoint smoke", "pose-search-database-repoint", _pose_database_args,
+                 lambda r: r.get("success") is True and "database_path" in r)
+    else:
+        _record("pose-search-database-repoint smoke", "pose-search-database-repoint", {},
+                True, 0, "skipped: set SOFT_UE_TEST_POSE_SEARCH_DATABASE plus SCHEMA or ANIM_MAP")
+
+    _asset_repoint_assets = [
+        part.strip()
+        for part in os.environ.get("SOFT_UE_TEST_ASSET_REPOINT_ASSETS", "").split(",")
+        if part.strip()
+    ]
+    _asset_repoint_map_env = os.environ.get("SOFT_UE_TEST_ASSET_REPOINT_MAP", "").strip()
+    if _asset_repoint_assets and _asset_repoint_map_env:
+        _asset_repoint_map = {}
+        for _entry in _asset_repoint_map_env.split(","):
+            if "=" in _entry:
+                _old, _new = _entry.split("=", 1)
+            else:
+                _old, _new = _entry.split(":", 1)
+            _asset_repoint_map[_old.strip()] = _new.strip()
+        run_test("asset-repoint-references smoke", "asset-repoint-references", {
+            "asset_paths": _asset_repoint_assets,
+            "replacement_map": _asset_repoint_map,
+        }, lambda r: r.get("success") is True and "assets" in r)
+    else:
+        _record("asset-repoint-references smoke", "asset-repoint-references", {},
+                True, 0, "skipped: set SOFT_UE_TEST_ASSET_REPOINT_ASSETS and SOFT_UE_TEST_ASSET_REPOINT_MAP")
+
+    _socket_mesh = os.environ.get("SOFT_UE_TEST_SOCKET_MESH", "").strip()
+    _socket_bone = os.environ.get("SOFT_UE_TEST_SOCKET_BONE", "").strip()
+    if _socket_mesh and _socket_bone:
+        _socket_name = f"{LABEL_PFX}_socket"
+        run_test("skeletal-mesh-socket-create smoke", "skeletal-mesh-socket-create", {
+            "asset_path": _socket_mesh,
+            "socket_name": _socket_name,
+            "bone_name": _socket_bone,
+            "location": [0, 0, 0],
+            "rotation": [0, 0, 0],
+            "scale": [1, 1, 1],
+        }, lambda r: r.get("success") is True and r.get("socket", {}).get("socket_name") == _socket_name)
+        run_test("skeletal-mesh-socket-remove smoke", "skeletal-mesh-socket-remove", {
+            "asset_path": _socket_mesh,
+            "socket_name": _socket_name,
+        }, lambda r: r.get("success") is True and r.get("removed_socket", {}).get("socket_name") == _socket_name)
+    else:
+        _record("skeletal mesh socket smoke", "skeletal-mesh-socket-create", {},
+                True, 0, "skipped: set SOFT_UE_TEST_SOCKET_MESH and SOFT_UE_TEST_SOCKET_BONE")
 
     _metasound_asset = os.environ.get("SOFT_UE_TEST_METASOUND_ASSET", "").strip()
     if _metasound_asset:

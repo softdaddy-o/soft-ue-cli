@@ -2710,6 +2710,45 @@ def test_anim_retarget_blueprint_routes_to_bridge_tool():
     )
 
 
+def test_anim_retarget_blueprint_routes_optional_anim_map_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "retarget",
+        "blueprint",
+        "/Game/Anim/ABP_Hero",
+        "/Game/Anim/ABP_Hero_Target",
+        "--target-skeleton",
+        "/Game/Characters/SKEL_Target",
+        "--bone-map",
+        "upperarm_l=upperarm_l_target",
+        "--anim-map",
+        "/Game/Anim/AS_Idle=/Game/Anim/RTG/AS_Idle",
+        "--anim-map",
+        "/Game/Anim/BS_Run:/Game/Anim/RTG/BS_Run",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "anim-retarget-blueprint",
+        {
+            "source_blueprint": "/Game/Anim/ABP_Hero",
+            "target_blueprint": "/Game/Anim/ABP_Hero_Target",
+            "target_skeleton": "/Game/Characters/SKEL_Target",
+            "bone_map": {
+                "upperarm_l": "upperarm_l_target",
+            },
+            "animation_asset_map": {
+                "/Game/Anim/AS_Idle": "/Game/Anim/RTG/AS_Idle",
+                "/Game/Anim/BS_Run": "/Game/Anim/RTG/BS_Run",
+            },
+            "save": True,
+        },
+    )
+
+
 def test_anim_pose_search_inspect_routes_to_bridge_tool():
     args = build_parser().parse_args([
         "anim",
@@ -2757,6 +2796,134 @@ def test_anim_pose_search_remap_routes_to_bridge_tool():
                 "pelvis": "pelvis_target",
                 "spine_01": "spine_a",
             },
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_anim_pose_search_database_repoint_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "pose-search",
+        "database-repoint",
+        "/Game/Motion/PSD_Hero",
+        "--schema",
+        "/Game/Motion/PS_Hero_Target",
+        "--anim-map",
+        "/Game/Anim/AS_Walk=/Game/Anim/RTG/AS_Walk",
+        "--anim-map",
+        "/Game/Anim/AS_Run:/Game/Anim/RTG/AS_Run",
+        "--reindex",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "pose-search-database-repoint",
+        {
+            "database_path": "/Game/Motion/PSD_Hero",
+            "schema_path": "/Game/Motion/PS_Hero_Target",
+            "animation_asset_map": {
+                "/Game/Anim/AS_Walk": "/Game/Anim/RTG/AS_Walk",
+                "/Game/Anim/AS_Run": "/Game/Anim/RTG/AS_Run",
+            },
+            "reindex": True,
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_asset_repoint_references_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "asset",
+        "repoint-references",
+        "/Game/Data/DA_SkillSet",
+        "/Game/Data/DA_ComboSet",
+        "--map",
+        "/Game/Anim/AM_Attack=/Game/Anim/RTG/AM_Attack",
+        "--map",
+        "/Game/Anim/AM_Dodge:/Game/Anim/RTG/AM_Dodge",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "asset-repoint-references",
+        {
+            "asset_paths": ["/Game/Data/DA_SkillSet", "/Game/Data/DA_ComboSet"],
+            "replacement_map": {
+                "/Game/Anim/AM_Attack": "/Game/Anim/RTG/AM_Attack",
+                "/Game/Anim/AM_Dodge": "/Game/Anim/RTG/AM_Dodge",
+            },
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_asset_skeletal_socket_create_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "asset",
+        "skeletal-socket",
+        "create",
+        "/Game/Characters/SKM_Hero",
+        "weapon_r",
+        "hand_r",
+        "--location",
+        "1,2,3",
+        "--rotation",
+        "10,20,30",
+        "--scale",
+        "1,1,1",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "skeletal-mesh-socket-create",
+        {
+            "asset_path": "/Game/Characters/SKM_Hero",
+            "socket_name": "weapon_r",
+            "bone_name": "hand_r",
+            "location": [1.0, 2.0, 3.0],
+            "rotation": [10.0, 20.0, 30.0],
+            "scale": [1.0, 1.0, 1.0],
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_asset_skeletal_socket_remove_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "asset",
+        "skeletal-socket",
+        "remove",
+        "/Game/Characters/SKM_Hero",
+        "weapon_r",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "skeletal-mesh-socket-remove",
+        {
+            "asset_path": "/Game/Characters/SKM_Hero",
+            "socket_name": "weapon_r",
             "checkout": True,
             "save": True,
         },

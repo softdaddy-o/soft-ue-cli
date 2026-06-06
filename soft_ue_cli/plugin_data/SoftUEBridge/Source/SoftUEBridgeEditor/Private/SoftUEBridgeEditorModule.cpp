@@ -22,7 +22,9 @@
 #include "Tools/Asset/InspectMutableDiagnosticsTool.h"
 #include "Tools/Asset/InspectMutableParametersTool.h"
 #include "Tools/Asset/OpenAssetTool.h"
+#include "Tools/Asset/AssetRepointReferencesTool.h"
 #include "Tools/Asset/ReleaseAssetLockTool.h"
+#include "Tools/Asset/SkeletalMeshSocketTool.h"
 
 // Blueprint
 #include "Tools/Blueprint/QueryBlueprintTool.h"
@@ -173,6 +175,22 @@ void FSoftUEBridgeEditorModule::RegisterAnimationTools()
 	if (!Registry.HasTool(TEXT("pose-search-schema-remap")))
 	{
 		Registry.RegisterToolClass<UPoseSearchSchemaRemapTool>();
+	}
+	if (!Registry.HasTool(TEXT("pose-search-database-repoint")))
+	{
+		Registry.RegisterToolClass<UPoseSearchDatabaseRepointTool>();
+	}
+	if (!Registry.HasTool(TEXT("asset-repoint-references")))
+	{
+		Registry.RegisterToolClass<UAssetRepointReferencesTool>();
+	}
+	if (!Registry.HasTool(TEXT("skeletal-mesh-socket-create")))
+	{
+		Registry.RegisterToolClass<USkeletalMeshSocketCreateTool>();
+	}
+	if (!Registry.HasTool(TEXT("skeletal-mesh-socket-remove")))
+	{
+		Registry.RegisterToolClass<USkeletalMeshSocketRemoveTool>();
 	}
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("Registered deferred editor bridge tools; total tools: %d"), Registry.GetToolCount());

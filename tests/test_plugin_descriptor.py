@@ -35,19 +35,19 @@ def _plugin_source_path(relative: str) -> Path:
     return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / relative
 
 
-def _agent_guide_path() -> Path:
-    guide = _repo_root() / "AGENTS.md"
-    if not guide.exists():
-        pytest.skip("AGENTS.md is monorepo-only and is not exported")
-    return guide
-
-
-def _skills_dir() -> Path:
+def _skill_path(relative: str) -> Path:
     root = _repo_root()
-    monorepo_path = root / "cli" / "soft_ue_cli" / "skills"
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / relative
     if monorepo_path.exists():
         return monorepo_path
-    return root / "soft_ue_cli" / "skills"
+    return root / "soft_ue_cli" / "skills" / relative
+
+
+def _agent_guide_text() -> str:
+    guide = _repo_root() / "AGENTS.md"
+    if not guide.exists():
+        pytest.skip("AGENTS.md is monorepo-only")
+    return guide.read_text(encoding="utf-8")
 
 
 def test_editor_dependency_plugins_are_editor_target_only():
@@ -340,7 +340,7 @@ def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
 
 
 def test_agent_guide_warns_new_tools_against_static_registration_macro():
-    guide = _agent_guide_path().read_text(encoding="utf-8")
+    guide = _agent_guide_text()
 
     assert "Do not use REGISTER_BRIDGE_TOOL" in guide
     assert "RegisterToolClass" in guide
@@ -391,6 +391,15 @@ def test_anim_blueprint_and_pose_search_migration_tools_use_deferred_registratio
     pose_source = _plugin_source_path(
         "Source/SoftUEBridgeEditor/Private/Tools/Animation/PoseSearchSchemaTools.cpp"
     ).read_text(encoding="utf-8")
+    asset_repoint_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/AssetRepointReferencesTool.cpp"
+    ).read_text(encoding="utf-8")
+    skeletal_socket_source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/SkeletalMeshSocketTool.cpp"
+    ).read_text(encoding="utf-8")
+    asset_repoint_utility = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/AssetReferenceRepointUtils.cpp"
+    ).read_text(encoding="utf-8")
 
     startup_body = module.split("void FSoftUEBridgeEditorModule::StartupModule()", 1)[1].split(
         "void FSoftUEBridgeEditorModule::ShutdownModule()", 1
@@ -398,17 +407,48 @@ def test_anim_blueprint_and_pose_search_migration_tools_use_deferred_registratio
 
     assert "Tools/Animation/AnimBlueprintRetargetTool.h" in module
     assert "Tools/Animation/PoseSearchSchemaTools.h" in module
+    assert "Tools/Asset/AssetRepointReferencesTool.h" in module
+    assert "Tools/Asset/SkeletalMeshSocketTool.h" in module
     assert "Registry.RegisterToolClass<UAnimBlueprintRetargetTool>()" in module
     assert "Registry.RegisterToolClass<UPoseSearchSchemaInspectTool>()" in module
     assert "Registry.RegisterToolClass<UPoseSearchSchemaRemapTool>()" in module
+    assert "Registry.RegisterToolClass<UPoseSearchDatabaseRepointTool>()" in module
+    assert "Registry.RegisterToolClass<UAssetRepointReferencesTool>()" in module
+    assert "Registry.RegisterToolClass<USkeletalMeshSocketCreateTool>()" in module
+    assert "Registry.RegisterToolClass<USkeletalMeshSocketRemoveTool>()" in module
     assert "Registry.RegisterToolClass<UAnimBlueprintRetargetTool>()" not in startup_body
     assert "Registry.RegisterToolClass<UPoseSearchSchemaInspectTool>()" not in startup_body
     assert "Registry.RegisterToolClass<UPoseSearchSchemaRemapTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UPoseSearchDatabaseRepointTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<UAssetRepointReferencesTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<USkeletalMeshSocketCreateTool>()" not in startup_body
+    assert "Registry.RegisterToolClass<USkeletalMeshSocketRemoveTool>()" not in startup_body
     assert "REGISTER_BRIDGE_TOOL(UAnimBlueprintRetargetTool)" not in anim_source
     assert "REGISTER_BRIDGE_TOOL(UPoseSearchSchemaInspectTool)" not in pose_source
     assert "REGISTER_BRIDGE_TOOL(UPoseSearchSchemaRemapTool)" not in pose_source
+    assert "REGISTER_BRIDGE_TOOL(UPoseSearchDatabaseRepointTool)" not in pose_source
+    assert "REGISTER_BRIDGE_TOOL(UAssetRepointReferencesTool)" not in asset_repoint_source
+    assert "REGISTER_BRIDGE_TOOL(USkeletalMeshSocketCreateTool)" not in skeletal_socket_source
+    assert "REGISTER_BRIDGE_TOOL(USkeletalMeshSocketRemoveTool)" not in skeletal_socket_source
     assert "FBoneReference" in anim_source
+    assert "RepointGeneratedClassReferences" in anim_source
+    assert "BlueprintGeneratedClass" in anim_source
+    assert "FClassProperty" in anim_source
     assert "FBoneReference" in pose_source
+    assert "AssetReferenceRepointUtils::RepointObjectReferences" in asset_repoint_source
+    assert "USkeletalMeshSocket" in skeletal_socket_source
+    assert "SocketName" in skeletal_socket_source
+    assert "BoneName" in skeletal_socket_source
+    assert "RelativeLocation" in skeletal_socket_source
+    assert "RemoveSocket" in skeletal_socket_source
+    assert "FSoftObjectProperty" in asset_repoint_utility
+    assert "FInstancedStruct" in asset_repoint_utility
+    assert "GetMutableMemory" in asset_repoint_utility
+    assert "GetScriptStruct" in asset_repoint_utility
+    assert "TryReindexPoseSearchDatabase" in pose_source
+    assert "BeginCacheForCookedPlatformData" in pose_source
+    assert "IsCachedCookedPlatformDataLoaded" in pose_source
+    assert "reindex_completed" in pose_source
 
 
 def test_metasound_inspect_tool_uses_deferred_registration():
@@ -454,7 +494,7 @@ def test_bridge_health_includes_process_identity_for_restart_detection():
 
 
 def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
-    guide = _agent_guide_path().read_text(encoding="utf-8")
+    guide = _agent_guide_text()
 
     assert "OnPostEngineInit" in guide
     assert "newly added UCLASS" in guide
@@ -703,7 +743,7 @@ def test_set_node_position_supports_customizable_object_graphs():
 
 
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    content = (_skills_dir() / "test-tools.md").read_text(encoding="utf-8")
+    content = _skill_path("test-tools.md").read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
 

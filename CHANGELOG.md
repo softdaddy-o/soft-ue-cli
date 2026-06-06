@@ -2,6 +2,18 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.37.0] - 2026-06-06
+
+### Added
+- Added optional `--anim-map OLD=NEW` support to `anim retarget blueprint` so duplicated AnimBlueprints can repoint AnimSequence, BlendSpace, montage, and PoseSearchDatabase references along with bone-name remaps.
+- Added `anim pose-search database-repoint` to repoint PoseSearchDatabase schema references and nested animation asset references, with optional best-effort reindexing.
+- Added `asset repoint-references` to walk nested reflected UObject properties and replace matching hard or soft asset references in arbitrary assets such as DataAssets.
+- Added `asset skeletal-socket create` and `asset skeletal-socket remove` for creating, updating, and removing mesh-owned SkeletalMesh sockets, including socket and bone names that are read-only through Unreal Python.
+
+### Fixed
+- `anim retarget blueprint` now repoints duplicated AnimBlueprint generated-class references stored in chooser contexts, K2 nodes, and class-typed bindings.
+- `anim pose-search database-repoint` now traverses nested animation asset entries inside PoseSearchDatabase instanced structs and invokes database reindexing after mutation.
+
 ## [1.36.0] - 2026-06-03
 
 ### Added

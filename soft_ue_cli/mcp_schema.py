@@ -277,8 +277,9 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
     "anim-retarget-blueprint": {
         "properties": {
             "bone_map": {"type": "object", "description": "Object mapping old bone names to new bone names"},
+            "animation_asset_map": {"type": "object", "description": "Object mapping old animation asset paths to new animation asset paths"},
         },
-        "properties_remove": ["bone_map_entries"],
+        "properties_remove": ["bone_map_entries", "animation_map_entries"],
         "required_remove": ["bone_map_entries"],
         "required_add": ["bone_map"],
     },
@@ -289,6 +290,21 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
         "properties_remove": ["bone_map_entries"],
         "required_remove": ["bone_map_entries"],
         "required_add": ["bone_map"],
+    },
+    "pose-search-database-repoint": {
+        "properties": {
+            "animation_asset_map": {"type": "object", "description": "Object mapping old animation asset paths to new animation asset paths"},
+        },
+        "properties_remove": ["animation_map_entries"],
+    },
+    "asset-repoint-references": {
+        "properties": {
+            "asset_paths": {"type": "array", "description": "Array of asset paths to update"},
+            "replacement_map": {"type": "object", "description": "Object mapping old asset paths to new asset paths"},
+        },
+        "properties_remove": ["replacements"],
+        "required_remove": ["replacements"],
+        "required_add": ["replacement_map"],
     },
 }
 
@@ -401,6 +417,8 @@ TOOL_OVERRIDES.update({
     "anim retarget repoint-references": TOOL_OVERRIDES["anim-repoint-references"],
     "anim retarget blueprint": TOOL_OVERRIDES["anim-retarget-blueprint"],
     "anim pose-search remap": TOOL_OVERRIDES["pose-search-schema-remap"],
+    "anim pose-search database-repoint": TOOL_OVERRIDES["pose-search-database-repoint"],
+    "asset repoint-references": TOOL_OVERRIDES["asset-repoint-references"],
 })
 
 

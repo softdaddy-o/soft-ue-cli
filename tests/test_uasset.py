@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import io
 import struct
-import sys
-from pathlib import Path
 
 
 from soft_ue_cli.uasset.properties import read_property_tag, read_tagged_properties

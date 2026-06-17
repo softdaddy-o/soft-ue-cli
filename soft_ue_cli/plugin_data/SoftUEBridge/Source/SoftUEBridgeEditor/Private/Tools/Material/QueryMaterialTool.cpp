@@ -235,9 +235,9 @@ TSharedPtr<FJsonObject> UQueryMaterialTool::ExpressionToJson(UMaterialExpression
 		ExprJson->SetNumberField(TEXT("y"), Expression->MaterialExpressionEditorY);
 	}
 
-	// Inputs — FExpressionInputIterator is the engine's canonical bounded
-	// traversal. It advances via GetInput(Index) and stops when that returns
-	// nullptr (past CachedInputs.Num()), so it cannot run away.
+	// Inputs — FExpressionInputIterator is the engine's bounded iterator
+	// (GetInputsView() was deprecated in 5.5). It stops as soon as
+	// GetInput(Index) returns nullptr, so it can't spin forever / OOM the editor.
 	TArray<TSharedPtr<FJsonValue>> InputsArray;
 	for (FExpressionInputIterator It{ Expression }; It; ++It)
 	{

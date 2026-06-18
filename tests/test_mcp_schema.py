@@ -356,8 +356,30 @@ def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
     repoint_params = repoint["parameters"]
     assert repoint_params["properties"]["asset_paths"]["type"] == "array"
     assert repoint_params["properties"]["replacement_map"]["type"] == "object"
+
+    montage_inspect = next(t for t in tools if t["name"] == "anim montage inspect")
+    montage_inspect_params = montage_inspect["parameters"]
+    assert montage_inspect_params["properties"]["include"]["type"] == "string"
+    assert "asset_path" in montage_inspect_params.get("required", [])
+
+    retarget_sequence = next(t for t in tools if t["name"] == "anim retarget sequence")
+    retarget_sequence_params = retarget_sequence["parameters"]
+    assert retarget_sequence_params["properties"]["overwrite"]["type"] == "boolean"
+    assert retarget_sequence_params["properties"]["save"]["type"] == "boolean"
+    assert "source_sequence" in retarget_sequence_params.get("required", [])
+    assert "target_sequence" in retarget_sequence_params.get("required", [])
     assert "asset_paths" in repoint_params.get("required", [])
     assert "replacement_map" in repoint_params.get("required", [])
+
+    montage_slot = next(t for t in tools if t["name"] == "anim montage set-slot-animation")
+    montage_slot_params = montage_slot["parameters"]
+    assert montage_slot_params["properties"]["asset_path"]["type"] == "string"
+    assert montage_slot_params["properties"]["anim_path"]["type"] == "string"
+    assert montage_slot_params["properties"]["slot_name"]["type"] == "string"
+    assert montage_slot_params["properties"]["start_time"]["type"] == "number"
+    assert montage_slot_params["properties"]["looping_count"]["type"] == "integer"
+    assert "asset_path" in montage_slot_params.get("required", [])
+    assert "anim_path" in montage_slot_params.get("required", [])
 
     retarget_blueprint = next(t for t in tools if t["name"] == "anim retarget blueprint")
     retarget_blueprint_params = retarget_blueprint["parameters"]
@@ -388,6 +410,14 @@ def test_animation_graph_and_sync_marker_schema_uses_native_json_types():
     assert asset_repoint_params["properties"]["replacement_map"]["type"] == "object"
     assert "asset_paths" in asset_repoint_params.get("required", [])
     assert "replacement_map" in asset_repoint_params.get("required", [])
+
+
+def test_run_python_script_schema_exposes_unsafe_python_call_override():
+    tools = extract_tools()
+    tool = next(t for t in tools if t["name"] == "run-python-script")
+    params = tool["parameters"]
+
+    assert params["properties"]["allow_unsafe_python_calls"]["type"] == "boolean"
 
 
 def test_pie_session_schema_exposes_blueprint_compile_error_policy():
@@ -463,7 +493,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 222
+    assert len(tools) <= 227
 
 
 def test_skeletal_socket_tools_are_exposed():

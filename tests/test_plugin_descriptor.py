@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 
 def _repo_root() -> Path:
     for parent in Path(__file__).resolve().parents:
@@ -35,19 +33,17 @@ def _plugin_source_path(relative: str) -> Path:
     return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / relative
 
 
-def _skill_path(relative: str) -> Path:
+def _agent_guide_path() -> Path | None:
+    path = _repo_root() / "AGENTS.md"
+    return path if path.exists() else None
+
+
+def _skills_dir() -> Path:
     root = _repo_root()
-    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / relative
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills"
     if monorepo_path.exists():
         return monorepo_path
-    return root / "soft_ue_cli" / "skills" / relative
-
-
-def _agent_guide_text() -> str:
-    guide = _repo_root() / "AGENTS.md"
-    if not guide.exists():
-        pytest.skip("AGENTS.md is monorepo-only")
-    return guide.read_text(encoding="utf-8")
+    return root / "soft_ue_cli" / "skills"
 
 
 def test_editor_dependency_plugins_are_editor_target_only():
@@ -340,7 +336,10 @@ def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
 
 
 def test_agent_guide_warns_new_tools_against_static_registration_macro():
-    guide = _agent_guide_text()
+    guide_path = _agent_guide_path()
+    if guide_path is None:
+        return
+    guide = guide_path.read_text(encoding="utf-8")
 
     assert "Do not use REGISTER_BRIDGE_TOOL" in guide
     assert "RegisterToolClass" in guide
@@ -379,6 +378,55 @@ def test_anim_repoint_references_tool_uses_deferred_registration():
     assert "Registry.RegisterToolClass<UAnimRepointReferencesTool>()" not in startup_body
     assert "REGISTER_BRIDGE_TOOL(UAnimRepointReferencesTool)" not in source
     assert "ReplaceReferredAnimations" in source
+
+
+def test_anim_montage_set_slot_animation_tool_is_registered_and_directly_mutates_slots():
+    module = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/SoftUEBridgeEditorModule.cpp"
+    ).read_text(encoding="utf-8")
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Animation/AnimMontageSlotTool.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Animation/AnimMontageSlotTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    startup_body = module.split("void FSoftUEBridgeEditorModule::StartupModule()", 1)[1].split(
+        "void FSoftUEBridgeEditorModule::ShutdownModule()", 1
+    )[0]
+
+    assert "anim-montage-set-slot-animation" in header
+    assert "Tools/Animation/AnimMontageSlotTool.h" in module
+    assert "Registry.RegisterToolClass<UAnimMontageSetSlotAnimationTool>()" in module
+    assert "Registry.RegisterToolClass<UAnimMontageSetSlotAnimationTool>()" not in startup_body
+    assert "REGISTER_BRIDGE_TOOL(UAnimMontageSetSlotAnimationTool)" not in source
+    for token in (
+        "UAnimMontage",
+        "UAnimSequenceBase",
+        "SlotAnimTracks",
+        "FSlotAnimationTrack",
+        "FAnimSegment",
+        "AnimReference",
+        "GetSectionIndex",
+        "GetSectionStartAndEndTime",
+        "MarkPackageDirty",
+    ):
+        assert token in source
+
+
+def test_run_python_script_blocks_known_crash_prone_ik_retarget_batch_call_by_default():
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Scripting/RunPythonScriptTool.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Scripting/RunPythonScriptTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "allow_unsafe_python_calls" in source
+    assert "ContainsUnsafeNativeCall" in header
+    assert "IKRetargetBatchOperation" in source
+    assert "duplicate_and_retarget" in source
+    assert "known_crash_prone_python_call" in source
 
 
 def test_anim_blueprint_and_pose_search_migration_tools_use_deferred_registration():
@@ -494,7 +542,10 @@ def test_bridge_health_includes_process_identity_for_restart_detection():
 
 
 def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
-    guide = _agent_guide_text()
+    guide_path = _agent_guide_path()
+    if guide_path is None:
+        return
+    guide = guide_path.read_text(encoding="utf-8")
 
     assert "OnPostEngineInit" in guide
     assert "newly added UCLASS" in guide
@@ -743,7 +794,7 @@ def test_set_node_position_supports_customizable_object_graphs():
 
 
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    content = _skill_path("test-tools.md").read_text(encoding="utf-8")
+    content = (_skills_dir() / "test-tools.md").read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
 

@@ -2473,6 +2473,56 @@ def cmd_anim_repoint_references(args: argparse.Namespace) -> None:
     _print_json(_run_tool("anim-repoint-references", arguments))
 
 
+def cmd_anim_montage_set_slot_animation(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": _fix_msys_asset_path(args.asset_path),
+        "anim_path": _fix_msys_asset_path(args.anim_path),
+    }
+    if args.slot_name:
+        arguments["slot_name"] = args.slot_name
+    if args.section:
+        arguments["section"] = args.section
+    if args.start_time is not None:
+        arguments["start_time"] = args.start_time
+    if args.end_time is not None:
+        arguments["end_time"] = args.end_time
+    if args.play_rate is not None:
+        arguments["play_rate"] = args.play_rate
+    if args.looping_count is not None:
+        arguments["looping_count"] = args.looping_count
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("anim-montage-set-slot-animation", arguments))
+
+
+def cmd_anim_montage_inspect(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": _fix_msys_asset_path(args.asset_path),
+    }
+    if args.include:
+        arguments["include"] = args.include
+    _print_json(_run_tool("anim-montage-inspect", arguments))
+
+
+def cmd_anim_retarget_sequence(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "source_sequence": _fix_msys_asset_path(args.source_sequence),
+        "target_sequence": _fix_msys_asset_path(args.target_sequence),
+        "source_mesh": _fix_msys_asset_path(args.source_mesh),
+        "target_mesh": _fix_msys_asset_path(args.target_mesh),
+        "ik_retargeter": _fix_msys_asset_path(args.ik_retargeter),
+    }
+    if args.overwrite:
+        arguments["overwrite"] = True
+    if args.checkout:
+        arguments["checkout"] = True
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("anim-retarget-sequence", arguments))
+
+
 def cmd_anim_retarget_blueprint(args: argparse.Namespace) -> None:
     if hasattr(args, "bone_map") and args.bone_map is not None:
         bone_map = {str(old_name): str(new_name) for old_name, new_name in dict(args.bone_map).items()}
@@ -2726,6 +2776,8 @@ def cmd_run_python_script(args: argparse.Namespace) -> None:
         arguments["world"] = args.world
     if args.arguments:
         arguments["arguments"] = _parse_json_arg(args.arguments, "--arguments")
+    if getattr(args, "allow_unsafe_python_calls", False):
+        arguments["allow_unsafe_python_calls"] = True
     _print_json(_run_tool("run-python-script", arguments))
 
 
@@ -6033,6 +6085,72 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_arr.add_argument("--checkout", action="store_true", help="Checkout each asset before mutation when source control is active")
     p_arr.set_defaults(func=cmd_anim_repoint_references)
 
+    p_ars = sub.add_parser(
+        "anim-retarget-sequence",
+        help="Retarget a single AnimSequence through native IK Retargeter code.",
+        description=(
+            "Duplicate and retarget one AnimSequence through Unreal's native IK Retargeter batch operation, writing "
+            "the result to the requested target asset path.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli anim retarget sequence /Game/Anim/AS_Attack /Game/Anim/RTG/AS_Attack_RTG \\\n"
+            "      --source-mesh /Game/Characters/SKM_Source --target-mesh /Game/Characters/SKM_Target \\\n"
+            "      --ik-retargeter /Game/Characters/RTG_SourceToTarget --overwrite --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_ars.add_argument("source_sequence", help="Source AnimSequence asset path")
+    p_ars.add_argument("target_sequence", help="Target AnimSequence asset path to create or replace")
+    p_ars.add_argument("--source-mesh", required=True, metavar="PATH", help="Source SkeletalMesh asset path")
+    p_ars.add_argument("--target-mesh", required=True, metavar="PATH", help="Target SkeletalMesh asset path")
+    p_ars.add_argument("--ik-retargeter", required=True, metavar="PATH", help="IK Retargeter asset path")
+    p_ars.add_argument("--overwrite", action="store_true", help="Replace an existing target asset with the same name")
+    p_ars.add_argument("--save", action="store_true", help="Save the retargeted sequence after mutation")
+    p_ars.add_argument("--checkout", action="store_true", help="Checkout the target asset before replacement when source control is active")
+    p_ars.set_defaults(func=cmd_anim_retarget_sequence)
+
+    p_ami = sub.add_parser(
+        "anim-montage-inspect",
+        help="Inspect AnimMontage notifies, sections, and slot tracks.",
+        description=(
+            "Read native AnimMontage data that is not reliably exposed through Python reflection: notifies, "
+            "notify states, composite sections, next-section links, and slot animation tracks.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli anim montage inspect /Game/Anim/AM_Attack --include notifies,sections,slots"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_ami.add_argument("asset_path", help="AnimMontage asset path to inspect")
+    p_ami.add_argument(
+        "--include",
+        metavar="LIST",
+        help="Comma-separated sections to include: notifies,sections,slots (default: all)",
+    )
+    p_ami.set_defaults(func=cmd_anim_montage_inspect)
+
+    p_amsa = sub.add_parser(
+        "anim-montage-set-slot-animation",
+        help="Set or add a montage slot animation segment.",
+        description=(
+            "Set a single AnimSequenceBase reference on an AnimMontage slot track without raw Python SlotAnimTracks "
+            "mutation. If --slot-name is omitted, the first existing slot is used, otherwise DefaultSlot is created.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli anim montage set-slot-animation /Game/Anim/AM_Attack /Game/Anim/AS_Attack_RTG \\\n"
+            "      --slot-name UpperBody --section Attack --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_amsa.add_argument("asset_path", help="AnimMontage asset path to mutate")
+    p_amsa.add_argument("anim_path", help="AnimSequenceBase asset path to assign to the slot")
+    p_amsa.add_argument("--slot-name", metavar="NAME", help="Slot name to update; defaults to first existing slot or DefaultSlot")
+    p_amsa.add_argument("--section", metavar="NAME", help="Optional existing montage section whose start time anchors the segment")
+    p_amsa.add_argument("--start-time", type=float, metavar="SEC", help="Start time inside the animation asset")
+    p_amsa.add_argument("--end-time", type=float, metavar="SEC", help="End time inside the animation asset")
+    p_amsa.add_argument("--play-rate", type=float, metavar="RATE", help="Segment play rate")
+    p_amsa.add_argument("--looping-count", type=int, metavar="N", help="Segment loop count")
+    p_amsa.add_argument("--save", action="store_true", help="Save the montage after mutation")
+    p_amsa.add_argument("--checkout", action="store_true", help="Checkout the montage before mutation when source control is active")
+    p_amsa.set_defaults(func=cmd_anim_montage_set_slot_animation)
+
     p_arb = sub.add_parser(
         "anim-retarget-blueprint",
         help="Duplicate an AnimBlueprint onto a target skeleton and remap authored bone references.",
@@ -6290,7 +6408,8 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
             "Provide either --script (inline code) or --script-path (file path), not both.\n"
             "File execution preserves normal Python file semantics such as __file__ and\n"
             "__future__ imports. Editor map-loading APIs are rejected because they can tear\n"
-            "down the active Python execution context.\n\n"
+            "down the active Python execution context. Known crash-prone native batch calls\n"
+            "are also rejected unless --allow-unsafe-python-calls is supplied.\n\n"
             "EXAMPLES:\n"
             '  soft-ue-cli run-python-script --script "import unreal; print(unreal.SystemLibrary.get_engine_version())"\n'
             "  soft-ue-cli run-python-script --script-path /path/to/my_script.py\n"
@@ -6313,6 +6432,11 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_rps.add_argument("--pie-timeout", type=float, default=30.0, metavar="SEC", help="Timeout for PIE auto-start (default: 30)")
     p_rps.add_argument(
         "--arguments", metavar="JSON", help="Arguments as JSON object (accessible via unreal.get_mcp_args())"
+    )
+    p_rps.add_argument(
+        "--allow-unsafe-python-calls",
+        action="store_true",
+        help="Allow known crash-prone native UE Python calls instead of returning a guard error",
     )
     p_rps.set_defaults(func=cmd_run_python_script)
 
@@ -7144,7 +7268,7 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
 
     p_k = sub.add_parser(
         "query-ue-knowledge",
-        help="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
+        help="Query the knowledge server for UE API docs, tutorials, and workflow skills.",
         description="Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

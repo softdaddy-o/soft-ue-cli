@@ -37,6 +37,13 @@
 			]
 		},
 		{
+			"Name": "IKRig",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
 			"Name": "PythonScriptPlugin",
 			"Enabled": true,
 			"Optional": true,

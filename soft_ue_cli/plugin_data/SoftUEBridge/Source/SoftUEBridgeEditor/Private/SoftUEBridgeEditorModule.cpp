@@ -88,7 +88,10 @@
 #include "Tools/Animation/AddAnimStateTool.h"
 #include "Tools/Animation/AddAnimTransitionTool.h"
 #include "Tools/Animation/AnimBlueprintRetargetTool.h"
+#include "Tools/Animation/AnimMontageInspectTool.h"
+#include "Tools/Animation/AnimMontageSlotTool.h"
 #include "Tools/Animation/AnimRepointReferencesTool.h"
+#include "Tools/Animation/AnimSequenceRetargetTool.h"
 #include "Tools/Animation/AnimSyncMarkerTools.h"
 #include "Tools/Animation/PoseSearchSchemaTools.h"
 
@@ -167,6 +170,18 @@ void FSoftUEBridgeEditorModule::RegisterAnimationTools()
 	if (!Registry.HasTool(TEXT("anim-retarget-blueprint")))
 	{
 		Registry.RegisterToolClass<UAnimBlueprintRetargetTool>();
+	}
+	if (!Registry.HasTool(TEXT("anim-retarget-sequence")))
+	{
+		Registry.RegisterToolClass<UAnimSequenceRetargetTool>();
+	}
+	if (!Registry.HasTool(TEXT("anim-montage-inspect")))
+	{
+		Registry.RegisterToolClass<UAnimMontageInspectTool>();
+	}
+	if (!Registry.HasTool(TEXT("anim-montage-set-slot-animation")))
+	{
+		Registry.RegisterToolClass<UAnimMontageSetSlotAnimationTool>();
 	}
 	if (!Registry.HasTool(TEXT("pose-search-schema-inspect")))
 	{

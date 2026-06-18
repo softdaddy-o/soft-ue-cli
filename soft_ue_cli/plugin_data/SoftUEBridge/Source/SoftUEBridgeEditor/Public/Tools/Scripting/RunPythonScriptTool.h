@@ -46,4 +46,5 @@ private:
 		const FString& WorldType);
 
 	bool ContainsUnsafeLevelLoad(const FString& Script) const;
+	bool ContainsUnsafeNativeCall(const FString& Script, FString& OutReason) const;
 };

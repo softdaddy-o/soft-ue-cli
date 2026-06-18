@@ -34,6 +34,8 @@ public class SoftUEBridgeEditor : ModuleRules
 
 			// Animation Blueprint
 			"AnimGraph",
+			"IKRig",
+			"IKRigEditor",
 
 			// Asset Management
 			"AssetTools",

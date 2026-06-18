@@ -2,6 +2,14 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.38.0] - 2026-06-13
+
+### Added
+- Added `anim montage inspect` to read native AnimMontage notifies, notify states, composite sections, next-section links, and slot tracks.
+- Added `anim retarget sequence` to retarget one AnimSequence through native IK Retargeter code into an explicit target asset path.
+- Added `anim montage set-slot-animation` to replace or create an AnimMontage slot segment from native bridge code, avoiding raw Python mutation of `SlotAnimTracks`.
+- Added a `run-python-script` guard for known crash-prone native UE Python batch calls, plus `--allow-unsafe-python-calls` for explicit opt-in when the caller accepts editor-crash risk.
+
 ## [1.37.0] - 2026-06-06
 
 ### Added

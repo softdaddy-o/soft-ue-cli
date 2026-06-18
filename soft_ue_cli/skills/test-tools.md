@@ -110,7 +110,10 @@ class MCPClient:
         "get-class-hierarchy": "class-hierarchy",
         "get-project-info":    "project-info",
         "anim-repoint-references": "anim retarget repoint-references",
+        "anim-retarget-sequence": "anim retarget sequence",
         "anim-retarget-blueprint": "anim retarget blueprint",
+        "anim-montage-inspect": "anim montage inspect",
+        "anim-montage-set-slot-animation": "anim montage set-slot-animation",
         "pose-search-schema-inspect": "anim pose-search inspect",
         "pose-search-schema-remap": "anim pose-search remap",
         "pose-search-database-repoint": "anim pose-search database-repoint",
@@ -1231,7 +1234,7 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_cli("commands category statetree", "commands", "--category", "statetree",
             check_stdout=lambda s: "statetree inspect" in s and "query-statetree" not in s)
     run_cli("commands category animation", "commands", "--category", "animation",
-            check_stdout=lambda s: "anim rewind" in s and "rewind-status" not in s)
+            check_stdout=lambda s: "anim rewind" in s and "anim montage" in s and "rewind-status" not in s)
     run_cli("commands category asset", "commands", "--category", "asset",
             check_stdout=lambda s: "asset query" in s and "query-asset" not in s)
     run_cli("commands category blueprint", "commands", "--category", "blueprint",
@@ -1252,6 +1255,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             check_stdout=lambda s: "anim retarget repoint-references" in s and "--target-skeleton" in s)
     run_cli("anim retarget blueprint help", "anim", "retarget", "blueprint", "--help",
             check_stdout=lambda s: "anim retarget blueprint" in s and "--bone-map" in s and "--anim-map" in s and "--target-skeleton" in s)
+    run_cli("anim montage set-slot-animation help", "anim", "montage", "set-slot-animation", "--help",
+            check_stdout=lambda s: "anim montage set-slot-animation" in s and "--slot-name" in s and "--section" in s)
     run_cli("anim pose-search inspect help", "anim", "pose-search", "inspect", "--help",
             check_stdout=lambda s: "anim pose-search inspect" in s and "schema_path" in s)
     run_cli("anim pose-search remap help", "anim", "pose-search", "remap", "--help",
@@ -1325,6 +1330,8 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             check_stdout=lambda s: script_name in s)
     run_cli("run-python-script saved", "run-python-script", "--name", script_name,
             check_stdout=lambda s: "output" in s or "soft-ue-cli" in s)
+    run_cli("run-python-script help", "run-python-script", "--help",
+            check_stdout=lambda s: "--allow-unsafe-python-calls" in s and "--script-path" in s)
     run_cli("delete-script", "delete-script", script_name)
 
     helper_script = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_PATH)), f"soft_ue_helper_{RUN_TS}_{mode_name}.py")
@@ -1400,6 +1407,59 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
             check_stdout=lambda s: "anim sync-marker add" in s and "time" in s)
     run_cli("anim sync-marker remove help", "anim", "sync-marker", "remove", "--help",
             check_stdout=lambda s: "anim sync-marker remove" in s and "tolerance" in s)
+    _montage_asset = os.environ.get("SOFT_UE_TEST_ANIM_MONTAGE", "").strip()
+    run_cli("anim montage inspect help", "anim", "montage", "inspect", "--help",
+            check_stdout=lambda s: "anim montage inspect" in s and "include" in s)
+    if _montage_asset:
+        run_test("anim-montage-inspect smoke", "anim-montage-inspect", {
+            "asset_path": _montage_asset,
+            "include": "notifies,sections,slots",
+        }, lambda r: r.get("success") is True and "section_count" in r and "slot_count" in r)
+    else:
+        _record("anim-montage-inspect smoke", "anim-montage-inspect", {},
+                True, 0, "skipped: set SOFT_UE_TEST_ANIM_MONTAGE")
+    _montage_anim = os.environ.get("SOFT_UE_TEST_ANIM_MONTAGE_ANIMATION", "").strip()
+    if _montage_asset and _montage_anim:
+        _montage_args = {
+            "asset_path": _montage_asset,
+            "anim_path": _montage_anim,
+        }
+        _montage_slot = os.environ.get("SOFT_UE_TEST_ANIM_MONTAGE_SLOT", "").strip()
+        if _montage_slot:
+            _montage_args["slot_name"] = _montage_slot
+        _montage_section = os.environ.get("SOFT_UE_TEST_ANIM_MONTAGE_SECTION", "").strip()
+        if _montage_section:
+            _montage_args["section"] = _montage_section
+        if os.environ.get("SOFT_UE_TEST_ANIM_MONTAGE_SAVE", "").strip().lower() in {"1", "true", "yes", "on"}:
+            _montage_args["save"] = True
+        run_test("anim-montage-set-slot-animation smoke", "anim-montage-set-slot-animation", _montage_args,
+                 lambda r: r.get("success") is True and "slot_name" in r and "segment" in r)
+    else:
+        _record("anim-montage-set-slot-animation smoke", "anim-montage-set-slot-animation", {},
+                True, 0, "skipped: set SOFT_UE_TEST_ANIM_MONTAGE and SOFT_UE_TEST_ANIM_MONTAGE_ANIMATION")
+    run_cli("anim retarget sequence help", "anim", "retarget", "sequence", "--help",
+            check_stdout=lambda s: "anim retarget sequence" in s and "ik-retargeter" in s)
+    _retarget_source_sequence = os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_SEQUENCE_SOURCE", "").strip()
+    _retarget_target_sequence = os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_SEQUENCE_TARGET", "").strip()
+    _retarget_source_mesh = os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_SEQUENCE_SOURCE_MESH", "").strip()
+    _retarget_target_mesh = os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_SEQUENCE_TARGET_MESH", "").strip()
+    _retarget_asset = os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_SEQUENCE_RETARGETER", "").strip()
+    if _retarget_source_sequence and _retarget_target_sequence and _retarget_source_mesh and _retarget_target_mesh and _retarget_asset:
+        _retarget_sequence_args = {
+            "source_sequence": _retarget_source_sequence,
+            "target_sequence": _retarget_target_sequence,
+            "source_mesh": _retarget_source_mesh,
+            "target_mesh": _retarget_target_mesh,
+            "ik_retargeter": _retarget_asset,
+            "overwrite": True,
+        }
+        if os.environ.get("SOFT_UE_TEST_ANIM_RETARGET_SEQUENCE_SAVE", "").strip().lower() in {"1", "true", "yes", "on"}:
+            _retarget_sequence_args["save"] = True
+        run_test("anim-retarget-sequence smoke", "anim-retarget-sequence", _retarget_sequence_args,
+                 lambda r: r.get("success") is True and r.get("target_sequence"))
+    else:
+        _record("anim-retarget-sequence smoke", "anim-retarget-sequence", {},
+                True, 0, "skipped: set SOFT_UE_TEST_ANIM_RETARGET_SEQUENCE_SOURCE/TARGET/SOURCE_MESH/TARGET_MESH/RETARGETER")
     _repoint_assets = [
         part.strip()
         for part in os.environ.get("SOFT_UE_TEST_ANIM_REPOINT_ASSETS", "").split(",")

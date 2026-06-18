@@ -50,6 +50,12 @@ TMap<FString, FBridgeSchemaProperty> URunPythonScriptTool::GetInputSchema() cons
 	Arguments.bRequired = false;
 	Schema.Add(TEXT("arguments"), Arguments);
 
+	FBridgeSchemaProperty AllowUnsafePythonCalls;
+	AllowUnsafePythonCalls.Type = TEXT("boolean");
+	AllowUnsafePythonCalls.Description = TEXT("Allow known crash-prone native UE Python calls instead of returning a guard error");
+	AllowUnsafePythonCalls.bRequired = false;
+	Schema.Add(TEXT("allow_unsafe_python_calls"), AllowUnsafePythonCalls);
+
 	return Schema;
 }
 
@@ -103,6 +109,13 @@ FBridgeToolResult URunPythonScriptTool::Execute(
 			TEXT("run-python-script: map-loading APIs such as unreal.EditorLoadingAndSavingUtils.load_map() and "
 				 "unreal.EditorLevelLibrary.load_level() are not supported here because they can tear down the active "
 				 "Python execution context. Use open-asset on the map outside run-python-script instead."));
+	}
+
+	const bool bAllowUnsafePythonCalls = GetBoolArgOrDefault(Arguments, TEXT("allow_unsafe_python_calls"), false);
+	FString UnsafeNativeCallReason;
+	if (!bAllowUnsafePythonCalls && ContainsUnsafeNativeCall(Script, UnsafeNativeCallReason))
+	{
+		return FBridgeToolResult::Error(UnsafeNativeCallReason);
 	}
 
 	const FString WorldType = GetStringArgOrDefault(Arguments, TEXT("world"), TEXT("editor")).ToLower();
@@ -413,4 +426,27 @@ bool URunPythonScriptTool::ContainsUnsafeLevelLoad(const FString& Script) const
 	const FString LowerScript = Script.ToLower();
 	return LowerScript.Contains(TEXT("editorloadingandsavingutils.load_map("))
 		|| LowerScript.Contains(TEXT("editorlevellibrary.load_level("));
+}
+
+bool URunPythonScriptTool::ContainsUnsafeNativeCall(const FString& Script, FString& OutReason) const
+{
+	FString NormalizedScript = Script.ToLower();
+	NormalizedScript.ReplaceInline(TEXT(" "), TEXT(""));
+	NormalizedScript.ReplaceInline(TEXT("\t"), TEXT(""));
+	NormalizedScript.ReplaceInline(TEXT("\r"), TEXT(""));
+	NormalizedScript.ReplaceInline(TEXT("\n"), TEXT(""));
+
+	if (NormalizedScript.Contains(TEXT("ikretargetbatchoperation"))
+		&& NormalizedScript.Contains(TEXT("duplicate_and_retarget(")))
+	{
+		OutReason = TEXT(
+			"run-python-script: known_crash_prone_python_call: "
+			"unreal.IKRetargetBatchOperation.duplicate_and_retarget can terminate the Unreal Editor process "
+			"and take down the bridge before Python can return a catchable exception. Use a bridge-native retarget "
+			"tool or pass allow_unsafe_python_calls=true only when an editor crash is acceptable.");
+		return true;
+	}
+
+	OutReason.Reset();
+	return false;
 }

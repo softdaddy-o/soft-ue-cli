@@ -630,6 +630,28 @@ def test_run_python_script_path_reads_file(tmp_path):
     )
 
 
+def test_run_python_script_allow_unsafe_python_calls_routes_to_bridge_tool():
+    parser = build_parser()
+    script = "import unreal; unreal.IKRetargetBatchOperation.duplicate_and_retarget([])"
+    args = parser.parse_args([
+        "run-python-script",
+        "--script",
+        script,
+        "--allow-unsafe-python-calls",
+    ])
+
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"output": "ok"}) as mock_call:
+        cmd_run_python_script(args)
+
+    mock_call.assert_called_once_with(
+        "run-python-script",
+        {
+            "script": script,
+            "allow_unsafe_python_calls": True,
+        },
+    )
+
+
 def test_run_python_script_world_pie_auto_start():
     parser = build_parser()
     args = parser.parse_args(["run-python-script", "--script", "print('ok')", "--world", "pie", "--auto-start-pie"])
@@ -2744,6 +2766,125 @@ def test_anim_retarget_blueprint_routes_optional_anim_map_to_bridge_tool():
                 "/Game/Anim/AS_Idle": "/Game/Anim/RTG/AS_Idle",
                 "/Game/Anim/BS_Run": "/Game/Anim/RTG/BS_Run",
             },
+            "save": True,
+        },
+    )
+
+
+def test_anim_montage_set_slot_animation_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "montage",
+        "set-slot-animation",
+        "/Game/Anim/AM_Attack",
+        "/Game/Anim/AS_Attack_RTG",
+        "--slot-name",
+        "UpperBody",
+        "--section",
+        "Attack",
+        "--start-time",
+        "0.25",
+        "--play-rate",
+        "1.2",
+        "--looping-count",
+        "2",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "anim-montage-set-slot-animation",
+        {
+            "asset_path": "/Game/Anim/AM_Attack",
+            "anim_path": "/Game/Anim/AS_Attack_RTG",
+            "slot_name": "UpperBody",
+            "section": "Attack",
+            "start_time": 0.25,
+            "play_rate": 1.2,
+            "looping_count": 2,
+            "checkout": True,
+            "save": True,
+        },
+    )
+
+
+def test_anim_montage_set_slot_animation_uses_default_slot_and_minimal_payload():
+    args = build_parser().parse_args([
+        "anim",
+        "montage",
+        "set-slot-animation",
+        "/Game/Anim/AM_Attack",
+        "/Game/Anim/AS_Attack_RTG",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "anim-montage-set-slot-animation",
+        {
+            "asset_path": "/Game/Anim/AM_Attack",
+            "anim_path": "/Game/Anim/AS_Attack_RTG",
+        },
+    )
+
+
+def test_anim_montage_inspect_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "montage",
+        "inspect",
+        "/Game/Anim/AM_Attack",
+        "--include",
+        "notifies,sections,slots",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "anim-montage-inspect",
+        {
+            "asset_path": "/Game/Anim/AM_Attack",
+            "include": "notifies,sections,slots",
+        },
+    )
+
+
+def test_anim_retarget_sequence_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "anim",
+        "retarget",
+        "sequence",
+        "/Game/Anim/AS_Attack",
+        "/Game/Anim/RTG/AS_Attack_RTG",
+        "--source-mesh",
+        "/Game/Characters/SKM_Source",
+        "--target-mesh",
+        "/Game/Characters/SKM_Target",
+        "--ik-retargeter",
+        "/Game/Characters/RTG_SourceToTarget",
+        "--overwrite",
+        "--checkout",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "anim-retarget-sequence",
+        {
+            "source_sequence": "/Game/Anim/AS_Attack",
+            "target_sequence": "/Game/Anim/RTG/AS_Attack_RTG",
+            "source_mesh": "/Game/Characters/SKM_Source",
+            "target_mesh": "/Game/Characters/SKM_Target",
+            "ik_retargeter": "/Game/Characters/RTG_SourceToTarget",
+            "overwrite": True,
+            "checkout": True,
             "save": True,
         },
     )

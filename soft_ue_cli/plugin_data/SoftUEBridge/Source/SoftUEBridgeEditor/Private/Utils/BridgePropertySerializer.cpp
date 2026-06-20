@@ -390,6 +390,23 @@ bool FBridgePropertySerializer::DeserializePropertyValue(
 			return true;
 		}
 
+		if (StructProp->Struct == TBaseStructure<FGuid>::Get())
+		{
+			FString GuidString;
+			if (Value->TryGetString(GuidString))
+			{
+				FGuid GuidValue;
+				if (!FGuid::Parse(GuidString, GuidValue))
+				{
+					OutError = FString::Printf(TEXT("Expected FGuid string, got: %s"), *GuidString);
+					return false;
+				}
+
+				*static_cast<FGuid*>(ValuePtr) = GuidValue;
+				return true;
+			}
+		}
+
 		const TSharedPtr<FJsonObject>* JsonObject = nullptr;
 		if (Value->TryGetObject(JsonObject) && JsonObject->IsValid())
 		{

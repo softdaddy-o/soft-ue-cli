@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from PIL import Image
 
-
 from soft_ue_cli.visual_compare import compare_umg_screenshots
 
 
@@ -57,3 +56,4 @@ def test_compare_writes_annotated_diff(tmp_path):
     assert annotated.exists()
     assert result["similarity_score"] == 0.0
     assert result["suggested_adjustments"]
+

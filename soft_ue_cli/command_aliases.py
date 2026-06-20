@@ -13,6 +13,7 @@ COMMAND_ALIAS_PREFIXES: dict[tuple[str, ...], str] = {
     ("mutable", "graph", "set-base-mesh"): "set-co-base-mesh",
     ("mutable", "graph", "add-group-child"): "add-co-group-child",
     ("mutable", "graph", "set-node-property"): "set-co-node-property",
+    ("mutable", "graph", "set-layout-blocks"): "set-co-layout-blocks",
     ("mutable", "graph", "connect-pins"): "connect-co-pins",
     ("mutable", "graph", "regenerate-node-pins"): "regenerate-co-node-pins",
     ("mutable", "graph", "remove-node"): "remove-co-node",

@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 # Skip all tests if mcp is not installed
 mcp = pytest.importorskip("mcp")
 
@@ -242,3 +241,4 @@ def test_prompt_fn_returns_content():
     result = prompt.fn()
     assert isinstance(result, str)
     assert "Blueprint to C++" in result
+

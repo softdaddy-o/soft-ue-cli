@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-
 from soft_ue_cli.discovery import (
     _find_project_instance,
     _load_instance_file,
@@ -168,3 +167,4 @@ def test_forced_port_fallback_does_not_override_full_url(monkeypatch):
     monkeypatch.setattr("soft_ue_cli.discovery._find_project_instance", lambda: "http://127.0.0.1:8080")
 
     assert get_forced_port_fallback_url("http://127.0.0.1:8081") is None
+

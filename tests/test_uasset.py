@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import struct
 
-
 from soft_ue_cli.uasset.properties import read_property_tag, read_tagged_properties
 from soft_ue_cli.uasset.reader import UAssetReader
 
@@ -74,3 +73,4 @@ def test_read_tagged_properties_stops_on_none_with_combined_fname():
 
     assert [prop.name for prop in props] == ["ActorLabel"]
     assert props[0].type == "NameProperty"
+

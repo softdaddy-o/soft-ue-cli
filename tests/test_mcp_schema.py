@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import pytest
 
-
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
 
@@ -37,6 +36,7 @@ def test_extract_tools_contains_known_command():
     assert "mutable graph add-parameter" in tool_names
     assert "mutable graph add-mesh-option" in tool_names
     assert "mutable graph set-node-property" in tool_names
+    assert "mutable graph set-layout-blocks" in tool_names
     assert "mutable graph connect-pins" in tool_names
     assert "mutable graph regenerate-node-pins" in tool_names
     assert "mutable compile" in tool_names
@@ -236,6 +236,14 @@ def test_customizable_object_edit_schema_uses_native_json_types():
 
     set_node_property = next(t for t in tools if t["name"] == "mutable graph set-node-property")
     assert set_node_property["parameters"]["properties"]["properties"]["type"] == "object"
+
+    set_layout_blocks = next(t for t in tools if t["name"] == "mutable graph set-layout-blocks")
+    layout_params = set_layout_blocks["parameters"]["properties"]
+    assert layout_params["grid_size"]["type"] == "array"
+    assert layout_params["blocks"]["type"] == "array"
+    assert layout_params["lod_index"]["type"] == "integer"
+    assert layout_params["section_index"]["type"] == "integer"
+    assert layout_params["uv_channel"]["type"] == "integer"
 
     add_datatable_row = next(t for t in tools if t["name"] == "add-datatable-row")
     assert add_datatable_row["parameters"]["properties"]["row_data"]["type"] == "object"
@@ -439,6 +447,7 @@ def test_customizable_object_convenience_commands_run_client_side_for_mcp():
         "mutable graph set-base-mesh",
         "mutable graph add-group-child",
         "mutable graph set-node-property",
+        "mutable graph set-layout-blocks",
         "mutable graph connect-pins",
         "mutable graph regenerate-node-pins",
         "mutable compile",
@@ -493,7 +502,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 227
+    assert len(tools) <= 229
 
 
 def test_skeletal_socket_tools_are_exposed():
@@ -524,3 +533,4 @@ def test_parser_mcp_serve():
     parser = build_parser()
     args = parser.parse_args(["mcp-serve"])
     assert args.command == "mcp-serve"
+

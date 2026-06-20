@@ -322,6 +322,7 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 | `mutable graph set-base-mesh` | Set the mesh reference on an existing CustomizableObject node |
 | `mutable graph add-group-child` | Connect a child object node into an object group using Mutable's default `Object` -> `Objects` pins |
 | `mutable graph set-node-property` | Set reflected properties or matching pin defaults on a CustomizableObject graph node |
+| `mutable graph set-layout-blocks` | Set a LayoutBlocks, RemoveMeshBlocks, or source mesh UV layout grid and block rectangles |
 | `mutable graph connect-pins` | Connect two CustomizableObject graph pins by node GUID and pin name, with one automatic pin regeneration retry by default |
 | `mutable graph regenerate-node-pins` | Regenerate pins for one Mutable/CustomizableObject graph node and return the refreshed pin list |
 | `mutable compile` | Compile a CustomizableObject asset and return structured status |
@@ -633,6 +634,8 @@ soft-ue-cli mutable inspect diagnostics /Game/Characters/CO_Hero.CO_Hero
 soft-ue-cli mutable graph add-parameter /Game/Characters/CO_Hero.CO_Hero BodyHeight --parameter-type float
 soft-ue-cli mutable graph add-mesh-option /Game/Characters/CO_Hero.CO_Hero /Game/Meshes/SKM_Boots.SKM_Boots
 soft-ue-cli mutable graph add-group-child /Game/Characters/CO_Hero.CO_Hero <group-node-guid> <child-node-guid>
+soft-ue-cli mutable graph set-layout-blocks /Game/Characters/CO_Hero.CO_Hero <remove-blocks-node-guid> --grid-size 4,4 --blocks '[{"min":[0,0],"size":[1,1]}]' --parent-layout-index 0
+soft-ue-cli mutable graph set-layout-blocks /Game/Characters/CO_Hero.CO_Hero <skeletal-mesh-node-guid> --grid-size 4,4 --blocks '[{"min":[0,0],"size":[1,1]}]' --lod-index 0 --section-index 0 --uv-channel 0
 soft-ue-cli mutable graph regenerate-node-pins /Game/Characters/CO_Hero.CO_Hero <node-guid>
 soft-ue-cli mutable graph connect-pins /Game/Characters/CO_Hero.CO_Hero <source-node-guid> Value <target-node-guid> Input
 soft-ue-cli mutable compile /Game/Characters/CO_Hero.CO_Hero

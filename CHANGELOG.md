@@ -2,6 +2,18 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.39.0] - 2026-06-20
+
+### Added
+- Added `mutable graph set-layout-blocks` for headless CustomizableObject LayoutBlocks / RemoveMeshBlocks grid and block authoring.
+- `mutable graph set-layout-blocks` can now target source mesh UV layouts with `--lod-index`, `--section-index`, and `--uv-channel`.
+
+### Fixed
+- `mutable graph add-mesh-option` and `mutable graph set-base-mesh` now refresh soft mesh object references and pins after assigning SkeletalMesh or StaticMesh properties.
+- `mutable graph set-node-property` now accepts 32-hex or hyphenated strings for reflected `FGuid` properties.
+- Fixed an MSVC build break in Mutable mesh pin layout lookup caused by casting raw `FScriptMapHelper` key storage with `static_cast`.
+- UE 5.7 C4996 warnings in enum, struct, and material query bridge code were migrated to current APIs.
+
 ## [1.38.0] - 2026-06-13
 
 ### Added

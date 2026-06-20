@@ -10,7 +10,6 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-
 from soft_ue_cli import client as client_mod
 from soft_ue_cli.client import call_tool, health_check
 from soft_ue_cli.errors import BridgeError
@@ -290,3 +289,4 @@ def test_health_check_timeout(monkeypatch):
     with _patch_url():
         result = health_check()
     assert "error" in result
+

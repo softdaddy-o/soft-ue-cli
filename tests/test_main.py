@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 from soft_ue_cli import __main__ as main_mod
 from soft_ue_cli.__main__ import (
     _SCRIPTS_DIR,
@@ -64,6 +63,7 @@ from soft_ue_cli.__main__ import (
     cmd_setup,
     cmd_wait_for_ready,
     cmd_set_co_base_mesh,
+    cmd_set_co_layout_blocks,
     cmd_set_co_node_property,
     cmd_connect_co_pins,
     cmd_create_co_from_spec,
@@ -1659,6 +1659,86 @@ def test_cmd_set_co_base_mesh_forwards_node_property():
             "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
             "node": "node-guid-1",
             "properties": {"SkeletalMesh": "/Game/Meshes/SKM_Base.SKM_Base"},
+        },
+    )
+
+
+def test_cmd_set_co_layout_blocks_forwards_layout_payload():
+    parser = build_parser()
+    args = parser.parse_args([
+        "mutable",
+        "graph",
+        "set-layout-blocks",
+        "/Game/Characters/CO_Hero.CO_Hero",
+        "remove-blocks-node",
+        "--grid-size",
+        "4,4",
+        "--max-grid-size",
+        "8,8",
+        "--packing-strategy",
+        "Fixed",
+        "--parent-layout-index",
+        "1",
+        "--parent-material-node",
+        "material-node",
+        "--blocks",
+        '[{"min":[0,0],"size":[1,1]},{"min":[2,2],"max":[4,4],"priority":3}]',
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_set_co_layout_blocks(args)
+
+    mock_run.assert_called_once_with(
+        "set-customizable-object-layout-blocks",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node": "remove-blocks-node",
+            "grid_size": [4, 4],
+            "max_grid_size": [8, 8],
+            "packing_strategy": "Fixed",
+            "parent_layout_index": 1,
+            "parent_material_node": "material-node",
+            "blocks": [
+                {"min": [0, 0], "size": [1, 1]},
+                {"min": [2, 2], "max": [4, 4], "priority": 3},
+            ],
+        },
+    )
+
+
+def test_cmd_set_co_layout_blocks_forwards_source_uv_layout_target():
+    parser = build_parser()
+    args = parser.parse_args([
+        "mutable",
+        "graph",
+        "set-layout-blocks",
+        "/Game/Characters/CO_Hero.CO_Hero",
+        "skeletal-mesh-node",
+        "--grid-size",
+        "4,4",
+        "--blocks",
+        '[{"min":[0,0],"size":[1,1]}]',
+        "--lod-index",
+        "1",
+        "--section-index",
+        "2",
+        "--uv-channel",
+        "3",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        cmd_set_co_layout_blocks(args)
+
+    mock_run.assert_called_once_with(
+        "set-customizable-object-layout-blocks",
+        {
+            "asset_path": "/Game/Characters/CO_Hero.CO_Hero",
+            "node": "skeletal-mesh-node",
+            "grid_size": [4, 4],
+            "blocks": [{"min": [0, 0], "size": [1, 1]}],
+            "lod_index": 1,
+            "section_index": 2,
+            "uv_channel": 3,
         },
     )
 
@@ -4491,3 +4571,4 @@ def test_call_function_batch_json_forwards(tmp_path):
         "call-function",
         {"function_name": "Bar", "class_path": "/Game/Foo", "use_cdo": True, "batch": batch},
     )
+

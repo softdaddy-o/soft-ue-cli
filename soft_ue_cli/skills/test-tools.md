@@ -1302,6 +1302,7 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
         ("mutable graph set-base-mesh", ("mutable", "graph", "set-base-mesh")),
         ("mutable graph add-group-child", ("mutable", "graph", "add-group-child")),
         ("mutable graph set-node-property", ("mutable", "graph", "set-node-property")),
+        ("mutable graph set-layout-blocks", ("mutable", "graph", "set-layout-blocks")),
         ("mutable graph connect-pins", ("mutable", "graph", "connect-pins")),
         ("mutable graph regenerate-node-pins", ("mutable", "graph", "regenerate-node-pins")),
         ("mutable compile", ("mutable", "compile")),

@@ -956,6 +956,31 @@ def cmd_set_co_base_mesh(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_set_co_layout_blocks(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "node": args.node,
+        "grid_size": _parse_optional_int_list(args.grid_size),
+        "blocks": _parse_json_array_arg(args.blocks, "--blocks"),
+    }
+    max_grid_size = _parse_optional_int_list(getattr(args, "max_grid_size", None))
+    if max_grid_size is not None:
+        arguments["max_grid_size"] = max_grid_size
+    if getattr(args, "packing_strategy", None):
+        arguments["packing_strategy"] = args.packing_strategy
+    if getattr(args, "parent_layout_index", None) is not None:
+        arguments["parent_layout_index"] = args.parent_layout_index
+    if getattr(args, "parent_material_node", None):
+        arguments["parent_material_node"] = args.parent_material_node
+    if getattr(args, "lod_index", None) is not None:
+        arguments["lod_index"] = args.lod_index
+    if getattr(args, "section_index", None) is not None:
+        arguments["section_index"] = args.section_index
+    if getattr(args, "uv_channel", None) is not None:
+        arguments["uv_channel"] = args.uv_channel
+    _print_json(_run_tool("set-customizable-object-layout-blocks", arguments))
+
+
 def cmd_add_co_group_child(args: argparse.Namespace) -> None:
     group_pin = getattr(args, "group_pin", "Objects")
     child_pin = getattr(args, "child_pin", "Object")
@@ -4983,6 +5008,32 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_scbm.add_argument("mesh", help="Mesh asset path to assign")
     p_scbm.add_argument("--mesh-property", default="SkeletalMesh", help="Reflected property that stores the mesh reference")
     p_scbm.set_defaults(func=cmd_set_co_base_mesh)
+
+    p_sclb = sub.add_parser(
+        "set-co-layout-blocks",
+        help="Set a Mutable layout GridSize and Blocks array on a graph node.",
+        description=(
+            "Set the Layout subobject on a CustomizableObject LayoutBlocks or ModifierRemoveMeshBlocks node.\n\n"
+            "Blocks accept min plus max or size:\n"
+            "  '[{\"min\":[0,0],\"size\":[1,1]},{\"min\":[2,2],\"max\":[4,4]}]'\n\n"
+            "EXAMPLE:\n"
+            "  soft-ue-cli mutable graph set-layout-blocks /Game/Characters/CO_Hero.CO_Hero <remove-node> \\\n"
+            "    --grid-size 4,4 --blocks '[{\"min\":[0,0],\"size\":[1,1]}]' --parent-layout-index 0"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_sclb.add_argument("asset_path", help="CustomizableObject asset path")
+    p_sclb.add_argument("node", help="Node GUID, name, path, or title")
+    p_sclb.add_argument("--grid-size", required=True, help="Layout GridSize as X,Y")
+    p_sclb.add_argument("--max-grid-size", help="Optional MaxGridSize as X,Y")
+    p_sclb.add_argument("--packing-strategy", choices=["Resizable", "Fixed", "Overlay"], help="Layout packing strategy")
+    p_sclb.add_argument("--blocks", required=True, help="JSON array of block objects")
+    p_sclb.add_argument("--parent-layout-index", type=int, help="ParentLayoutIndex for ModifierRemoveMeshBlocks nodes")
+    p_sclb.add_argument("--parent-material-node", help="Parent material node reference for result bookkeeping")
+    p_sclb.add_argument("--lod-index", type=int, help="Mesh pin LOD index when setting a source mesh UV layout")
+    p_sclb.add_argument("--section-index", type=int, help="Mesh pin section/material index when setting a source mesh UV layout")
+    p_sclb.add_argument("--uv-channel", type=int, help="Source mesh UV channel layout to set")
+    p_sclb.set_defaults(func=cmd_set_co_layout_blocks)
 
     p_acgc = sub.add_parser(
         "add-co-group-child",

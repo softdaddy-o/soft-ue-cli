@@ -53,3 +53,4 @@ def test_readme_tool_count_claim_matches_current_mcp_surface():
     assert "tools-60%2B" not in readme
     assert "commands-120%2B" in readme
     assert "120+" in readme
+

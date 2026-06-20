@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 
-
 def test_normalize_layout_extracts_widget_bounds_and_contract():
     from soft_ue_cli.umg_layout import normalize_layout
 
@@ -234,3 +233,4 @@ def test_fit_layout_to_spec_adjusts_canvas_slot_position():
     corrected = result["corrected_spec"]["root"]["children"][0]
     assert corrected["slot"]["position"] == [120, 50]
     assert result["corrections"][0]["delta_position"] == [20, -10]
+

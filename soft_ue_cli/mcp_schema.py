@@ -194,6 +194,16 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "properties": {"type": "object", "description": "Reflected node properties to set"},
         },
     },
+    "set-co-layout-blocks": {
+        "properties": {
+            "grid_size": {"type": "array", "description": "[X, Y] layout grid size"},
+            "max_grid_size": {"type": "array", "description": "Optional [X, Y] max layout grid size"},
+            "blocks": {"type": "array", "description": "Layout blocks with min plus max or size"},
+            "lod_index": {"type": "integer", "description": "Source mesh LOD index for mesh pin UV layouts"},
+            "section_index": {"type": "integer", "description": "Source mesh section/material index for mesh pin UV layouts"},
+            "uv_channel": {"type": "integer", "description": "Source mesh UV channel for mesh pin layouts"},
+        },
+    },
     "create-co-from-spec": {
         "properties": {
             "spec": {"type": "object", "description": "CustomizableObject graph spec with nodes and edges arrays"},
@@ -364,6 +374,7 @@ TOOL_OVERRIDES.update({
     "mutable graph add-parameter": TOOL_OVERRIDES["add-co-parameter"],
     "mutable graph add-mesh-option": TOOL_OVERRIDES["add-co-mesh-option"],
     "mutable graph set-node-property": TOOL_OVERRIDES["set-co-node-property"],
+    "mutable graph set-layout-blocks": TOOL_OVERRIDES["set-co-layout-blocks"],
     "mutable graph create-from-spec": TOOL_OVERRIDES["create-co-from-spec"],
     "mutable graph wire-slot-from-table": TOOL_OVERRIDES["wire-customizable-object-slot-from-table"],
     "umg designer apply": TOOL_OVERRIDES["apply-widget-tree"],

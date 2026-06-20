@@ -10,6 +10,7 @@
 #include "ScopedTransaction.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "UObject/StructOnScope.h"
+#include "UObject/SoftObjectPath.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/UnrealType.h"
@@ -383,6 +384,524 @@ namespace
 
 		RefreshCustomizableObjectTableNodePins(Node);
 		return Errors;
+	}
+
+	static TSharedPtr<FJsonValue> MakeIntPointJsonValue(const FIntPoint& Point)
+	{
+		TSharedPtr<FJsonObject> Object = MakeShared<FJsonObject>();
+		Object->SetNumberField(TEXT("X"), Point.X);
+		Object->SetNumberField(TEXT("Y"), Point.Y);
+		return MakeShared<FJsonValueObject>(Object);
+	}
+
+	static bool ReadIntPointValue(const TSharedPtr<FJsonValue>& Value, FIntPoint& OutPoint, FString& OutError)
+	{
+		if (!Value.IsValid())
+		{
+			OutError = TEXT("Expected int point value");
+			return false;
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* ArrayValue = nullptr;
+		if (Value->TryGetArray(ArrayValue) && ArrayValue && ArrayValue->Num() >= 2)
+		{
+			double X = 0.0;
+			double Y = 0.0;
+			if ((*ArrayValue)[0]->TryGetNumber(X) && (*ArrayValue)[1]->TryGetNumber(Y))
+			{
+				OutPoint = FIntPoint(static_cast<int32>(X), static_cast<int32>(Y));
+				return true;
+			}
+		}
+
+		const TSharedPtr<FJsonObject>* ObjectValue = nullptr;
+		if (Value->TryGetObject(ObjectValue) && ObjectValue && ObjectValue->IsValid())
+		{
+			double X = 0.0;
+			double Y = 0.0;
+			if (((*ObjectValue)->TryGetNumberField(TEXT("x"), X) || (*ObjectValue)->TryGetNumberField(TEXT("X"), X)) &&
+				((*ObjectValue)->TryGetNumberField(TEXT("y"), Y) || (*ObjectValue)->TryGetNumberField(TEXT("Y"), Y)))
+			{
+				OutPoint = FIntPoint(static_cast<int32>(X), static_cast<int32>(Y));
+				return true;
+			}
+		}
+
+		OutError = TEXT("Expected point as [x,y] or {x,y}");
+		return false;
+	}
+
+	static bool SetReflectedPropertyValue(
+		UObject* Object,
+		const FString& PropertyName,
+		const TSharedPtr<FJsonValue>& Value,
+		FString& OutError)
+	{
+		FProperty* Property = nullptr;
+		void* Container = nullptr;
+		if (!Object || !FBridgeAssetModifier::FindPropertyByPath(Object, PropertyName, Property, Container, OutError))
+		{
+			return false;
+		}
+
+		Object->PreEditChange(Property);
+		if (!FBridgePropertySerializer::DeserializePropertyValue(Property, Container, Value, OutError))
+		{
+			Object->PostEditChange();
+			return false;
+		}
+
+		FPropertyChangedEvent ChangeEvent(Property);
+		Object->PostEditChangeProperty(ChangeEvent);
+		return true;
+	}
+
+	struct FMutableLayoutTargetDetails
+	{
+		bool bUsesMeshPinLayout = false;
+		UEdGraphPin* MeshPin = nullptr;
+		UObject* PinData = nullptr;
+		int32 LODIndex = 0;
+		int32 SectionIndex = 0;
+		int32 UVChannel = 0;
+	};
+
+	static UObject* GetPinDataForCustomizableObjectPin(UEdGraphNode* Node, const UEdGraphPin& Pin)
+	{
+		if (!Node)
+		{
+			return nullptr;
+		}
+
+		FMapProperty* PinsDataProperty = FindFProperty<FMapProperty>(Node->GetClass(), TEXT("PinsDataId"));
+		if (!PinsDataProperty)
+		{
+			return nullptr;
+		}
+
+		FStructProperty* KeyProperty = CastField<FStructProperty>(PinsDataProperty->KeyProp);
+		FObjectPropertyBase* ValueProperty = CastField<FObjectPropertyBase>(PinsDataProperty->ValueProp);
+		if (!KeyProperty || KeyProperty->Struct != TBaseStructure<FGuid>::Get() || !ValueProperty)
+		{
+			return nullptr;
+		}
+
+		FScriptMapHelper MapHelper(PinsDataProperty, PinsDataProperty->ContainerPtrToValuePtr<void>(Node));
+		for (int32 Index = 0; Index < MapHelper.GetMaxIndex(); ++Index)
+		{
+			if (!MapHelper.IsValidIndex(Index))
+			{
+				continue;
+			}
+
+			const FGuid* PinId = reinterpret_cast<const FGuid*>(MapHelper.GetKeyPtr(Index));
+			if (!PinId || *PinId != Pin.PinId)
+			{
+				continue;
+			}
+
+			return ValueProperty->GetObjectPropertyValue(MapHelper.GetValuePtr(Index));
+		}
+
+		return nullptr;
+	}
+
+	static bool ReadReflectedIntProperty(UObject* Object, const FString& PropertyName, int32& OutValue)
+	{
+		if (!Object)
+		{
+			return false;
+		}
+
+		FProperty* Property = FindFProperty<FProperty>(Object->GetClass(), FName(*PropertyName));
+		FNumericProperty* NumericProperty = CastField<FNumericProperty>(Property);
+		if (!NumericProperty || NumericProperty->IsFloatingPoint())
+		{
+			return false;
+		}
+
+		OutValue = static_cast<int32>(NumericProperty->GetSignedIntPropertyValue(Property->ContainerPtrToValuePtr<void>(Object)));
+		return true;
+	}
+
+	static int32 ReadJsonIntArgOrDefault(const TSharedPtr<FJsonObject>& Arguments, const TCHAR* FieldName, int32 DefaultValue)
+	{
+		if (!Arguments.IsValid())
+		{
+			return DefaultValue;
+		}
+
+		double NumberValue = static_cast<double>(DefaultValue);
+		if (!Arguments->TryGetNumberField(FieldName, NumberValue))
+		{
+			return DefaultValue;
+		}
+
+		return static_cast<int32>(NumberValue);
+	}
+
+	static bool SetMutableLayoutIdentity(UObject* LayoutObject, int32 LODIndex, int32 SectionIndex, int32 UVChannel, FString& OutError)
+	{
+		if (!SetReflectedPropertyValue(LayoutObject, TEXT("LOD"), MakeShared<FJsonValueNumber>(LODIndex), OutError))
+		{
+			return false;
+		}
+		if (!SetReflectedPropertyValue(LayoutObject, TEXT("Material"), MakeShared<FJsonValueNumber>(SectionIndex), OutError))
+		{
+			return false;
+		}
+		if (!SetReflectedPropertyValue(LayoutObject, TEXT("UVChannel"), MakeShared<FJsonValueNumber>(UVChannel), OutError))
+		{
+			return false;
+		}
+		if (!SetReflectedPropertyValue(LayoutObject, TEXT("FirstLODToIgnore"), MakeShared<FJsonValueNumber>(0), OutError))
+		{
+			return false;
+		}
+		return true;
+	}
+
+	static UObject* GetOrCreateLayoutFromPinData(
+		UEdGraphNode* Node,
+		UObject* PinData,
+		int32 LODIndex,
+		int32 SectionIndex,
+		int32 UVChannel,
+		FString& OutError)
+	{
+		if (!Node || !PinData)
+		{
+			OutError = TEXT("Mesh pin data is unavailable");
+			return nullptr;
+		}
+		if (UVChannel < 0)
+		{
+			OutError = TEXT("uv_channel must be zero or greater");
+			return nullptr;
+		}
+
+		FArrayProperty* LayoutsProperty = FindFProperty<FArrayProperty>(PinData->GetClass(), TEXT("Layouts"));
+		FObjectPropertyBase* LayoutObjectProperty = LayoutsProperty ? CastField<FObjectPropertyBase>(LayoutsProperty->Inner) : nullptr;
+		if (!LayoutsProperty || !LayoutObjectProperty || !LayoutObjectProperty->PropertyClass ||
+			!LayoutObjectProperty->PropertyClass->GetName().Contains(TEXT("CustomizableObjectLayout"), ESearchCase::IgnoreCase))
+		{
+			OutError = TEXT("Mesh pin data does not expose a CustomizableObjectLayout Layouts array");
+			return nullptr;
+		}
+
+		void* LayoutsPtr = LayoutsProperty->ContainerPtrToValuePtr<void>(PinData);
+		FScriptArrayHelper LayoutsHelper(LayoutsProperty, LayoutsPtr);
+		while (LayoutsHelper.Num() <= UVChannel)
+		{
+			LayoutsHelper.AddValue();
+		}
+
+		UObject* LayoutObject = LayoutObjectProperty->GetObjectPropertyValue(LayoutsHelper.GetRawPtr(UVChannel));
+		if (!LayoutObject)
+		{
+			LayoutObject = NewObject<UObject>(Node, LayoutObjectProperty->PropertyClass);
+			LayoutObject->SetFlags(RF_Transactional);
+			LayoutObjectProperty->SetObjectPropertyValue(LayoutsHelper.GetRawPtr(UVChannel), LayoutObject);
+		}
+
+		if (!SetMutableLayoutIdentity(LayoutObject, LODIndex, SectionIndex, UVChannel, OutError))
+		{
+			OutError = FString::Printf(TEXT("Failed to set source mesh layout identity: %s"), *OutError);
+			return nullptr;
+		}
+
+		return LayoutObject;
+	}
+
+	static UObject* FindMutableMeshPinLayoutTarget(
+		UEdGraphNode* Node,
+		const TSharedPtr<FJsonObject>& Arguments,
+		FMutableLayoutTargetDetails& OutDetails,
+		FString& OutError)
+	{
+		if (!Node || !Arguments.IsValid())
+		{
+			OutError = TEXT("Node or layout arguments are unavailable");
+			return nullptr;
+		}
+
+		const int32 LODIndex = ReadJsonIntArgOrDefault(Arguments, TEXT("lod_index"), 0);
+		const int32 SectionIndex = ReadJsonIntArgOrDefault(Arguments, TEXT("section_index"), 0);
+		const int32 UVChannel = ReadJsonIntArgOrDefault(Arguments, TEXT("uv_channel"), 0);
+
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			if (!Pin)
+			{
+				continue;
+			}
+
+			UObject* PinData = GetPinDataForCustomizableObjectPin(Node, *Pin);
+			if (!PinData || !FindFProperty<FArrayProperty>(PinData->GetClass(), TEXT("Layouts")))
+			{
+				continue;
+			}
+
+			int32 PinLODIndex = 0;
+			int32 PinSectionIndex = 0;
+			if (!ReadReflectedIntProperty(PinData, TEXT("LODIndex"), PinLODIndex) ||
+				!ReadReflectedIntProperty(PinData, TEXT("SectionIndex"), PinSectionIndex))
+			{
+				continue;
+			}
+			if (PinLODIndex != LODIndex || PinSectionIndex != SectionIndex)
+			{
+				continue;
+			}
+
+			UObject* LayoutObject = GetOrCreateLayoutFromPinData(Node, PinData, LODIndex, SectionIndex, UVChannel, OutError);
+			if (!LayoutObject)
+			{
+				return nullptr;
+			}
+
+			OutDetails.bUsesMeshPinLayout = true;
+			OutDetails.MeshPin = Pin;
+			OutDetails.PinData = PinData;
+			OutDetails.LODIndex = LODIndex;
+			OutDetails.SectionIndex = SectionIndex;
+			OutDetails.UVChannel = UVChannel;
+			return LayoutObject;
+		}
+
+		OutError = FString::Printf(
+			TEXT("Node does not expose a Layout property and no mesh pin Layouts entry matched lod_index=%d, section_index=%d"),
+			LODIndex,
+			SectionIndex);
+		return nullptr;
+	}
+
+	static void ApplyCustomizableObjectMeshReferenceFixups(
+		UEdGraphNode* Node,
+		const TSharedPtr<FJsonObject>& Properties,
+		TArray<FString>& InOutWarnings)
+	{
+		if (!Node || !Properties.IsValid())
+		{
+			return;
+		}
+
+		for (const TCHAR* PropertyName : {TEXT("SkeletalMesh"), TEXT("StaticMesh")})
+		{
+			const TSharedPtr<FJsonValue>* Value = Properties->Values.Find(PropertyName);
+			if (!Value || !Value->IsValid())
+			{
+				continue;
+			}
+
+			FProperty* Property = nullptr;
+			void* Container = nullptr;
+			FString FindError;
+			if (!FBridgeAssetModifier::FindPropertyByPath(Node, PropertyName, Property, Container, FindError))
+			{
+				continue;
+			}
+
+			FString ObjectPath;
+			if (!TryGetAssetPathFromJsonValue(*Value, ObjectPath))
+			{
+				continue;
+			}
+
+			if (FSoftObjectProperty* SoftObjectProperty = CastField<FSoftObjectProperty>(Property))
+			{
+				UObject* LoadedObject = StaticLoadObject(SoftObjectProperty->PropertyClass, nullptr, *ObjectPath);
+				if (!LoadedObject)
+				{
+					InOutWarnings.Add(FString::Printf(TEXT("Failed to load %s asset: %s"), PropertyName, *ObjectPath));
+					continue;
+				}
+
+				Node->PreEditChange(Property);
+				SoftObjectProperty->SetPropertyValue(
+					Property->ContainerPtrToValuePtr<void>(Container),
+					FSoftObjectPtr(FSoftObjectPath(ObjectPath)));
+				FPropertyChangedEvent ChangeEvent(Property);
+				Node->PostEditChangeProperty(ChangeEvent);
+				RefreshCustomizableObjectNodePins(Node);
+			}
+		}
+	}
+
+	static UObject* FindMutableLayoutTarget(
+		UEdGraphNode* Node,
+		const TSharedPtr<FJsonObject>& Arguments,
+		FMutableLayoutTargetDetails& OutDetails,
+		FString& OutError)
+	{
+		if (!Node)
+		{
+			OutError = TEXT("Node is unavailable");
+			return nullptr;
+		}
+
+		FProperty* LayoutProperty = nullptr;
+		void* Container = nullptr;
+		if (!FBridgeAssetModifier::FindPropertyByPath(Node, TEXT("Layout"), LayoutProperty, Container, OutError))
+		{
+			return FindMutableMeshPinLayoutTarget(Node, Arguments, OutDetails, OutError);
+		}
+
+		FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(LayoutProperty);
+		if (!ObjectProperty || !ObjectProperty->PropertyClass ||
+			!ObjectProperty->PropertyClass->GetName().Contains(TEXT("CustomizableObjectLayout"), ESearchCase::IgnoreCase))
+		{
+			OutError = TEXT("Layout property is not a CustomizableObjectLayout object reference");
+			return nullptr;
+		}
+
+		void* ValuePtr = LayoutProperty->ContainerPtrToValuePtr<void>(Container);
+		UObject* LayoutObject = ObjectProperty->GetObjectPropertyValue(ValuePtr);
+		if (!LayoutObject)
+		{
+			LayoutObject = NewObject<UObject>(Node, ObjectProperty->PropertyClass, FName(TEXT("CustomizableObjectLayout")));
+			ObjectProperty->SetObjectPropertyValue(ValuePtr, LayoutObject);
+		}
+
+		return LayoutObject;
+	}
+
+	static bool ApplyMutableLayoutBlocks(
+		UObject* LayoutObject,
+		const TSharedPtr<FJsonObject>& Arguments,
+		int32& OutBlockCount,
+		FString& OutError)
+	{
+		OutBlockCount = 0;
+		if (!LayoutObject || !Arguments.IsValid())
+		{
+			OutError = TEXT("Layout arguments are unavailable");
+			return false;
+		}
+
+		const TSharedPtr<FJsonValue>* GridValue = Arguments->Values.Find(TEXT("grid_size"));
+		if (GridValue && GridValue->IsValid())
+		{
+			FIntPoint GridSize;
+			if (!ReadIntPointValue(*GridValue, GridSize, OutError))
+			{
+				return false;
+			}
+			if (!SetReflectedPropertyValue(LayoutObject, TEXT("GridSize"), MakeIntPointJsonValue(GridSize), OutError))
+			{
+				return false;
+			}
+		}
+
+		const TSharedPtr<FJsonValue>* MaxGridValue = Arguments->Values.Find(TEXT("max_grid_size"));
+		if (MaxGridValue && MaxGridValue->IsValid())
+		{
+			FIntPoint MaxGridSize;
+			if (!ReadIntPointValue(*MaxGridValue, MaxGridSize, OutError))
+			{
+				return false;
+			}
+			if (!SetReflectedPropertyValue(LayoutObject, TEXT("MaxGridSize"), MakeIntPointJsonValue(MaxGridSize), OutError))
+			{
+				return false;
+			}
+		}
+
+		FString PackingStrategy;
+		if (Arguments->TryGetStringField(TEXT("packing_strategy"), PackingStrategy) && !PackingStrategy.IsEmpty())
+		{
+			if (!SetReflectedPropertyValue(
+				LayoutObject,
+				TEXT("PackingStrategy"),
+				MakeShared<FJsonValueString>(PackingStrategy),
+				OutError))
+			{
+				return false;
+			}
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* BlocksArray = nullptr;
+		if (!Arguments->TryGetArrayField(TEXT("blocks"), BlocksArray) || !BlocksArray)
+		{
+			return true;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> NormalizedBlocks;
+		for (const TSharedPtr<FJsonValue>& BlockValue : *BlocksArray)
+		{
+			const TSharedPtr<FJsonObject>* BlockObject = nullptr;
+			if (!BlockValue.IsValid() || !BlockValue->TryGetObject(BlockObject) || !BlockObject || !BlockObject->IsValid())
+			{
+				OutError = TEXT("Each block must be an object");
+				return false;
+			}
+
+			const TSharedPtr<FJsonValue>* MinValue = (*BlockObject)->Values.Find(TEXT("min"));
+			const TSharedPtr<FJsonValue>* MaxValue = (*BlockObject)->Values.Find(TEXT("max"));
+			const TSharedPtr<FJsonValue>* SizeValue = (*BlockObject)->Values.Find(TEXT("size"));
+			FIntPoint Min;
+			FIntPoint Max;
+			if (!MinValue || !ReadIntPointValue(*MinValue, Min, OutError))
+			{
+				OutError = TEXT("Each block requires min as [x,y] or {x,y}");
+				return false;
+			}
+			if (MaxValue)
+			{
+				if (!ReadIntPointValue(*MaxValue, Max, OutError))
+				{
+					return false;
+				}
+			}
+			else if (SizeValue)
+			{
+				FIntPoint Size;
+				if (!ReadIntPointValue(*SizeValue, Size, OutError))
+				{
+					return false;
+				}
+				Max = Min + Size;
+			}
+			else
+			{
+				OutError = TEXT("Each block requires max or size");
+				return false;
+			}
+
+			TSharedPtr<FJsonObject> NormalizedBlock = MakeShared<FJsonObject>();
+			NormalizedBlock->SetField(TEXT("Min"), MakeIntPointJsonValue(Min));
+			NormalizedBlock->SetField(TEXT("Max"), MakeIntPointJsonValue(Max));
+
+			double Priority = 0.0;
+			if ((*BlockObject)->TryGetNumberField(TEXT("priority"), Priority))
+			{
+				NormalizedBlock->SetNumberField(TEXT("Priority"), Priority);
+			}
+			bool bReduceBothAxes = false;
+			if ((*BlockObject)->TryGetBoolField(TEXT("reduce_both_axes"), bReduceBothAxes))
+			{
+				NormalizedBlock->SetBoolField(TEXT("bReduceBothAxes"), bReduceBothAxes);
+			}
+			bool bReduceByTwo = false;
+			if ((*BlockObject)->TryGetBoolField(TEXT("reduce_by_two"), bReduceByTwo))
+			{
+				NormalizedBlock->SetBoolField(TEXT("bReduceByTwo"), bReduceByTwo);
+			}
+
+			NormalizedBlocks.Add(MakeShared<FJsonValueObject>(NormalizedBlock));
+		}
+
+		if (!SetReflectedPropertyValue(
+			LayoutObject,
+			TEXT("Blocks"),
+			MakeShared<FJsonValueArray>(NormalizedBlocks),
+			OutError))
+		{
+			return false;
+		}
+
+		OutBlockCount = NormalizedBlocks.Num();
+		return true;
 	}
 
 	static UClass* ResolveNodeClass(const FString& NodeClassName, FString& OutError)
@@ -1121,6 +1640,7 @@ FBridgeToolResult UAddCustomizableObjectNodeTool::Execute(
 	NodeCreator.Finalize();
 
 	TArray<FString> PropertyWarnings = ApplyReflectedProperties(NewNode, Properties);
+	ApplyCustomizableObjectMeshReferenceFixups(NewNode, Properties, PropertyWarnings);
 	NewNode->ReconstructNode();
 	TargetGraph->NotifyGraphChanged();
 	FBridgeAssetModifier::MarkPackageDirty(AssetObject);
@@ -1197,6 +1717,7 @@ FBridgeToolResult USetCustomizableObjectNodePropertyTool::Execute(
 	FBridgeAssetModifier::MarkModified(AssetObject);
 	FBridgeAssetModifier::MarkModified(Node);
 	TArray<FString> PropertyWarnings = ApplyReflectedProperties(Node, *PropertiesPtr);
+	ApplyCustomizableObjectMeshReferenceFixups(Node, *PropertiesPtr, PropertyWarnings);
 	Node->ReconstructNode();
 	if (Graph)
 	{
@@ -1475,6 +1996,184 @@ FBridgeToolResult URegenerateCustomizableObjectNodePinsTool::Execute(
 	Result->SetArrayField(TEXT("pins"), BuildPinList(Node));
 	Result->SetBoolField(TEXT("needs_compile"), true);
 	Result->SetBoolField(TEXT("needs_save"), true);
+	return FBridgeToolResult::Json(Result);
+}
+
+FString USetCustomizableObjectLayoutBlocksTool::GetToolDescription() const
+{
+	return TEXT("Set a CustomizableObjectLayout GridSize, MaxGridSize, PackingStrategy, and Blocks array on a Mutable Layout node or source mesh UV layout.");
+}
+
+TMap<FString, FBridgeSchemaProperty> USetCustomizableObjectLayoutBlocksTool::GetInputSchema() const
+{
+	TMap<FString, FBridgeSchemaProperty> Schema = CommonCustomizableObjectAssetSchema();
+
+	FBridgeSchemaProperty Node;
+	Node.Type = TEXT("string");
+	Node.Description = TEXT("Node GUID, object path, object name, or title. Supports LayoutBlocks and ModifierRemoveMeshBlocks nodes.");
+	Node.bRequired = true;
+	Schema.Add(TEXT("node"), Node);
+
+	FBridgeSchemaProperty GridSize;
+	GridSize.Type = TEXT("array");
+	GridSize.Description = TEXT("Layout GridSize as [x,y]");
+	GridSize.bRequired = true;
+	Schema.Add(TEXT("grid_size"), GridSize);
+
+	FBridgeSchemaProperty MaxGridSize;
+	MaxGridSize.Type = TEXT("array");
+	MaxGridSize.Description = TEXT("Optional MaxGridSize as [x,y]");
+	Schema.Add(TEXT("max_grid_size"), MaxGridSize);
+
+	FBridgeSchemaProperty PackingStrategy;
+	PackingStrategy.Type = TEXT("string");
+	PackingStrategy.Description = TEXT("PackingStrategy enum value: Resizable, Fixed, or Overlay");
+	Schema.Add(TEXT("packing_strategy"), PackingStrategy);
+
+	FBridgeSchemaProperty Blocks;
+	Blocks.Type = TEXT("array");
+	Blocks.Description = TEXT("Blocks with min plus max or size, e.g. [{\"min\":[0,0],\"size\":[1,1]}]");
+	Blocks.bRequired = true;
+	Schema.Add(TEXT("blocks"), Blocks);
+
+	FBridgeSchemaProperty ParentLayoutIndex;
+	ParentLayoutIndex.Type = TEXT("integer");
+	ParentLayoutIndex.Description = TEXT("Optional ParentLayoutIndex for ModifierRemoveMeshBlocks nodes");
+	Schema.Add(TEXT("parent_layout_index"), ParentLayoutIndex);
+
+	FBridgeSchemaProperty ParentMaterialNode;
+	ParentMaterialNode.Type = TEXT("string");
+	ParentMaterialNode.Description = TEXT("Optional parent_material_node reference for caller-side bookkeeping; graph connection is still made with connect-pins.");
+	Schema.Add(TEXT("parent_material_node"), ParentMaterialNode);
+
+	FBridgeSchemaProperty LODIndex;
+	LODIndex.Type = TEXT("integer");
+	LODIndex.Description = TEXT("Mesh pin LOD index when setting a source mesh UV layout; defaults to 0");
+	Schema.Add(TEXT("lod_index"), LODIndex);
+
+	FBridgeSchemaProperty SectionIndex;
+	SectionIndex.Type = TEXT("integer");
+	SectionIndex.Description = TEXT("Mesh pin section/material index when setting a source mesh UV layout; defaults to 0");
+	Schema.Add(TEXT("section_index"), SectionIndex);
+
+	FBridgeSchemaProperty UVChannel;
+	UVChannel.Type = TEXT("integer");
+	UVChannel.Description = TEXT("Source mesh UV channel layout to set; defaults to 0");
+	Schema.Add(TEXT("uv_channel"), UVChannel);
+
+	return Schema;
+}
+
+TArray<FString> USetCustomizableObjectLayoutBlocksTool::GetRequiredParams() const
+{
+	return {TEXT("asset_path"), TEXT("node"), TEXT("grid_size"), TEXT("blocks")};
+}
+
+FBridgeToolResult USetCustomizableObjectLayoutBlocksTool::Execute(
+	const TSharedPtr<FJsonObject>& Arguments,
+	const FBridgeToolContext& Context)
+{
+	const FString AssetPath = GetStringArgOrDefault(Arguments, TEXT("asset_path"));
+	const FString NodeRef = GetStringArgOrDefault(Arguments, TEXT("node"));
+	if (AssetPath.IsEmpty() || NodeRef.IsEmpty())
+	{
+		return FBridgeToolResult::Error(TEXT("asset_path and node are required"));
+	}
+
+	FString LoadError;
+	UObject* AssetObject = FBridgeAssetModifier::LoadAssetByPath(AssetPath, LoadError);
+	if (!AssetObject)
+	{
+		return FBridgeToolResult::Error(LoadError);
+	}
+	if (!LooksLikeCustomizableObject(AssetObject))
+	{
+		return FBridgeToolResult::Error(TEXT("Asset does not appear to be a Mutable/CustomizableObject asset."));
+	}
+
+	UEdGraph* Graph = nullptr;
+	UEdGraphNode* Node = FindNode(AssetObject, NodeRef, &Graph);
+	if (!Node)
+	{
+		return FBridgeToolResult::Error(FString::Printf(TEXT("CustomizableObject node not found: %s"), *NodeRef));
+	}
+
+	FMutableLayoutTargetDetails LayoutTargetDetails;
+	FString LayoutError;
+	UObject* LayoutObject = FindMutableLayoutTarget(Node, Arguments, LayoutTargetDetails, LayoutError);
+	if (!LayoutObject)
+	{
+		return FBridgeToolResult::Error(LayoutError);
+	}
+
+	TSharedPtr<FScopedTransaction> Transaction = FBridgeAssetModifier::BeginTransaction(
+		FText::Format(NSLOCTEXT("SoftUEBridge", "SetCustomizableObjectLayoutBlocks", "Set layout blocks on {0}"),
+			FText::FromString(NodeRef)));
+
+	FBridgeAssetModifier::MarkModified(AssetObject);
+	FBridgeAssetModifier::MarkModified(Node);
+	FBridgeAssetModifier::MarkModified(LayoutObject);
+	if (LayoutTargetDetails.PinData)
+	{
+		FBridgeAssetModifier::MarkModified(LayoutTargetDetails.PinData);
+	}
+	if (Graph)
+	{
+		FBridgeAssetModifier::MarkModified(Graph);
+	}
+
+	double ParentLayoutIndex = 0.0;
+	if (Arguments->TryGetNumberField(TEXT("parent_layout_index"), ParentLayoutIndex))
+	{
+		FString ParentLayoutError;
+		if (!SetReflectedPropertyValue(
+			Node,
+			TEXT("ParentLayoutIndex"),
+			MakeShared<FJsonValueNumber>(static_cast<double>(ParentLayoutIndex)),
+			ParentLayoutError))
+		{
+			return FBridgeToolResult::Error(FString::Printf(TEXT("Failed to set ParentLayoutIndex: %s"), *ParentLayoutError));
+		}
+	}
+
+	int32 BlockCount = 0;
+	FString ApplyError;
+	if (!ApplyMutableLayoutBlocks(LayoutObject, Arguments, BlockCount, ApplyError))
+	{
+		return FBridgeToolResult::Error(ApplyError);
+	}
+
+	RefreshCustomizableObjectNodePins(Node);
+	if (Graph)
+	{
+		Graph->NotifyGraphChanged();
+	}
+	FBridgeAssetModifier::MarkPackageDirty(AssetObject);
+
+	TSharedPtr<FJsonObject> Result = BuildNodeResult(AssetPath, Graph, Node, {});
+	Result->SetStringField(TEXT("layout_object"), LayoutObject->GetPathName());
+	Result->SetNumberField(TEXT("block_count"), BlockCount);
+	Result->SetBoolField(TEXT("layout_updated"), true);
+	Result->SetStringField(TEXT("layout_target"), LayoutTargetDetails.bUsesMeshPinLayout ? TEXT("mesh_pin") : TEXT("node_layout"));
+	if (LayoutTargetDetails.bUsesMeshPinLayout)
+	{
+		Result->SetNumberField(TEXT("lod_index"), LayoutTargetDetails.LODIndex);
+		Result->SetNumberField(TEXT("section_index"), LayoutTargetDetails.SectionIndex);
+		Result->SetNumberField(TEXT("uv_channel"), LayoutTargetDetails.UVChannel);
+		if (LayoutTargetDetails.MeshPin)
+		{
+			Result->SetStringField(TEXT("mesh_pin"), LayoutTargetDetails.MeshPin->PinName.ToString());
+		}
+	}
+	if (Arguments->HasField(TEXT("parent_layout_index")))
+	{
+		Result->SetNumberField(TEXT("parent_layout_index"), ParentLayoutIndex);
+	}
+	FString ParentMaterialNode;
+	if (Arguments->TryGetStringField(TEXT("parent_material_node"), ParentMaterialNode) && !ParentMaterialNode.IsEmpty())
+	{
+		Result->SetStringField(TEXT("parent_material_node"), ParentMaterialNode);
+	}
 	return FBridgeToolResult::Json(Result);
 }
 

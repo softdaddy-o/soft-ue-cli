@@ -57,9 +57,9 @@ bool LoadReplacementMap(
 	}
 
 	OutReplacementPaths = MakeShared<FJsonObject>();
-	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*ReplacementObject)->Values)
+	for (const auto& Pair : (*ReplacementObject)->Values)
 	{
-		const FString OldPath = Pair.Key;
+		const FString OldPath(*Pair.Key);
 		const FString NewPath = Pair.Value.IsValid() ? Pair.Value->AsString() : TEXT("");
 		if (OldPath.IsEmpty() || NewPath.IsEmpty())
 		{

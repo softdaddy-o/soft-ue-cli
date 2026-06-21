@@ -278,9 +278,9 @@ bool LoadBoneMap(
 	}
 
 	OutBoneMapJson = MakeShared<FJsonObject>();
-	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*BoneMapObject)->Values)
+	for (const auto& Pair : (*BoneMapObject)->Values)
 	{
-		const FString OldName = Pair.Key.TrimStartAndEnd();
+		const FString OldName = FString(*Pair.Key).TrimStartAndEnd();
 		const FString NewName = Pair.Value.IsValid() ? Pair.Value->AsString().TrimStartAndEnd() : TEXT("");
 		if (OldName.IsEmpty() || NewName.IsEmpty())
 		{

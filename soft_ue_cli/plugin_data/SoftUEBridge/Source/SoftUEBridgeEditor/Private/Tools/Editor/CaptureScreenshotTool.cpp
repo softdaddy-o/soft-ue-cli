@@ -248,9 +248,9 @@ namespace
 			return;
 		}
 
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Source->Values)
+		for (const auto& Pair : Source->Values)
 		{
-			Target->SetField(Pair.Key, Pair.Value);
+			Target->SetField(*Pair.Key, Pair.Value);
 		}
 	}
 

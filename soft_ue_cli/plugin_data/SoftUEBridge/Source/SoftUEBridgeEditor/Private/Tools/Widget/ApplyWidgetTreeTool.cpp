@@ -1082,12 +1082,12 @@ bool UApplyWidgetTreeTool::ApplyWidgetProperties(
 	const TSharedPtr<FJsonObject>* Properties = nullptr;
 	if (NodeSpec->TryGetObjectField(TEXT("properties"), Properties) && Properties && Properties->IsValid())
 	{
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Properties)->Values)
+		for (const auto& Pair : (*Properties)->Values)
 		{
 			FProperty* Property = nullptr;
 			void* Container = nullptr;
 			FString FindError;
-			if (!FBridgeAssetModifier::FindPropertyByPath(Widget, Pair.Key, Property, Container, FindError))
+			if (!FBridgeAssetModifier::FindPropertyByPath(Widget, FString(*Pair.Key), Property, Container, FindError))
 			{
 				OutError = FString::Printf(TEXT("%s.%s: %s"), *Widget->GetName(), *Pair.Key, *FindError);
 				return false;

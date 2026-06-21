@@ -316,9 +316,9 @@ namespace
 			FProperty* Property = nullptr;
 			void* Container = nullptr;
 			FString FindError;
-			if (!FBridgeAssetModifier::FindPropertyByPath(Node, Pair.Key, Property, Container, FindError))
+			if (!FBridgeAssetModifier::FindPropertyByPath(Node, FString(*Pair.Key), Property, Container, FindError))
 			{
-				MissingPropertyNames.Add(Pair.Key);
+				MissingPropertyNames.Add(FString(*Pair.Key));
 				Errors.Add(FString::Printf(TEXT("Property not found: %s"), *Pair.Key));
 				continue;
 			}
@@ -346,29 +346,29 @@ namespace
 				continue;
 			}
 
-			const TSharedPtr<FJsonValue>* ValuePtr = Properties->Values.Find(PropertyName);
-			if (!ValuePtr || !ValuePtr->IsValid())
+			TSharedPtr<FJsonValue> ValuePtr = Properties->TryGetField(PropertyName);
+			if (!ValuePtr.IsValid())
 			{
 				continue;
 			}
 
-			if (TryApplyObjectPinDefault(Pin, *ValuePtr))
+			if (TryApplyObjectPinDefault(Pin, ValuePtr))
 			{
 				ResolvedByPin.Add(PropertyName);
 			}
-			else if ((*ValuePtr)->Type == EJson::Number)
+			else if (ValuePtr->Type == EJson::Number)
 			{
-				Pin->DefaultValue = FString::Printf(TEXT("%g"), (*ValuePtr)->AsNumber());
+				Pin->DefaultValue = FString::Printf(TEXT("%g"), ValuePtr->AsNumber());
 				ResolvedByPin.Add(PropertyName);
 			}
-			else if ((*ValuePtr)->Type == EJson::Boolean)
+			else if (ValuePtr->Type == EJson::Boolean)
 			{
-				Pin->DefaultValue = (*ValuePtr)->AsBool() ? TEXT("true") : TEXT("false");
+				Pin->DefaultValue = ValuePtr->AsBool() ? TEXT("true") : TEXT("false");
 				ResolvedByPin.Add(PropertyName);
 			}
-			else if ((*ValuePtr)->Type == EJson::String)
+			else if (ValuePtr->Type == EJson::String)
 			{
-				Pin->DefaultValue = (*ValuePtr)->AsString();
+				Pin->DefaultValue = ValuePtr->AsString();
 				ResolvedByPin.Add(PropertyName);
 			}
 			else

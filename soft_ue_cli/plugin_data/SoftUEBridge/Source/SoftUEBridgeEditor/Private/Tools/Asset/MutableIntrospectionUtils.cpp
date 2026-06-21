@@ -962,12 +962,12 @@ namespace
 
 		for (const TCHAR* FieldName : FieldNames)
 		{
-			const TSharedPtr<FJsonValue>* FieldValue = Object->Values.Find(FieldName);
+			TSharedPtr<FJsonValue> FieldValue = Object->TryGetField(FieldName);
 			if (!FieldValue)
 			{
 				continue;
 			}
-			CollectStringsFromJsonValue(*FieldValue, Values);
+			CollectStringsFromJsonValue(FieldValue, Values);
 		}
 		return Values;
 	}
@@ -1290,10 +1290,10 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableDiagnosticsResult
 	TSharedPtr<FJsonObject> AssetSignals = Context.bAssetLoaded
 		? CollectInterestingObjectProperties(Context.AssetObject, false)
 		: MakeShared<FJsonObject>();
-	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : AssetSignals->Values)
+	for (const auto& Pair : AssetSignals->Values)
 	{
 		TSharedPtr<FJsonObject> SignalJson = MakeShared<FJsonObject>();
-		SignalJson->SetStringField(TEXT("property"), Pair.Key);
+		SignalJson->SetStringField(TEXT("property"), *Pair.Key);
 		SignalJson->SetStringField(TEXT("value"), JsonValueToFlatString(Pair.Value));
 		SignalJson->SetStringField(TEXT("owner"), Context.bAssetLoaded ? Context.AssetObject->GetPathName() : Context.AssetPath);
 		Signals.Add(MakeShared<FJsonValueObject>(SignalJson));
@@ -1315,7 +1315,7 @@ TSharedPtr<FJsonObject> MutableIntrospectionUtils::BuildMutableDiagnosticsResult
 			: MakeCapability(TEXT("unknown"), TEXT("No projector support signal could be derived without Mutable-specific runtime APIs.")));
 	Capabilities->SetObjectField(
 		TEXT("clothing_enablement"),
-		AssetSignals->Values.Contains(TEXT("Cloth")) || AssetSignals->Values.Contains(TEXT("Clothing"))
+		AssetSignals->HasField(TEXT("Cloth")) || AssetSignals->HasField(TEXT("Clothing"))
 			? MakeCapability(TEXT("detected"), TEXT("Found cloth-related reflected properties on the asset."))
 			: MakeCapability(TEXT("unknown"), TEXT("No cloth-related reflected properties were detected.")));
 	Capabilities->SetObjectField(

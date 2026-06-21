@@ -317,7 +317,7 @@ TArray<FString> USetNodePropertyTool::ApplyProperties(UBlueprint* Blueprint, UOb
 
 	for (const auto& Pair : Properties->Values)
 	{
-		const FString& PropertyName = Pair.Key;
+		const FString PropertyName(*Pair.Key);
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 		if (ApplyCallFunctionReferenceStringShortcut(Cast<UEdGraphNode>(Node), Blueprint, PropertyName, Value, Errors))
@@ -395,21 +395,21 @@ TArray<FString> USetNodePropertyTool::ApplyProperties(UBlueprint* Blueprint, UOb
 			{
 				if (Pin && Pin->PinName.ToString() == PropName)
 				{
-					const TSharedPtr<FJsonValue>* ValuePtr = Properties->Values.Find(PropName);
-					if (ValuePtr && ValuePtr->IsValid())
+					TSharedPtr<FJsonValue> ValuePtr = Properties->TryGetField(PropName);
+					if (ValuePtr.IsValid())
 					{
 						FString StringValue;
-						if ((*ValuePtr)->Type == EJson::Number)
+						if (ValuePtr->Type == EJson::Number)
 						{
-							StringValue = FString::Printf(TEXT("%g"), (*ValuePtr)->AsNumber());
+							StringValue = FString::Printf(TEXT("%g"), ValuePtr->AsNumber());
 						}
-						else if ((*ValuePtr)->Type == EJson::Boolean)
+						else if (ValuePtr->Type == EJson::Boolean)
 						{
-							StringValue = (*ValuePtr)->AsBool() ? TEXT("true") : TEXT("false");
+							StringValue = ValuePtr->AsBool() ? TEXT("true") : TEXT("false");
 						}
 						else
 						{
-							StringValue = (*ValuePtr)->AsString();
+							StringValue = ValuePtr->AsString();
 						}
 
 						Pin->DefaultValue = StringValue;

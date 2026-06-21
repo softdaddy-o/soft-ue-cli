@@ -223,11 +223,11 @@ namespace
 
 			if (FuncArgs.IsValid())
 			{
-				const TSharedPtr<FJsonValue>* ArgValue = FuncArgs->Values.Find(Prop->GetName());
-				if (ArgValue && ArgValue->IsValid())
+				TSharedPtr<FJsonValue> ArgValue = FuncArgs->TryGetField(Prop->GetName());
+				if (ArgValue.IsValid())
 				{
 					FString ImportText;
-					if (JsonValueToImportText(*ArgValue, ImportText) && !ImportText.IsEmpty())
+					if (JsonValueToImportText(ArgValue, ImportText) && !ImportText.IsEmpty())
 					{
 						Prop->ImportText_Direct(*ImportText, ParamPtr, TargetObject, PPF_None);
 					}

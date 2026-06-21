@@ -35,16 +35,16 @@ TOptional<FBridgeRequest> FBridgeRequest::FromJsonString(const FString& JsonStri
 	Root->TryGetStringField(TEXT("jsonrpc"), Req.JsonRpc);
 
 	// ID can be string or number; store as string
-	const TSharedPtr<FJsonValue>* IdField = Root->Values.Find(TEXT("id"));
-	if (IdField && IdField->IsValid())
+	TSharedPtr<FJsonValue> IdField = Root->TryGetField(TEXT("id"));
+	if (IdField.IsValid())
 	{
-		if ((*IdField)->Type == EJson::String)
+		if (IdField->Type == EJson::String)
 		{
-			Req.Id = (*IdField)->AsString();
+			Req.Id = IdField->AsString();
 		}
-		else if ((*IdField)->Type == EJson::Number)
+		else if (IdField->Type == EJson::Number)
 		{
-			Req.Id = FString::Printf(TEXT("%g"), (*IdField)->AsNumber());
+			Req.Id = FString::Printf(TEXT("%g"), IdField->AsNumber());
 		}
 	}
 

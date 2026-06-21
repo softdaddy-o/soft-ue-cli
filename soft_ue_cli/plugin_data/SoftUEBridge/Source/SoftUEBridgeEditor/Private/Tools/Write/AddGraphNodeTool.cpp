@@ -671,7 +671,7 @@ TArray<FString> UAddGraphNodeTool::ApplyNodeProperties(UObject* Node, const TSha
 
 	for (const auto& Pair : Properties->Values)
 	{
-		const FString& PropertyName = Pair.Key;
+		const FString PropertyName(*Pair.Key);
 		const TSharedPtr<FJsonValue>& Value = Pair.Value;
 
 		// Find the property - first try direct lookup on the node
@@ -742,21 +742,21 @@ TArray<FString> UAddGraphNodeTool::ApplyNodeProperties(UObject* Node, const TSha
 			{
 				if (Pin && Pin->PinName.ToString() == PropName)
 				{
-					const TSharedPtr<FJsonValue>* ValuePtr = Properties->Values.Find(PropName);
-					if (ValuePtr && ValuePtr->IsValid())
+					TSharedPtr<FJsonValue> ValuePtr = Properties->TryGetField(PropName);
+					if (ValuePtr.IsValid())
 					{
 						FString StringValue;
-						if ((*ValuePtr)->Type == EJson::Number)
+						if (ValuePtr->Type == EJson::Number)
 						{
-							StringValue = FString::Printf(TEXT("%g"), (*ValuePtr)->AsNumber());
+							StringValue = FString::Printf(TEXT("%g"), ValuePtr->AsNumber());
 						}
-						else if ((*ValuePtr)->Type == EJson::Boolean)
+						else if (ValuePtr->Type == EJson::Boolean)
 						{
-							StringValue = (*ValuePtr)->AsBool() ? TEXT("true") : TEXT("false");
+							StringValue = ValuePtr->AsBool() ? TEXT("true") : TEXT("false");
 						}
 						else
 						{
-							StringValue = (*ValuePtr)->AsString();
+							StringValue = ValuePtr->AsString();
 						}
 
 						Pin->DefaultValue = StringValue;

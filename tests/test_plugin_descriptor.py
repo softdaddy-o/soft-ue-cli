@@ -1072,7 +1072,7 @@ def test_umg_workflow_tools_are_explicitly_registered_and_support_runtime_contra
         "bindings",
         "allow_pie",
         "allow_busy",
-        "GIsSavingPackage",
+        "IsSavingPackage",
         "IsGarbageCollecting",
         "IsPlaySessionInProgress",
         "editor_state",

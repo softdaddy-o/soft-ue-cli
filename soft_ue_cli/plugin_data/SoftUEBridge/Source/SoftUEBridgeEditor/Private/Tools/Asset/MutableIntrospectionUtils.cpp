@@ -715,7 +715,11 @@ namespace
 		}
 
 		TArray<UObject*> InnerObjects;
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8)
+		GetObjectsWithOuter(AssetObject, InnerObjects, EGetObjectsFlags::IncludeNestedObjects);
+#else
 		GetObjectsWithOuter(AssetObject, InnerObjects, true);
+#endif
 		for (UObject* InnerObject : InnerObjects)
 		{
 			if (UEdGraph* Graph = Cast<UEdGraph>(InnerObject))

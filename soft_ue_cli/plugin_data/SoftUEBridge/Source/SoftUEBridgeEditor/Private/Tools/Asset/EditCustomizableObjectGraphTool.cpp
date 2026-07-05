@@ -688,8 +688,8 @@ namespace
 
 		for (const TCHAR* PropertyName : {TEXT("SkeletalMesh"), TEXT("StaticMesh")})
 		{
-			const TSharedPtr<FJsonValue>* Value = Properties->Values.Find(PropertyName);
-			if (!Value || !Value->IsValid())
+			TSharedPtr<FJsonValue> Value = Properties->TryGetField(PropertyName);
+			if (!Value.IsValid())
 			{
 				continue;
 			}
@@ -703,7 +703,7 @@ namespace
 			}
 
 			FString ObjectPath;
-			if (!TryGetAssetPathFromJsonValue(*Value, ObjectPath))
+			if (!TryGetAssetPathFromJsonValue(Value, ObjectPath))
 			{
 				continue;
 			}
@@ -779,11 +779,11 @@ namespace
 			return false;
 		}
 
-		const TSharedPtr<FJsonValue>* GridValue = Arguments->Values.Find(TEXT("grid_size"));
-		if (GridValue && GridValue->IsValid())
+		TSharedPtr<FJsonValue> GridValue = Arguments->TryGetField(TEXT("grid_size"));
+		if (GridValue.IsValid())
 		{
 			FIntPoint GridSize;
-			if (!ReadIntPointValue(*GridValue, GridSize, OutError))
+			if (!ReadIntPointValue(GridValue, GridSize, OutError))
 			{
 				return false;
 			}
@@ -793,11 +793,11 @@ namespace
 			}
 		}
 
-		const TSharedPtr<FJsonValue>* MaxGridValue = Arguments->Values.Find(TEXT("max_grid_size"));
-		if (MaxGridValue && MaxGridValue->IsValid())
+		TSharedPtr<FJsonValue> MaxGridValue = Arguments->TryGetField(TEXT("max_grid_size"));
+		if (MaxGridValue.IsValid())
 		{
 			FIntPoint MaxGridSize;
-			if (!ReadIntPointValue(*MaxGridValue, MaxGridSize, OutError))
+			if (!ReadIntPointValue(MaxGridValue, MaxGridSize, OutError))
 			{
 				return false;
 			}
@@ -836,27 +836,27 @@ namespace
 				return false;
 			}
 
-			const TSharedPtr<FJsonValue>* MinValue = (*BlockObject)->Values.Find(TEXT("min"));
-			const TSharedPtr<FJsonValue>* MaxValue = (*BlockObject)->Values.Find(TEXT("max"));
-			const TSharedPtr<FJsonValue>* SizeValue = (*BlockObject)->Values.Find(TEXT("size"));
+			TSharedPtr<FJsonValue> MinValue = (*BlockObject)->TryGetField(TEXT("min"));
+			TSharedPtr<FJsonValue> MaxValue = (*BlockObject)->TryGetField(TEXT("max"));
+			TSharedPtr<FJsonValue> SizeValue = (*BlockObject)->TryGetField(TEXT("size"));
 			FIntPoint Min;
 			FIntPoint Max;
-			if (!MinValue || !ReadIntPointValue(*MinValue, Min, OutError))
+			if (!MinValue.IsValid() || !ReadIntPointValue(MinValue, Min, OutError))
 			{
 				OutError = TEXT("Each block requires min as [x,y] or {x,y}");
 				return false;
 			}
-			if (MaxValue)
+			if (MaxValue.IsValid())
 			{
-				if (!ReadIntPointValue(*MaxValue, Max, OutError))
+				if (!ReadIntPointValue(MaxValue, Max, OutError))
 				{
 					return false;
 				}
 			}
-			else if (SizeValue)
+			else if (SizeValue.IsValid())
 			{
 				FIntPoint Size;
-				if (!ReadIntPointValue(*SizeValue, Size, OutError))
+				if (!ReadIntPointValue(SizeValue, Size, OutError))
 				{
 					return false;
 				}

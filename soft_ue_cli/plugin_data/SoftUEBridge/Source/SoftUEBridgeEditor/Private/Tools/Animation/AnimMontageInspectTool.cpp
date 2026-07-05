@@ -54,7 +54,7 @@ FString ClassPathOrEmpty(const UObject* Object)
 	return Object && Object->GetClass() ? Object->GetClass()->GetPathName() : TEXT("");
 }
 
-TSharedPtr<FJsonObject> SegmentToJson(const FAnimSegment& Segment)
+TSharedPtr<FJsonObject> MontageInspectSegmentToJson(const FAnimSegment& Segment)
 {
 	TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
 	const UAnimSequenceBase* Animation = Segment.GetAnimReference();
@@ -180,7 +180,7 @@ FBridgeToolResult UAnimMontageInspectTool::Execute(
 			TArray<TSharedPtr<FJsonValue>> SegmentsJson;
 			for (const FAnimSegment& Segment : SlotTrack.AnimTrack.AnimSegments)
 			{
-				SegmentsJson.Add(MakeShared<FJsonValueObject>(SegmentToJson(Segment)));
+				SegmentsJson.Add(MakeShared<FJsonValueObject>(MontageInspectSegmentToJson(Segment)));
 			}
 			SlotJson->SetArrayField(TEXT("segments"), SegmentsJson);
 			SlotsJson.Add(MakeShared<FJsonValueObject>(SlotJson));

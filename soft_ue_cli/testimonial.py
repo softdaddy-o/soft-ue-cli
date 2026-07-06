@@ -41,7 +41,7 @@ def _build_issue_body(
 ) -> str:
     """Build the markdown body for the GitHub Issue."""
     attribution = agent_name or "Anonymous"
-    sections = [f"> {message}\n\n\\— {attribution}"]
+    sections = [f"> {message}\n\n— {attribution}"]
 
     meta_lines = [f"- CLI version: {cli_version}", f"- Streak: {streak} days"]
     if rating is not None:

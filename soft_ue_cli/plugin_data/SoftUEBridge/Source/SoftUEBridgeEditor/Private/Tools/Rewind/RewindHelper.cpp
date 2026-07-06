@@ -709,7 +709,7 @@ bool FRewindHelper::HasData()
 		{
 			return true;
 		}
-		if (Debugger->IsRecording() || Debugger->IsTraceFileLoaded())
+		if (Debugger->IsRecording())
 		{
 			return true;
 		}

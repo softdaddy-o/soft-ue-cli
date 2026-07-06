@@ -93,7 +93,7 @@ FBridgeToolResult UWireWidgetNavigationTool::Execute(
 		return FBridgeToolResult::Error(TEXT("wire-widget-navigation blocked_active_pie editor_state=pie_active: PIE is active; stop PIE before mutating WidgetBlueprint assets, or pass allow_pie=true / --allow-pie to override."));
 	}
 	const bool bAllowBusy = GetBoolArgOrDefault(Arguments, TEXT("allow_busy"), false);
-	if (!bAllowBusy && (GIsSavingPackage || IsGarbageCollecting()))
+	if (!bAllowBusy && (UE::IsSavingPackage() || IsGarbageCollecting()))
 	{
 		return FBridgeToolResult::Error(TEXT("wire-widget-navigation blocked_editor_busy editor_state=busy: the editor is saving or garbage collecting; retry after the editor is idle, or pass allow_busy=true / --allow-busy to override."));
 	}

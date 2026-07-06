@@ -146,7 +146,7 @@ FAnimSegment BuildSegment(
 	return Segment;
 }
 
-TSharedPtr<FJsonObject> SegmentToJson(const FAnimSegment& Segment)
+TSharedPtr<FJsonObject> MontageSlotSegmentToJson(const FAnimSegment& Segment)
 {
 	TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
 	Json->SetStringField(
@@ -301,7 +301,7 @@ FBridgeToolResult UAnimMontageSetSlotAnimationTool::Execute(
 	Result->SetBoolField(TEXT("created_slot"), bCreatedSlot);
 	Result->SetNumberField(TEXT("replaced_segment_count"), ReplacedSegmentCount);
 	Result->SetNumberField(TEXT("sequence_length"), Montage->GetPlayLength());
-	Result->SetObjectField(TEXT("segment"), SegmentToJson(ResultSegment));
+	Result->SetObjectField(TEXT("segment"), MontageSlotSegmentToJson(ResultSegment));
 	Result->SetBoolField(TEXT("saved"), bSave);
 	return FBridgeToolResult::Json(Result);
 }

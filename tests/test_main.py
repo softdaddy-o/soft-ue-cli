@@ -1,4 +1,4 @@
-﻿"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
+"""Tests for cli/soft_ue_cli/__main__.py ??argument parsing and cmd_setup output."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
 
 from soft_ue_cli import __main__ as main_mod
 from soft_ue_cli.__main__ import (
@@ -61,6 +62,7 @@ from soft_ue_cli.__main__ import (
     cmd_run_python_script,
     cmd_save_script,
     cmd_setup,
+    cmd_status,
     cmd_wait_for_ready,
     cmd_set_co_base_mesh,
     cmd_set_co_layout_blocks,
@@ -115,6 +117,26 @@ def test_commands_filter_by_category_prints_human_rows(capsys):
     assert "umg layout" in out
     assert "compare-umg-layout" not in out
     assert "removed" not in out
+
+
+def test_cmd_status_adds_diagnostics_for_stale_or_wrong_bridge_endpoint(capsys, monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["status"])
+
+    monkeypatch.setattr(
+        "soft_ue_cli.__main__.health_check",
+        lambda: {"error": "Client error '404 Not Found' for url 'http://127.0.0.1:8080/bridge'"},
+    )
+    monkeypatch.setattr("soft_ue_cli.__main__._detect_blocking_editor_modal", lambda: None)
+
+    cmd_status(args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is False
+    assert payload["status"] == "not_ready"
+    assert payload["diagnostics"]["lifecycle_state"] == "stale_endpoint_or_wrong_service"
+    assert payload["diagnostics"]["error_code"] == "http_404_not_bridge"
+    assert "SOFT_UE_BRIDGE_PORT" in payload["diagnostics"]["recovery_hint"]
 
 
 def test_parse_vector_three_components():
@@ -2198,6 +2220,45 @@ def test_cmd_capture_pie_screenshot_calls_safe_composited_mode():
     )
 
 
+def test_removed_capture_pie_screenshot_can_opt_into_unsafe_slate_capture():
+    parser = build_parser(include_removed=True)
+    args = parser.parse_args(["capture-pie-screenshot", "--unsafe-slate-window-capture"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"file_path": "/tmp/shot.png"}) as mock_run:
+        cmd_capture_pie_screenshot(args)
+
+    mock_run.assert_called_once_with(
+        "capture-screenshot",
+        {
+            "mode": "pie-window",
+            "safe_mode": False,
+        },
+    )
+
+
+def test_removed_capture_pie_screenshot_copies_to_requested_output_file(tmp_path, capsys):
+    source = tmp_path / "bridge-pie-shot.png"
+    output = tmp_path / "requested-pie-shot.png"
+    source.write_bytes(b"png-bytes")
+    parser = build_parser(include_removed=True)
+    args = parser.parse_args(["capture-pie-screenshot", "--output-file", str(output)])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"file_path": str(source), "mode": "file"}) as mock_run:
+        cmd_capture_pie_screenshot(args)
+
+    mock_run.assert_called_once_with(
+        "capture-screenshot",
+        {
+            "mode": "pie-window",
+            "output": "file",
+        },
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert output.read_bytes() == b"png-bytes"
+    assert payload["file_path"] == str(output)
+    assert payload["bridge_file_path"] == str(source)
+
+
 def test_cmd_capture_screenshot_all_options():
     parser = build_parser()
     args = parser.parse_args(["capture", "screenshot", "--source", "window",
@@ -4030,6 +4091,25 @@ def test_print_json_unicode_survives_replace_encoding(capsys):
     assert "hello" in captured.out
 
 
+def test_print_json_unicode_falls_back_for_strict_cp949_stdout(monkeypatch):
+    """Ensure _print_json remains usable before main() can reconfigure stdout."""
+    import io
+    import sys
+
+    from soft_ue_cli.__main__ import _print_json
+
+    buffer = io.BytesIO()
+    stdout = io.TextIOWrapper(buffer, encoding="cp949", errors="strict", newline="")
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    _print_json({"msg": "hello \u2014 world", "text": "한글"})
+    stdout.flush()
+
+    output = buffer.getvalue().decode("cp949")
+    assert "\\u2014" in output
+    assert "\\ud55c\\uae00" in output
+
+
 # -- query-level --include-foliage / --include-grass (issue #34) --------------
 
 
@@ -4571,4 +4651,3 @@ def test_call_function_batch_json_forwards(tmp_path):
         "call-function",
         {"function_name": "Bar", "class_path": "/Game/Foo", "use_cdo": True, "batch": batch},
     )
-

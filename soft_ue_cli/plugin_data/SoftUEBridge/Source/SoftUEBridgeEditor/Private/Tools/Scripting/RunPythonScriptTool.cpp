@@ -265,9 +265,6 @@ bool URunPythonScriptTool::ExecutePythonCommand(
 	PythonCommand.Command = Command;
 	bOutSuccess = PythonPlugin->ExecPythonCommandEx(PythonCommand);
 
-	// Force garbage collection to clean up any orphaned objects created by the script
-	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
-
 	OutOutput.Reset();
 	for (const FPythonLogOutputEntry& Entry : PythonCommand.LogOutput)
 	{

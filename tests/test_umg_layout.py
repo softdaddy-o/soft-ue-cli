@@ -1,8 +1,9 @@
-﻿"""Tests for structured UMG layout normalization and comparison."""
+"""Tests for structured UMG layout normalization and comparison."""
 
 from __future__ import annotations
 
 import json
+
 
 
 def test_normalize_layout_extracts_widget_bounds_and_contract():
@@ -111,6 +112,35 @@ def test_normalize_layout_computes_designer_canvas_slot_bounds_from_anchors():
     assert widgets["AnchoredButton"]["z_order"] == 7
     assert widgets["StretchedPanel"]["bounds"] == [110, 120, 760, 240]
     assert widgets["StretchedPanel"]["normalized_bounds"] == [0.11, 0.24, 0.76, 0.48]
+
+
+def test_normalize_layout_uses_canvas_slot_when_explicit_bounds_are_zero():
+    from soft_ue_cli.umg_layout import normalize_layout
+
+    raw = {
+        "asset_path": "/Game/UI/WBP_Menu",
+        "widgets": [
+            {
+                "name": "ZeroBoundsButton",
+                "class": "Button",
+                "bounds": [0, 0, 0, 0],
+                "slot": {
+                    "type": "CanvasPanelSlot",
+                    "anchors": {"min": [0, 0], "max": [0, 0]},
+                    "offsets": {"left": 120, "top": 760, "right": 260, "bottom": 72},
+                    "position": [120, 760],
+                    "size": [260, 72],
+                    "alignment": [0, 0],
+                },
+            }
+        ],
+    }
+
+    layout = normalize_layout(raw, canvas_size=[1920, 1080])
+
+    widget = layout["widgets"][0]
+    assert widget["bounds"] == [120, 760, 260, 72]
+    assert widget["normalized_bounds"] == [0.0625, 0.7037, 0.1354, 0.0667]
 
 
 def test_compare_layouts_reports_bounds_z_order_and_opacity_deltas():
@@ -233,4 +263,3 @@ def test_fit_layout_to_spec_adjusts_canvas_slot_position():
     corrected = result["corrected_spec"]["root"]["children"][0]
     assert corrected["slot"]["position"] == [120, 50]
     assert result["corrections"][0]["delta_position"] == [20, -10]
-

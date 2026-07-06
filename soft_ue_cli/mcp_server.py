@@ -25,6 +25,7 @@ from .skills import get_skill, list_skills
 
 # CLI command names that differ from their bridge tool names.
 _BRIDGE_TOOL_NAME_MAP: dict[str, str] = {
+    "capture-pie-screenshot": "capture-screenshot",
     "class-hierarchy": "get-class-hierarchy",
     "project-info": "get-project-info",
 }

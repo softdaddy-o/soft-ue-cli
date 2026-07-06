@@ -1,9 +1,10 @@
-﻿"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
+"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
 
 import pytest
+
 
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
@@ -241,6 +242,7 @@ def test_customizable_object_edit_schema_uses_native_json_types():
     layout_params = set_layout_blocks["parameters"]["properties"]
     assert layout_params["grid_size"]["type"] == "array"
     assert layout_params["blocks"]["type"] == "array"
+    assert layout_params["parent_material_node"]["type"] == "string"
     assert layout_params["lod_index"]["type"] == "integer"
     assert layout_params["section_index"]["type"] == "integer"
     assert layout_params["uv_channel"]["type"] == "integer"
@@ -502,7 +504,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 229
+    assert len(tools) <= 230
 
 
 def test_skeletal_socket_tools_are_exposed():
@@ -533,4 +535,3 @@ def test_parser_mcp_serve():
     parser = build_parser()
     args = parser.parse_args(["mcp-serve"])
     assert args.command == "mcp-serve"
-

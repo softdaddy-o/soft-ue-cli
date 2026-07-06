@@ -1,4 +1,4 @@
-﻿"""Tests for the exported SoftUEBridge plugin descriptor."""
+"""Tests for the exported SoftUEBridge plugin descriptor."""
 
 from __future__ import annotations
 
@@ -35,12 +35,66 @@ def _plugin_source_path(relative: str) -> Path:
     return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / relative
 
 
+def _plugin_root() -> Path:
+    root = _repo_root()
+    monorepo_path = root / "plugin" / "SoftUEBridge"
+    if monorepo_path.exists():
+        return monorepo_path
+    return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge"
+
+
+def _agent_guide_path() -> Path:
+    root = _repo_root()
+    guide = root / "AGENTS.md"
+    if not guide.exists():
+        pytest.skip("AGENTS.md is not exported in the public package")
+    return guide
+
+
+def _skills_dir() -> Path:
+    root = _repo_root()
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills"
+    if monorepo_path.exists():
+        return monorepo_path
+    return root / "soft_ue_cli" / "skills"
+
+
 def test_editor_dependency_plugins_are_editor_target_only():
     descriptor = json.loads(_descriptor_path().read_text(encoding="utf-8"))
     plugin_refs = {entry["Name"]: entry for entry in descriptor["Plugins"]}
 
     for plugin_name in ["EditorScriptingUtilities", "PythonScriptPlugin", "StateTree"]:
         assert plugin_refs[plugin_name]["TargetAllowList"] == ["Editor"]
+
+
+def test_json_object_value_access_uses_ue58_compatible_helpers():
+    helper = _plugin_source_path(
+        "Source/SoftUEBridge/Public/Utils/BridgeJsonObjectUtils.h"
+    ).read_text(encoding="utf-8")
+
+    assert "FJsonObject::FStringType" in helper
+    assert "KeyToString" in helper
+    assert "FindField" in helper
+    assert "GetFieldNames" in helper
+    assert "HasField" in helper
+
+    helper_path = _plugin_source_path("Source/SoftUEBridge/Public/Utils/BridgeJsonObjectUtils.h")
+    offenders: list[str] = []
+    for source_path in _plugin_root().joinpath("Source").rglob("*.cpp"):
+        if source_path == helper_path:
+            continue
+        source = source_path.read_text(encoding="utf-8")
+        forbidden_patterns = [
+            "Values.Find(",
+            "Values.GetKeys(",
+            "Values.Contains(",
+            "TPair<FString, TSharedPtr<FJsonValue>>&",
+        ]
+        for pattern in forbidden_patterns:
+            if pattern in source:
+                offenders.append(f"{source_path.relative_to(_plugin_root())}: {pattern}")
+
+    assert offenders == []
 
 
 def test_runtime_module_stays_developer_tool():
@@ -132,6 +186,23 @@ def test_customizable_object_connect_auto_regenerates_missing_pins_before_error(
     assert "RefreshCustomizableObjectNodePins" in source
     assert "SourceNode == TargetNode" in source
     assert "pin not found after regenerate" in source.lower()
+
+
+def test_mutable_set_node_property_preserves_pin_links_across_reconstruct():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/EditCustomizableObjectGraphTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "FCustomizableObjectPinLinkSnapshot" in source
+    assert "SnapshotCustomizableObjectPinLinks" in source
+    assert "RestoreCustomizableObjectPinLinks" in source
+    assert "preserved_pin_link_count" in source
+
+    section_start = source.index("FBridgeToolResult USetCustomizableObjectNodePropertyTool::Execute")
+    section_end = source.index("FString UConnectCustomizableObjectPinsTool::GetToolDescription")
+    set_node_property_section = source[section_start:section_end]
+    assert "SnapshotCustomizableObjectPinLinks(Node)" in set_node_property_section
+    assert "RestoreCustomizableObjectPinLinks(Node" in set_node_property_section
 
 
 def test_live_coding_reflected_header_check_can_scope_to_module_or_plugin():
@@ -325,10 +396,7 @@ def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
 
 
 def test_agent_guide_warns_new_tools_against_static_registration_macro():
-    guide_path = _repo_root().joinpath("AGENTS.md")
-    if not guide_path.exists():
-        pytest.skip("AGENTS.md is only exported in the monorepo test layout")
-    guide = guide_path.read_text(encoding="utf-8")
+    guide = _agent_guide_path().read_text(encoding="utf-8")
 
     assert "Do not use REGISTER_BRIDGE_TOOL" in guide
     assert "RegisterToolClass" in guide
@@ -418,6 +486,19 @@ def test_run_python_script_blocks_known_crash_prone_ik_retarget_batch_call_by_de
     assert "known_crash_prone_python_call" in source
 
 
+def test_run_python_script_defers_to_slate_ticker_and_does_not_force_gc_after_execution():
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Scripting/RunPythonScriptTool.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Scripting/RunPythonScriptTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "GetExecutionContextRequirement" in header
+    assert "EBridgeToolExecutionContext::SlateTicker" in header
+    assert "CollectGarbage" not in source
+
+
 def test_customizable_object_mesh_helpers_refresh_soft_mesh_references():
     source = _plugin_source_path(
         "Source/SoftUEBridgeEditor/Private/Tools/Asset/EditCustomizableObjectGraphTool.cpp"
@@ -467,6 +548,23 @@ def test_customizable_object_layout_blocks_tool_is_registered_and_mutates_layout
         "Blocks",
         "ParentLayoutIndex",
         "parent_material_node",
+    ):
+        assert token in source
+
+
+def test_customizable_object_remove_mesh_blocks_links_parent_material_by_internal_tag():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/EditCustomizableObjectGraphTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    for token in (
+        "BuildMutableInternalTag",
+        "AddMutableRequiredTagForParentMaterial",
+        "modifier_target_internal_tag",
+        "modifier_required_tag_added",
+        "linkage_method",
+        "source_layout_attached",
+        "source_layout_count",
     ):
         assert token in source
 
@@ -603,10 +701,7 @@ def test_bridge_health_includes_process_identity_for_restart_detection():
 
 
 def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
-    guide_path = _repo_root().joinpath("AGENTS.md")
-    if not guide_path.exists():
-        pytest.skip("AGENTS.md is only exported in the monorepo test layout")
-    guide = guide_path.read_text(encoding="utf-8")
+    guide = _agent_guide_path().read_text(encoding="utf-8")
 
     assert "OnPostEngineInit" in guide
     assert "newly added UCLASS" in guide
@@ -855,10 +950,7 @@ def test_set_node_position_supports_customizable_object_graphs():
 
 
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    root = _repo_root()
-    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / "test-tools.md"
-    public_path = root / "soft_ue_cli" / "skills" / "test-tools.md"
-    content = (monorepo_path if monorepo_path.exists() else public_path).read_text(encoding="utf-8")
+    content = (_skills_dir() / "test-tools.md").read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
 
@@ -1189,6 +1281,8 @@ def test_call_function_reports_process_event_invocation_evidence():
         "out_param_count",
         "has_return_value",
         "unobservable_no_return_or_out_params",
+        "warning",
+        "native side effects cannot be proven",
     ):
         assert token in source
 
@@ -1361,6 +1455,19 @@ def test_add_widget_supports_single_child_content_parents():
     assert "already contains a child" in source
 
 
+def test_open_asset_world_load_defers_to_slate_ticker_and_does_not_force_gc_before_map_switch():
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Asset/OpenAssetTool.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Asset/OpenAssetTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "GetExecutionContextRequirement" in header
+    assert "EBridgeToolExecutionContext::SlateTicker" in header
+    assert "CollectGarbage" not in source
+
+
 def test_trigger_input_routes_keys_through_player_controller_and_enhanced_input():
     source = _plugin_source_path(
         "Source/SoftUEBridge/Private/Tools/TriggerInputTool.cpp"
@@ -1375,4 +1482,3 @@ def test_trigger_input_routes_keys_through_player_controller_and_enhanced_input(
     assert "FindEnhancedInputAction" in source
     assert '"EnhancedInput"' in build_cs
     assert '"Name": "EnhancedInput"' in descriptor
-

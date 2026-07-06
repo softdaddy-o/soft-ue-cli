@@ -310,6 +310,7 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 |---------|-------------|
 | `asset` | Canonical asset query, preview, source-control, offline file, creation, and save command family |
 | `mutable` | Canonical Mutable/CustomizableObject inspection, graph authoring, and compile command family |
+| `diagnose` | Generate asset, character, build-log, Perforce, issue, PIE probe, data validation, and handoff reports |
 | `asset query` | Search the Content Browser by name, class, or path -- also inspect DataTables and map `WorldSettings` such as `DefaultGameMode` |
 | `query-enum` | Inspect a UserDefinedEnum asset -- authored names, display names, tooltips, numeric values |
 | `query-struct` | Inspect a UserDefinedStruct asset -- authored member names, defaults, and metadata |
@@ -634,12 +635,25 @@ soft-ue-cli mutable inspect diagnostics /Game/Characters/CO_Hero.CO_Hero
 soft-ue-cli mutable graph add-parameter /Game/Characters/CO_Hero.CO_Hero BodyHeight --parameter-type float
 soft-ue-cli mutable graph add-mesh-option /Game/Characters/CO_Hero.CO_Hero /Game/Meshes/SKM_Boots.SKM_Boots
 soft-ue-cli mutable graph add-group-child /Game/Characters/CO_Hero.CO_Hero <group-node-guid> <child-node-guid>
-soft-ue-cli mutable graph set-layout-blocks /Game/Characters/CO_Hero.CO_Hero <remove-blocks-node-guid> --grid-size 4,4 --blocks '[{"min":[0,0],"size":[1,1]}]' --parent-layout-index 0
+soft-ue-cli mutable graph set-layout-blocks /Game/Characters/CO_Hero.CO_Hero <remove-blocks-node-guid> --grid-size 4,4 --blocks '[{"min":[0,0],"size":[1,1]}]' --parent-layout-index 0 --parent-material-node <base-material-node-guid>
 soft-ue-cli mutable graph set-layout-blocks /Game/Characters/CO_Hero.CO_Hero <skeletal-mesh-node-guid> --grid-size 4,4 --blocks '[{"min":[0,0],"size":[1,1]}]' --lod-index 0 --section-index 0 --uv-channel 0
 soft-ue-cli mutable graph regenerate-node-pins /Game/Characters/CO_Hero.CO_Hero <node-guid>
 soft-ue-cli mutable graph connect-pins /Game/Characters/CO_Hero.CO_Hero <source-node-guid> Value <target-node-guid> Input
 soft-ue-cli mutable compile /Game/Characters/CO_Hero.CO_Hero
 soft-ue-cli mutable graph remove-node /Game/Characters/CO_Hero.CO_Hero <node-guid>
+```
+
+### Generate investigation diagnostics
+
+```bash
+soft-ue-cli diagnose asset /Game/Blueprints/BP_Hero --kind blueprint --include-graph
+soft-ue-cli diagnose character /Game/Characters/BP_MetaHuman --anim-blueprint /Game/Anim/ABP_MetaHuman --target-mesh /Game/Characters/SKM_Target
+soft-ue-cli diagnose build-log Saved/Logs/Build.log
+soft-ue-cli diagnose p4 --opened-file opened.txt
+soft-ue-cli diagnose issue --source jira --input-file ticket.json
+soft-ue-cli diagnose probe --map /Game/Maps/Test --script "print('probe')" --frames 30 --capture --stop
+soft-ue-cli diagnose data Content/Data/DT_Items.csv Config/DefaultGame.ini
+soft-ue-cli diagnose handoff --title "Retargeting crash" --summary "Crash after retargeting" --next-step "Run anim montage inspect"
 ```
 
 ### Start a PIE session and send input

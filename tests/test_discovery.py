@@ -1,10 +1,11 @@
-﻿"""Tests for cli/soft_ue_cli/discovery.py ??no live server required."""
+"""Tests for cli/soft_ue_cli/discovery.py — no live server required."""
 
 from __future__ import annotations
 
 import json
 
 import pytest
+
 
 from soft_ue_cli.discovery import (
     _find_project_instance,
@@ -75,14 +76,14 @@ def test_find_project_instance_in_parent(tmp_path, monkeypatch):
 def test_find_project_instance_returns_none_when_not_found(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     # No .soft-ue-bridge anywhere in tmp_path hierarchy (tmp_path is isolated)
-    # Walk stops at filesystem root ??just verify no crash and None for clean dir
+    # Walk stops at filesystem root — just verify no crash and None for clean dir
     result = _find_project_instance()
     # May find an instance.json somewhere up the real tree; only assert no exception
     assert result is None or result.startswith("http://")
 
 
 def test_find_project_instance_prefers_closest(tmp_path, monkeypatch):
-    # Parent has one port, child dir has another ??child wins
+    # Parent has one port, child dir has another — child wins
     (tmp_path / ".soft-ue-bridge").mkdir()
     (tmp_path / ".soft-ue-bridge" / "instance.json").write_text(json.dumps({"port": 8080}))
     subdir = tmp_path / "Content"
@@ -167,4 +168,3 @@ def test_forced_port_fallback_does_not_override_full_url(monkeypatch):
     monkeypatch.setattr("soft_ue_cli.discovery._find_project_instance", lambda: "http://127.0.0.1:8080")
 
     assert get_forced_port_fallback_url("http://127.0.0.1:8081") is None
-

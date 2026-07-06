@@ -43,6 +43,7 @@
 #include "ScopedTransaction.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "Utils/BridgeAssetModifier.h"
+#include "Utils/BridgeJsonObjectUtils.h"
 #include "Utils/BridgePropertySerializer.h"
 #include "WidgetBlueprint.h"
 
@@ -1082,19 +1083,20 @@ bool UApplyWidgetTreeTool::ApplyWidgetProperties(
 	const TSharedPtr<FJsonObject>* Properties = nullptr;
 	if (NodeSpec->TryGetObjectField(TEXT("properties"), Properties) && Properties && Properties->IsValid())
 	{
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*Properties)->Values)
+		for (const auto& Pair : (*Properties)->Values)
 		{
+			const FString PropertyName = SoftUE::JsonObjectUtils::KeyToString(Pair.Key);
 			FProperty* Property = nullptr;
 			void* Container = nullptr;
 			FString FindError;
-			if (!FBridgeAssetModifier::FindPropertyByPath(Widget, Pair.Key, Property, Container, FindError))
+			if (!FBridgeAssetModifier::FindPropertyByPath(Widget, PropertyName, Property, Container, FindError))
 			{
-				OutError = FString::Printf(TEXT("%s.%s: %s"), *Widget->GetName(), *Pair.Key, *FindError);
+				OutError = FString::Printf(TEXT("%s.%s: %s"), *Widget->GetName(), *PropertyName, *FindError);
 				return false;
 			}
 			if (!FBridgeAssetModifier::SetPropertyFromJson(Property, Container, Pair.Value, OutError))
 			{
-				OutError = FString::Printf(TEXT("%s.%s: %s"), *Widget->GetName(), *Pair.Key, *OutError);
+				OutError = FString::Printf(TEXT("%s.%s: %s"), *Widget->GetName(), *PropertyName, *OutError);
 				return false;
 			}
 		}

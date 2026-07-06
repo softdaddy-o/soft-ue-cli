@@ -1,4 +1,4 @@
-﻿"""Tests for cli/soft_ue_cli/github.py ??GitHub auth and issue creation."""
+"""Tests for cli/soft_ue_cli/github.py — GitHub auth and issue creation."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+
 
 from soft_ue_cli.__main__ import build_parser
 from soft_ue_cli.github import _resolve_token, create_issue
@@ -262,4 +263,3 @@ def test_request_feature_labels_nice_to_have(monkeypatch):
 
     call_labels = mock_post.call_args.kwargs["json"]["labels"]
     assert call_labels == ["nice-to-have"]
-

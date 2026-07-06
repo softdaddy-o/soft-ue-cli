@@ -18,6 +18,7 @@
 #include "Misc/Paths.h"
 #include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
+#include "Utils/BridgeJsonObjectUtils.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Tools/BridgeToolRegistry.h"
@@ -248,9 +249,9 @@ namespace
 			return;
 		}
 
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : Source->Values)
+		for (const auto& Pair : Source->Values)
 		{
-			Target->SetField(Pair.Key, Pair.Value);
+			Target->SetField(SoftUE::JsonObjectUtils::KeyToString(Pair.Key), Pair.Value);
 		}
 	}
 

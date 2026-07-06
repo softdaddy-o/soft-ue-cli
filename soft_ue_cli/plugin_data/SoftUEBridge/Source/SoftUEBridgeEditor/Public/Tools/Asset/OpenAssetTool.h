@@ -31,6 +31,11 @@ public:
 				   "Optionally brings the window to focus.");
 	}
 
+	virtual EBridgeToolExecutionContext GetExecutionContextRequirement() const override
+	{
+		return EBridgeToolExecutionContext::SlateTicker;
+	}
+
 	virtual TMap<FString, FBridgeSchemaProperty> GetInputSchema() const override;
 	virtual TArray<FString> GetRequiredParams() const override;
 

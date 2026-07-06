@@ -199,6 +199,10 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
             "grid_size": {"type": "array", "description": "[X, Y] layout grid size"},
             "max_grid_size": {"type": "array", "description": "Optional [X, Y] max layout grid size"},
             "blocks": {"type": "array", "description": "Layout blocks with min plus max or size"},
+            "parent_material_node": {
+                "type": "string",
+                "description": "Parent material node reference; adds its Mutable internal tag to ModifierRemoveMeshBlocks RequiredTags",
+            },
             "lod_index": {"type": "integer", "description": "Source mesh LOD index for mesh pin UV layouts"},
             "section_index": {"type": "integer", "description": "Source mesh section/material index for mesh pin UV layouts"},
             "uv_channel": {"type": "integer", "description": "Source mesh UV channel for mesh pin layouts"},

@@ -14,6 +14,13 @@ from pathlib import Path
 
 from .client import call_tool, health_check
 from .command_aliases import COMMAND_ALIAS_PREFIXES, REMOVED_COMMAND_MIGRATIONS
+from .diagnostics import (
+    build_handoff_report,
+    make_issue_investigation_plan,
+    summarize_build_log,
+    summarize_p4_opened,
+    validate_data_files,
+)
 from .discovery import get_server_url
 
 
@@ -202,7 +209,11 @@ def _fix_msys_asset_path(path: str) -> str:
 
 
 def _print_json(data: object) -> None:
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    text = json.dumps(data, indent=2, ensure_ascii=False)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(json.dumps(data, indent=2, ensure_ascii=True))
 
 
 def cmd_commands(args: argparse.Namespace) -> None:
@@ -429,7 +440,18 @@ def _ensure_pie_running(
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    _print_json(health_check())
+    health = health_check()
+    if _bridge_health_is_ready(health):
+        _print_json(health)
+        return
+
+    modal = _detect_blocking_editor_modal()
+    _print_json({
+        **health,
+        "success": False,
+        "status": "not_ready",
+        "diagnostics": _bridge_readiness_diagnostics(health, modal=modal),
+    })
 
 
 def _launch_editor_for_wait(path: str) -> None:
@@ -514,22 +536,36 @@ def _bridge_readiness_diagnostics(health: dict, *, modal: dict | None = None) ->
     error = str(health.get("error", ""))
     lifecycle_state = "bridge_not_ready"
     error_code = "bridge_not_ready"
+    recovery_hint = "Run `soft-ue-cli wait-for-ready --timeout 120` for a live readiness diagnosis."
     if modal:
         lifecycle_state = "editor_blocked_by_modal"
         error_code = "editor_startup_modal_blocked"
+        recovery_hint = "Resolve the blocking editor modal, or rerun with --startup-recovery recover|skip."
     elif "404" in error:
         lifecycle_state = "stale_endpoint_or_wrong_service"
         error_code = "http_404_not_bridge"
+        recovery_hint = (
+            "The configured bridge URL is likely stale or serving a different process. "
+            "Clear SOFT_UE_BRIDGE_PORT/SOFT_UE_BRIDGE_URL or run `soft-ue-cli wait-for-ready` after relaunch."
+        )
     elif "timed out" in error.lower() or "timeout" in error.lower():
         lifecycle_state = "bridge_health_timeout"
         error_code = "bridge_health_timeout"
+        recovery_hint = "Check for blocking editor modals, then retry with a larger SOFT_UE_BRIDGE_TIMEOUT."
     elif "connect" in error.lower() or "refused" in error.lower():
         lifecycle_state = "bridge_unreachable"
         error_code = "bridge_unreachable"
+        recovery_hint = "Start Unreal Editor with SoftUEBridge enabled, or run `soft-ue-cli wait-for-ready --launch-editor <uproject>`."
 
     result = {
         "lifecycle_state": lifecycle_state,
         "error_code": error_code,
+        "recovery_hint": recovery_hint,
+        "suggested_commands": [
+            "soft-ue-cli status",
+            "soft-ue-cli wait-for-ready --timeout 120",
+            "soft-ue-cli reload-bridge-module",
+        ],
         "last_health": health,
     }
     if modal:
@@ -1947,10 +1983,14 @@ def cmd_capture_screenshot(args: argparse.Namespace) -> None:
 
 def cmd_capture_pie_screenshot(args: argparse.Namespace) -> None:
     arguments: dict = {"mode": "pie-window"}
+    if getattr(args, "unsafe_slate_window_capture", False):
+        arguments["safe_mode"] = False
     if args.format:
         arguments["format"] = args.format
     if args.output:
         arguments["output"] = args.output
+    if getattr(args, "output_file", None):
+        arguments["output"] = "file"
     if args.scale is not None:
         arguments["scale"] = args.scale
     if args.width is not None:
@@ -1961,7 +2001,8 @@ def cmd_capture_pie_screenshot(args: argparse.Namespace) -> None:
         arguments["color_mode"] = args.color_mode
     if args.cleanup_previous:
         arguments["cleanup_previous"] = True
-    _print_json(_run_tool("capture-screenshot", arguments))
+    result = _run_tool("capture-screenshot", arguments)
+    _print_json(_materialize_capture_output(result, getattr(args, "output_file", None)))
 
 
 def cmd_capture_viewport(args: argparse.Namespace) -> None:
@@ -2744,6 +2785,130 @@ def cmd_find_references(args: argparse.Namespace) -> None:
     if args.search:
         arguments["search"] = args.search
     _print_json(_run_tool("find-references", arguments))
+
+
+def cmd_diagnose_asset(args: argparse.Namespace) -> None:
+    checks: list[dict[str, object]] = []
+
+    def run_check(tool: str, arguments: dict) -> None:
+        checks.append({"tool": tool, "arguments": arguments, "result": _run_tool(tool, arguments)})
+
+    run_check("query-asset", {"asset_path": args.asset_path, "depth": args.depth})
+
+    if args.kind in {"blueprint", "anim-blueprint"}:
+        run_check("query-blueprint", {"asset_path": args.asset_path})
+    if args.include_graph:
+        run_check("query-blueprint-graph", {"asset_path": args.asset_path})
+    if args.kind == "anim-blueprint" or args.include_anim:
+        run_check("inspect-anim-instance", {"asset_path": args.asset_path})
+
+    _print_json({
+        "schema": "soft_ue.diagnose.asset.v1",
+        "success": True,
+        "asset_path": args.asset_path,
+        "kind": args.kind,
+        "check_count": len(checks),
+        "checks": checks,
+    })
+
+
+def cmd_diagnose_character(args: argparse.Namespace) -> None:
+    diagnostic_steps = [
+        "Inspect the character asset and mesh references before mutation.",
+        "Check skeleton compatibility, retarget chains, and IK Retargeter assumptions.",
+        "Inspect LOD and material slot state before changing generated assets.",
+        "Run a small PIE or animation probe after retargeting to catch runtime regressions.",
+    ]
+    suggested_commands = [
+        f"soft-ue-cli asset query --asset-path {args.asset_path}",
+        "soft-ue-cli anim retarget sequence <source> <target> --source-mesh <mesh> --target-mesh <mesh> --ik-retargeter <asset>",
+    ]
+    if args.anim_blueprint:
+        suggested_commands.append(f"soft-ue-cli anim instance inspect --asset-path {args.anim_blueprint}")
+    if args.target_mesh:
+        suggested_commands.append(f"soft-ue-cli asset query --asset-path {args.target_mesh}")
+
+    _print_json({
+        "schema": "soft_ue.diagnose.character.v1",
+        "success": True,
+        "asset_path": args.asset_path,
+        "anim_blueprint": args.anim_blueprint,
+        "source_mesh": args.source_mesh,
+        "target_mesh": args.target_mesh,
+        "diagnostic_steps": diagnostic_steps,
+        "suggested_commands": suggested_commands,
+    })
+
+
+def cmd_diagnose_build_log(args: argparse.Namespace) -> None:
+    text = Path(args.log_file).read_text(encoding="utf-8", errors="replace")
+    _print_json(summarize_build_log(text))
+
+
+def cmd_diagnose_p4(args: argparse.Namespace) -> None:
+    text = Path(args.opened_file).read_text(encoding="utf-8", errors="replace")
+    _print_json(summarize_p4_opened(text))
+
+
+def cmd_diagnose_issue(args: argparse.Namespace) -> None:
+    text = Path(args.input_file).read_text(encoding="utf-8", errors="replace")
+    _print_json(make_issue_investigation_plan(args.source, text))
+
+
+def cmd_diagnose_probe(args: argparse.Namespace) -> None:
+    steps: list[dict[str, object]] = []
+
+    def run_step(tool: str, arguments: dict) -> None:
+        steps.append({"tool": tool, "arguments": arguments, "result": _run_tool(tool, arguments)})
+
+    start_args: dict[str, object] = {"action": "start"}
+    if args.map:
+        start_args["map"] = args.map
+    run_step("pie-session", start_args)
+
+    if args.script or args.script_path:
+        script_args: dict[str, object] = {"world": "pie"}
+        if args.script:
+            script_args["script"] = args.script
+        if args.script_path:
+            script_args["script_path"] = args.script_path
+        run_step("run-python-script", script_args)
+
+    run_step("pie-tick", {"frames": args.frames})
+    run_step("get-logs", {"lines": args.log_lines})
+
+    if args.capture:
+        run_step("capture-screenshot", {"mode": "pie-window", "safe_mode": True})
+    if args.stop:
+        run_step("pie-session", {"action": "stop"})
+
+    _print_json({
+        "schema": "soft_ue.diagnose.probe.v1",
+        "success": True,
+        "step_count": len(steps),
+        "steps": steps,
+    })
+
+
+def cmd_diagnose_data(args: argparse.Namespace) -> None:
+    _print_json(validate_data_files(args.paths))
+
+
+def cmd_diagnose_handoff(args: argparse.Namespace) -> None:
+    evidence: list[str] = list(args.evidence or [])
+    for evidence_file in args.evidence_file or []:
+        evidence.append(Path(evidence_file).read_text(encoding="utf-8", errors="replace"))
+
+    result = build_handoff_report(
+        title=args.title,
+        summary=args.summary or "",
+        evidence=evidence,
+        next_steps=args.next_step or [],
+    )
+    if args.output_file:
+        Path(args.output_file).write_text(result["markdown"], encoding="utf-8")
+        result["output_file"] = args.output_file
+    _print_json(result)
 
 
 _SCRIPTS_DIR = Path.home() / ".soft-ue-bridge" / "scripts"
@@ -5029,7 +5194,10 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_sclb.add_argument("--packing-strategy", choices=["Resizable", "Fixed", "Overlay"], help="Layout packing strategy")
     p_sclb.add_argument("--blocks", required=True, help="JSON array of block objects")
     p_sclb.add_argument("--parent-layout-index", type=int, help="ParentLayoutIndex for ModifierRemoveMeshBlocks nodes")
-    p_sclb.add_argument("--parent-material-node", help="Parent material node reference for result bookkeeping")
+    p_sclb.add_argument(
+        "--parent-material-node",
+        help="Parent material node reference; adds its Mutable internal tag to ModifierRemoveMeshBlocks RequiredTags",
+    )
     p_sclb.add_argument("--lod-index", type=int, help="Mesh pin LOD index when setting a source mesh UV layout")
     p_sclb.add_argument("--section-index", type=int, help="Mesh pin section/material index when setting a source mesh UV layout")
     p_sclb.add_argument("--uv-channel", type=int, help="Source mesh UV channel layout to set")
@@ -5484,6 +5652,12 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     )
     p_cps.add_argument("--format", choices=["png", "jpeg"], help="Image format (default: png)")
     p_cps.add_argument("--output", choices=["file", "base64"], help="Output mode: file (default) or base64")
+    p_cps.add_argument("--output-file", metavar="PATH", help="Copy file output to a deterministic local path")
+    p_cps.add_argument(
+        "--unsafe-slate-window-capture",
+        action="store_true",
+        help="Allow direct full Slate window capture during PIE instead of the safe PIE viewport fallback",
+    )
     _add_capture_transform_args(p_cps)
     p_cps.set_defaults(func=cmd_capture_pie_screenshot)
 
@@ -6447,8 +6621,70 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_fr.add_argument("--search", metavar="PATTERN", help="Filter results by asset name (wildcards)")
     p_fr.set_defaults(func=cmd_find_references)
 
+    p_diag = sub.add_parser(
+        "diagnose",
+        help="Generate agent-friendly Unreal diagnostics and investigation reports.",
+        description=(
+            "Generate structured diagnostic reports for assets, characters, build logs, "
+            "Perforce changelists, external issues, PIE probes, data files, and session handoffs."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    diag_sub = p_diag.add_subparsers(dest="diagnose_action", required=True)
+
+    p_diag_asset = diag_sub.add_parser("asset", help="Run a consolidated asset, Blueprint, or AnimBP inspection report")
+    p_diag_asset.add_argument("asset_path", help="Asset path to inspect")
+    p_diag_asset.add_argument("--kind", choices=["asset", "blueprint", "anim-blueprint"], default="asset")
+    p_diag_asset.add_argument("--depth", type=int, default=2, help="query-asset recursion depth (default: 2)")
+    p_diag_asset.add_argument("--include-graph", action="store_true", help="Also inspect the Blueprint graph")
+    p_diag_asset.add_argument("--include-anim", action="store_true", help="Also inspect AnimBlueprint topology")
+    p_diag_asset.set_defaults(func=cmd_diagnose_asset)
+
+    p_diag_character = diag_sub.add_parser("character", help="Plan MetaHuman, retargeting, LOD, and material diagnostics")
+    p_diag_character.add_argument("asset_path", help="Character, Blueprint, or mesh asset path")
+    p_diag_character.add_argument("--anim-blueprint", help="Related AnimBlueprint asset path")
+    p_diag_character.add_argument("--source-mesh", help="Source skeletal mesh asset path")
+    p_diag_character.add_argument("--target-mesh", help="Target skeletal mesh asset path")
+    p_diag_character.set_defaults(func=cmd_diagnose_character)
+
+    p_diag_build = diag_sub.add_parser("build-log", help="Classify Unreal build log failures")
+    p_diag_build.add_argument("log_file", help="Path to a local build, UBT, UHT, or Jenkins log")
+    p_diag_build.set_defaults(func=cmd_diagnose_build_log)
+
+    p_diag_p4 = diag_sub.add_parser("p4", help="Summarize Perforce opened files and changelist risks")
+    p_diag_p4.add_argument("--opened-file", required=True, help="Text file containing p4 opened output")
+    p_diag_p4.set_defaults(func=cmd_diagnose_p4)
+
+    p_diag_issue = diag_sub.add_parser("issue", help="Turn Jira, Sentry, or plain issue text into an Unreal investigation plan")
+    p_diag_issue.add_argument("--source", choices=["jira", "sentry", "text"], required=True)
+    p_diag_issue.add_argument("--input-file", required=True, help="JSON or text issue payload")
+    p_diag_issue.set_defaults(func=cmd_diagnose_issue)
+
+    p_diag_probe = diag_sub.add_parser("probe", help="Run a repeatable PIE probe sequence and report each step")
+    p_diag_probe.add_argument("--map", help="Map to start PIE with")
+    p_diag_probe.add_argument("--script", help="Inline Python probe to run in PIE world")
+    p_diag_probe.add_argument("--script-path", help="Python probe file to run in PIE world")
+    p_diag_probe.add_argument("--frames", type=int, default=1, help="PIE frames to tick after the probe (default: 1)")
+    p_diag_probe.add_argument("--log-lines", type=int, default=200, help="Log lines to capture after ticking (default: 200)")
+    p_diag_probe.add_argument("--capture", action="store_true", help="Capture a safe composited PIE screenshot")
+    p_diag_probe.add_argument("--stop", action="store_true", help="Stop PIE after collecting evidence")
+    p_diag_probe.set_defaults(func=cmd_diagnose_probe)
+
+    p_diag_data = diag_sub.add_parser("data", help="Validate DataTable CSV, JSON, and INI data files")
+    p_diag_data.add_argument("paths", nargs="+", help="Data files to validate")
+    p_diag_data.set_defaults(func=cmd_diagnose_data)
+
+    p_diag_handoff = diag_sub.add_parser("handoff", help="Generate a sanitized Markdown investigation handoff")
+    p_diag_handoff.add_argument("--title", required=True)
+    p_diag_handoff.add_argument("--summary", help="Short investigation summary")
+    p_diag_handoff.add_argument("--evidence", action="append", help="Evidence bullet; can be repeated")
+    p_diag_handoff.add_argument("--evidence-file", action="append", help="Append a text file as evidence")
+    p_diag_handoff.add_argument("--next-step", action="append", help="Next-step bullet; can be repeated")
+    p_diag_handoff.add_argument("--output-file", help="Optional Markdown file to write")
+    p_diag_handoff.set_defaults(func=cmd_diagnose_handoff)
+
     # -------------------------------------------------------------------------
-    # Editor tools — Scripting
+    # Editor tools - Scripting
     # -------------------------------------------------------------------------
 
     p_rps = sub.add_parser(

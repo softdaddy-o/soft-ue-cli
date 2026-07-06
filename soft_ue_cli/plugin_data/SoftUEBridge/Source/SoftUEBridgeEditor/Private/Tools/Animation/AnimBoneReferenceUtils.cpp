@@ -3,6 +3,7 @@
 #include "Tools/Animation/AnimBoneReferenceUtils.h"
 
 #include "Utils/BridgeAssetModifier.h"
+#include "Utils/BridgeJsonObjectUtils.h"
 
 #include "Animation/BoneReference.h"
 #include "Animation/Skeleton.h"
@@ -278,9 +279,9 @@ bool LoadBoneMap(
 	}
 
 	OutBoneMapJson = MakeShared<FJsonObject>();
-	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*BoneMapObject)->Values)
+	for (const auto& Pair : (*BoneMapObject)->Values)
 	{
-		const FString OldName = Pair.Key.TrimStartAndEnd();
+		const FString OldName = SoftUE::JsonObjectUtils::KeyToString(Pair.Key).TrimStartAndEnd();
 		const FString NewName = Pair.Value.IsValid() ? Pair.Value->AsString().TrimStartAndEnd() : TEXT("");
 		if (OldName.IsEmpty() || NewName.IsEmpty())
 		{

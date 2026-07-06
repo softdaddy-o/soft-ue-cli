@@ -146,8 +146,8 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
 	bool bWasAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, false) != nullptr;
 
 	// World assets are safer through the level-loading path than through the
-	// generic asset-editor path. Before switching maps, give GC a couple of
-	// passes to release subsystems still hanging on to the outgoing world.
+	// generic asset-editor path. Do not force GC here; the bridge scheduler
+	// runs this tool from SlateTicker so the engine owns the frame boundary.
 	FSuppressMapLoadFatalDevice SuppressDevice;
 	const bool bIsWorld = Asset->IsA<UWorld>();
 	const FString AssetName = Asset->GetName();
@@ -156,8 +156,6 @@ FBridgeToolResult UOpenAssetTool::ExecuteAssetMode(const FString& AssetPath, boo
 	TOptional<FGErrorGuard> ErrorGuard;
 	if (bIsWorld)
 	{
-		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
-		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 		ErrorGuard.Emplace(&SuppressDevice);
 	}
 

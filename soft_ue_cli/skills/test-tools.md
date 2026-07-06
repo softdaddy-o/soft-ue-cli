@@ -1244,7 +1244,7 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_cli("capture viewport help", "capture", "viewport", "--help",
             check_stdout=lambda s: "--source" in s and "--scale" in s)
     run_cli("capture screenshot help", "capture", "screenshot", "--help",
-            check_stdout=lambda s: "--source" in s and "pie-window" in s and "--output-file" in s)
+            check_stdout=lambda s: "--source" in s and "pie-window" in s and "--output-file" in s and "--unsafe-slate-window-capture" in s)
     run_cli("mutable graph add-node help", "mutable", "graph", "add-node", "--help",
             check_stdout=lambda s: "mutable graph add-node" in s and "--properties" in s)
     run_cli("statetree inspect help", "statetree", "inspect", "--help",
@@ -1312,6 +1312,17 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
                 check_stdout=lambda s, _cmd=_co_label: _cmd in s and "CustomizableObject" in s)
     run_cli("mutable compile gather references help", "mutable", "compile", "--help",
             check_stdout=lambda s: "--gather-references" in s)
+    _build_log = os.path.join(tempfile.gettempdir(), f"soft_ue_build_log_{RUN_TS}_{mode_name}.txt")
+    with open(_build_log, "w", encoding="utf-8") as fh:
+        fh.write("Source.cpp(12): error C2664: cannot convert argument\nUnrealHeaderTool failed\n")
+    run_cli("diagnose help", "diagnose", "--help",
+            check_stdout=lambda s: "build-log" in s and "probe" in s and "handoff" in s)
+    run_cli("diagnose build-log smoke", "diagnose", "build-log", _build_log,
+            check_stdout=lambda s: '"schema": "soft_ue.diagnose.build_log.v1"' in s and "compiler_error" in s)
+    run_cli("diagnose probe help", "diagnose", "probe", "--help",
+            check_stdout=lambda s: "--frames" in s and "--capture" in s)
+    run_cli("diagnose data help", "diagnose", "data", "--help",
+            check_stdout=lambda s: "Validate DataTable" in s)
 
     # ══════════════════════════════════════════════════════════════════════════
     # Suite 15: Python Scripting

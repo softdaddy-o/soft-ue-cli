@@ -2,6 +2,7 @@
 
 #include "Tools/Write/AddDataTableRowTool.h"
 #include "Utils/BridgeAssetModifier.h"
+#include "Utils/BridgeJsonObjectUtils.h"
 #include "Utils/BridgePropertySerializer.h"
 #include "SoftUEBridgeEditorModule.h"
 #include "Engine/DataTable.h"
@@ -122,23 +123,24 @@ FBridgeToolResult UAddDataTableRowTool::Execute(
 		TArray<FString> FailedFields;
 		TArray<FString> UnknownFields;
 
-		for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : RowData->Values)
+		for (const auto& Pair : RowData->Values)
 		{
-			FProperty* Property = RowStruct->FindPropertyByName(FName(*Pair.Key));
+			const FString FieldName = SoftUE::JsonObjectUtils::KeyToString(Pair.Key);
+			FProperty* Property = RowStruct->FindPropertyByName(FName(*FieldName));
 			if (!Property)
 			{
-				UnknownFields.Add(Pair.Key);
+				UnknownFields.Add(FieldName);
 				continue;
 			}
 
 			FString FieldError;
 			if (!FBridgePropertySerializer::DeserializePropertyValue(Property, RowMemory, Pair.Value, FieldError))
 			{
-				FailedFields.Add(FString::Printf(TEXT("%s: %s"), *Pair.Key, *FieldError));
+				FailedFields.Add(FString::Printf(TEXT("%s: %s"), *FieldName, *FieldError));
 				continue;
 			}
 
-			AppliedFields.Add(Pair.Key);
+			AppliedFields.Add(FieldName);
 		}
 
 		if (FailedFields.Num() > 0 || UnknownFields.Num() > 0)
@@ -181,7 +183,7 @@ FBridgeToolResult UAddDataTableRowTool::Execute(
 	if (RowData.IsValid())
 	{
 		TArray<FString> AppliedFields;
-		RowData->Values.GetKeys(AppliedFields);
+		SoftUE::JsonObjectUtils::GetFieldNames(RowData, AppliedFields);
 		Result->SetArrayField(TEXT("applied_fields"), ToJsonStringArray(AppliedFields));
 	}
 	Result->SetBoolField(TEXT("needs_save"), true);

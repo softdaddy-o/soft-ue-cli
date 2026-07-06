@@ -1,4 +1,4 @@
-﻿"""Tests for startup recovery prompt handling."""
+"""Tests for startup recovery prompt handling."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 
 from soft_ue_cli.startup_recovery import (
     StartupRecoveryBlocked,
@@ -112,4 +113,3 @@ def test_startup_recovery_manual_leaves_prompt_for_user(tmp_path, monkeypatch):
     assert result is not None
     assert result.action == "manual"
     assert result.clicked_button is None
-

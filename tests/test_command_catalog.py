@@ -1,9 +1,10 @@
-﻿"""Tests for public command taxonomy metadata."""
+"""Tests for public command taxonomy metadata."""
 
 from __future__ import annotations
 
 
 import pytest
+
 
 from soft_ue_cli.command_catalog import (  # noqa: E402
     command_metadata_as_json,
@@ -280,6 +281,20 @@ def test_commands_probe_metadata_keeps_plugin_requirement_context():
     assert mutable_entry["required_plugins"][0]["name"] == "Mutable"
 
 
+def test_catalog_marks_diagnose_family_as_offline_and_workflow_commands():
+    diagnose = get_command_metadata("diagnose")
+    build_log = get_command_metadata("diagnose build-log")
+    probe = get_command_metadata("diagnose probe")
+
+    assert diagnose["status"] == "canonical"
+    assert diagnose["category"] == "support"
+    assert build_log["layer"] == "offline"
+    assert build_log["requires_bridge"] is False
+    assert probe["layer"] == "workflow"
+    assert probe["requires_bridge"] is True
+    assert probe["requires_pie"] is True
+
+
 def test_commands_json_contains_sorted_metadata_entries():
     payload = command_metadata_as_json()
 
@@ -319,4 +334,3 @@ def test_all_catalog_entries_have_required_metadata_fields():
 
     for entry in iter_command_metadata():
         assert required <= set(entry), entry["name"]
-

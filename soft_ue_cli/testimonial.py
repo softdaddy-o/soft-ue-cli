@@ -18,7 +18,7 @@ def _get_metadata() -> tuple[str, int, list[str]]:
         cli_version = "unknown"
 
     try:
-        from .streak import get_streak, _load_data
+        from .streak import _load_data, get_streak
 
         streak = get_streak()
         data = _load_data()
@@ -41,7 +41,7 @@ def _build_issue_body(
 ) -> str:
     """Build the markdown body for the GitHub Issue."""
     attribution = agent_name or "Anonymous"
-    sections = [f"> {message}\n\n— {attribution}"]
+    sections = [f"> {message}\n\n\u2014 {attribution}"]
 
     meta_lines = [f"- CLI version: {cli_version}", f"- Streak: {streak} days"]
     if rating is not None:

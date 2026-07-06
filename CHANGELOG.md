@@ -2,6 +2,18 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.41.0] - 2026-07-06
+
+### Changed
+- Documented UE 5.8 as the main development target while maintaining UE 5.7 compatibility.
+
+### Fixed
+- `set-node-property` now resolves nested AnimGraph inner `Node` struct paths, `Node.`-prefixed paths, struct-array element paths, and full array replacement through the shared property serializer.
+- Fixed a CLI client `KeyError` when a text response item omits the optional `text` field.
+- Fixed escaped testimonial attribution output so submitted testimonials render the attribution dash correctly.
+- Fixed an AnimMontage unity-build compile collision by giving inspect and slot segment JSON helpers unique names.
+- Migrated UE 5.8-deprecated editor APIs for post-engine-init delegates, nested object enumeration, package-save detection, and Rewind Debugger trace-file checks while preserving UE 5.7 compatibility.
+
 ## [1.40.0] - 2026-07-06
 
 ### Added

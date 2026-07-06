@@ -37,6 +37,8 @@ def test_project_readme_metadata_points_at_public_readme():
     assert text.startswith("# soft-ue-cli")
     assert "Command Discovery And Taxonomy" in text
     assert "UE 5.8 MCP Positioning" in text
+    assert "main development target is now **Unreal Engine 5.8**" in text
+    assert "UE 5.7 compatibility remains maintained" in text
 
 
 def test_readme_tool_count_claim_matches_current_mcp_surface():

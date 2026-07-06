@@ -862,23 +862,11 @@ bool FBridgePropertySerializer::DeserializeArrayProperty(
 		int32 NewIndex = ArrayHelper.AddValue();
 		void* ElementPtr = ArrayHelper.GetRawPtr(NewIndex);
 
-		if (FStructProperty* InnerStruct = CastField<FStructProperty>(ArrayProp->Inner))
+		FString ElementError;
+		if (!FBridgePropertySerializer::DeserializePropertyValue(ArrayProp->Inner, ElementPtr, ElementValue, ElementError))
 		{
-			const TSharedPtr<FJsonObject>* ElementObject = nullptr;
-			if (ElementValue->TryGetObject(ElementObject) && ElementObject->IsValid())
-			{
-				if (!FJsonObjectConverter::JsonObjectToUStruct(ElementObject->ToSharedRef(), InnerStruct->Struct, ElementPtr))
-				{
-					OutError = FString::Printf(TEXT("Failed to deserialize array element %d"), NewIndex);
-					return false;
-				}
-			}
-		}
-		else
-		{
-			// For simple types, use ImportText
-			FString ElementStr = ElementValue->AsString();
-			ArrayProp->Inner->ImportText_Direct(*ElementStr, ElementPtr, nullptr, PPF_None);
+			OutError = FString::Printf(TEXT("Failed to deserialize array element %d: %s"), NewIndex, *ElementError);
+			return false;
 		}
 	}
 

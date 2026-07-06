@@ -68,6 +68,8 @@ Recent releases moved soft-ue-cli from a flat list of one-off bridge calls towar
 
 UE 5.8 is adding first-party Unreal MCP support. Use it when you want an Epic-managed, UE 5.8-native MCP endpoint and it already covers the workflow you need.
 
+soft-ue-cli's main development target is now **Unreal Engine 5.8**. UE 5.7 compatibility remains maintained, so fixes and bridge code should continue to compile and run on UE 5.7 unless a release note explicitly says otherwise.
+
 soft-ue-cli is intentionally a different layer rather than a replacement for first-party MCP:
 
 - It works as both a normal terminal CLI and an MCP server, so the same automation can run from Claude Code, shell scripts, CI, or any MCP client.

@@ -4102,7 +4102,7 @@ def test_print_json_unicode_falls_back_for_strict_cp949_stdout(monkeypatch):
     stdout = io.TextIOWrapper(buffer, encoding="cp949", errors="strict", newline="")
     monkeypatch.setattr(sys, "stdout", stdout)
 
-    _print_json({"msg": "hello \u2014 world", "text": "한글"})
+    _print_json({"msg": "hello \u2014 world", "text": "\uD55C\uAE00"})
     stdout.flush()
 
     output = buffer.getvalue().decode("cp949")

@@ -46,7 +46,7 @@ namespace
 		}
 
 		TArray<UObject*> InnerObjects;
-#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8)
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8
 		GetObjectsWithOuter(AssetObject, InnerObjects, EGetObjectsFlags::IncludeNestedObjects);
 #else
 		GetObjectsWithOuter(AssetObject, InnerObjects, true);

@@ -1,4 +1,4 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
+"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 

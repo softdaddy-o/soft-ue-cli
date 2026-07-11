@@ -2,6 +2,15 @@
 
 All notable changes to soft-ue-cli will be documented in this file.
 
+## [1.42.0] - 2026-07-11
+
+### Added
+- `run-python-script` now accepts `--args ...` after CLI options and forwards those values to the executed script as `sys.argv[1:]`.
+- MCP callers can now pass `script_args` as an array for `run-python-script`.
+
+### Fixed
+- Fixed a UE 5.8 bridge build break by removing the direct `FJsonObject::FStringType` dependency from JSON object key conversion while preserving UE 5.7 compatibility.
+
 ## [1.41.0] - 2026-07-06
 
 ### Changed

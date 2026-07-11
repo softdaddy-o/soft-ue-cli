@@ -2966,6 +2966,8 @@ def cmd_run_python_script(args: argparse.Namespace) -> None:
         arguments["world"] = args.world
     if args.arguments:
         arguments["arguments"] = _parse_json_arg(args.arguments, "--arguments")
+    if args.script_args is not None:
+        arguments["script_args"] = args.script_args
     if getattr(args, "allow_unsafe_python_calls", False):
         arguments["allow_unsafe_python_calls"] = True
     _print_json(_run_tool("run-python-script", arguments))
@@ -3887,7 +3889,6 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
 def cmd_knowledge(args: argparse.Namespace) -> None:
     """Query the optional knowledge server (RAG)."""
     print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
-
 
 def cmd_skills(args: argparse.Namespace) -> None:
     from .skills import get_skill, list_skills
@@ -6701,6 +6702,7 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
             '  soft-ue-cli run-python-script --script "import unreal; print(unreal.SystemLibrary.get_engine_version())"\n'
             "  soft-ue-cli run-python-script --script-path /path/to/my_script.py\n"
             "  soft-ue-cli run-python-script --script-path my_script.py --arguments '{\"count\": 5}'\n"
+            "  soft-ue-cli run-python-script --script-path my_script.py --args alpha --flag=value\n"
             "  soft-ue-cli run-python-script --script-path inspect_runtime.py --world pie"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -6719,6 +6721,13 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_rps.add_argument("--pie-timeout", type=float, default=30.0, metavar="SEC", help="Timeout for PIE auto-start (default: 30)")
     p_rps.add_argument(
         "--arguments", metavar="JSON", help="Arguments as JSON object (accessible via unreal.get_mcp_args())"
+    )
+    p_rps.add_argument(
+        "--args",
+        dest="script_args",
+        metavar="ARG",
+        nargs=argparse.REMAINDER,
+        help="Arguments to expose as sys.argv[1:] in the executed script; put this after soft-ue-cli options",
     )
     p_rps.add_argument(
         "--allow-unsafe-python-calls",

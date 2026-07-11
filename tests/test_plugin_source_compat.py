@@ -1,20 +1,21 @@
 from pathlib import Path
 
 
-def _plugin_source_root() -> Path:
+def _repo_root() -> Path:
     for parent in Path(__file__).resolve().parents:
-        monorepo_source = parent / "plugin" / "SoftUEBridge" / "Source"
-        if monorepo_source.exists():
-            return monorepo_source
-
-        public_source = parent / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / "Source"
-        if public_source.exists():
-            return public_source
-
-    raise AssertionError("Could not locate SoftUEBridge source")
+        if (parent / "cli" / "pyproject.toml").exists():
+            return parent
+        if (parent / "pyproject.toml").exists() and (parent / "soft_ue_cli").exists():
+            return parent
+    raise AssertionError("Could not locate repository root")
 
 
-PLUGIN_SOURCE = _plugin_source_root()
+ROOT = _repo_root()
+_MONOREPO_PLUGIN_SOURCE = ROOT / "plugin" / "SoftUEBridge" / "Source"
+if _MONOREPO_PLUGIN_SOURCE.exists():
+    PLUGIN_SOURCE = _MONOREPO_PLUGIN_SOURCE
+else:
+    PLUGIN_SOURCE = ROOT / "soft_ue_cli" / "plugin_data" / "SoftUEBridge" / "Source"
 
 
 def _read(relative_path: str) -> str:

@@ -47,7 +47,8 @@ private:
 	FString BuildPythonPreamble(
 		const TSharedPtr<FJsonObject>& Arguments,
 		const TArray<FString>& PythonPaths,
-		const FString& WorldType);
+		const FString& WorldType,
+		const FString& ScriptArgv0);
 
 	bool ContainsUnsafeLevelLoad(const FString& Script) const;
 	bool ContainsUnsafeNativeCall(const FString& Script, FString& OutReason) const;

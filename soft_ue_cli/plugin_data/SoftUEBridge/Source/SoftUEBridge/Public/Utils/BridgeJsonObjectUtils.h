@@ -7,7 +7,13 @@
 
 namespace SoftUE::JsonObjectUtils
 {
-	inline FString KeyToString(const FJsonObject::FStringType& Key)
+	inline FString KeyToString(const FString& Key)
+	{
+		return Key;
+	}
+
+	template <typename KeyType>
+	inline FString KeyToString(const KeyType& Key)
 	{
 		return FString(Key.Len(), *Key);
 	}

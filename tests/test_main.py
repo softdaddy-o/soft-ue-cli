@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 import pytest
 
-
 from soft_ue_cli import __main__ as main_mod
 from soft_ue_cli.__main__ import (
     _SCRIPTS_DIR,
@@ -670,6 +669,32 @@ def test_run_python_script_allow_unsafe_python_calls_routes_to_bridge_tool():
         {
             "script": script,
             "allow_unsafe_python_calls": True,
+        },
+    )
+
+
+def test_run_python_script_args_route_to_bridge_tool_sys_argv(tmp_path):
+    script_path = tmp_path / "argv_check.py"
+    script_path.write_text("import sys; print(sys.argv)", encoding="utf-8")
+
+    parser = build_parser()
+    args = parser.parse_args([
+        "run-python-script",
+        "--script-path",
+        str(script_path),
+        "--args",
+        "alpha",
+        "--flag=value",
+    ])
+
+    with patch("soft_ue_cli.__main__.call_tool", return_value={"output": "ok"}) as mock_call:
+        cmd_run_python_script(args)
+
+    mock_call.assert_called_once_with(
+        "run-python-script",
+        {
+            "script_path": str(script_path.resolve()),
+            "script_args": ["alpha", "--flag=value"],
         },
     )
 
@@ -4102,7 +4127,7 @@ def test_print_json_unicode_falls_back_for_strict_cp949_stdout(monkeypatch):
     stdout = io.TextIOWrapper(buffer, encoding="cp949", errors="strict", newline="")
     monkeypatch.setattr(sys, "stdout", stdout)
 
-    _print_json({"msg": "hello \u2014 world", "text": "\uD55C\uAE00"})
+    _print_json({"msg": "hello \u2014 world", "text": "한글"})
     stdout.flush()
 
     output = buffer.getvalue().decode("cp949")

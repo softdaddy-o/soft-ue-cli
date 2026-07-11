@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from PIL import Image
 
-
 from soft_ue_cli.visual_compare import compare_umg_screenshots
 
 

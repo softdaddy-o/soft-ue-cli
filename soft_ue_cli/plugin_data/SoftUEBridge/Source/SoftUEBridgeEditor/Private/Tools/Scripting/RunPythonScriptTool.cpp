@@ -50,6 +50,12 @@ TMap<FString, FBridgeSchemaProperty> URunPythonScriptTool::GetInputSchema() cons
 	Arguments.bRequired = false;
 	Schema.Add(TEXT("arguments"), Arguments);
 
+	FBridgeSchemaProperty ScriptArgs;
+	ScriptArgs.Type = TEXT("array");
+	ScriptArgs.Description = TEXT("String arguments to pass to the script via sys.argv[1:]");
+	ScriptArgs.bRequired = false;
+	Schema.Add(TEXT("script_args"), ScriptArgs);
+
 	FBridgeSchemaProperty AllowUnsafePythonCalls;
 	AllowUnsafePythonCalls.Type = TEXT("boolean");
 	AllowUnsafePythonCalls.Description = TEXT("Allow known crash-prone native UE Python calls instead of returning a guard error");
@@ -144,7 +150,8 @@ FBridgeToolResult URunPythonScriptTool::Execute(
 	}
 
 	// Build and execute the shared preamble first so file-based execution still gets helpers and arguments
-	const FString PythonPreamble = BuildPythonPreamble(Arguments, PythonPaths, WorldType);
+	const FString ScriptArgv0 = ResolvedScriptPath.IsEmpty() ? TEXT("<soft-ue-cli-inline>") : ResolvedScriptPath;
+	const FString PythonPreamble = BuildPythonPreamble(Arguments, PythonPaths, WorldType, ScriptArgv0);
 	bool bSuccess = false;
 	FString Error;
 	FString Output;
@@ -320,7 +327,8 @@ bool URunPythonScriptTool::ReadScriptFile(
 FString URunPythonScriptTool::BuildPythonPreamble(
 	const TSharedPtr<FJsonObject>& Arguments,
 	const TArray<FString>& PythonPaths,
-	const FString& WorldType)
+	const FString& WorldType,
+	const FString& ScriptArgv0)
 {
 	FString Preamble;
 	Preamble += TEXT("import sys as _sub_sys\n");
@@ -369,6 +377,29 @@ FString URunPythonScriptTool::BuildPythonPreamble(
 	Preamble += TEXT("_mcp_world = _sub_get_world()\n");
 	Preamble += TEXT("world = _mcp_world\n");
 	Preamble += TEXT("\n");
+
+	if (Arguments.IsValid() && Arguments->HasField(TEXT("script_args")))
+	{
+		const TArray<TSharedPtr<FJsonValue>>* ScriptArgValues = nullptr;
+		if (Arguments->TryGetArrayField(TEXT("script_args"), ScriptArgValues))
+		{
+			TArray<TSharedPtr<FJsonValue>> SysArgvValues;
+			SysArgvValues.Add(MakeShareable(new FJsonValueString(ScriptArgv0)));
+			for (const TSharedPtr<FJsonValue>& ScriptArgValue : *ScriptArgValues)
+			{
+				if (ScriptArgValue.IsValid())
+				{
+					SysArgvValues.Add(MakeShareable(new FJsonValueString(ScriptArgValue->AsString())));
+				}
+			}
+
+			FString SysArgvJson;
+			TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&SysArgvJson);
+			FJsonSerializer::Serialize(SysArgvValues, Writer);
+			Preamble += FString::Printf(TEXT("_sub_sys.argv = %s\n"), *SysArgvJson);
+			Preamble += TEXT("\n");
+		}
+	}
 
 	// Add Python paths to sys.path if provided
 	if (PythonPaths.Num() > 0)

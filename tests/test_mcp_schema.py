@@ -1,10 +1,9 @@
-"""Tests for cli/soft_ue_cli/mcp_schema.py ??argparse to MCP tool schema conversion."""
+"""Tests for cli/soft_ue_cli/mcp_schema.py — argparse to MCP tool schema conversion."""
 
 from __future__ import annotations
 
 
 import pytest
-
 
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
@@ -428,6 +427,7 @@ def test_run_python_script_schema_exposes_unsafe_python_call_override():
     params = tool["parameters"]
 
     assert params["properties"]["allow_unsafe_python_calls"]["type"] == "boolean"
+    assert params["properties"]["script_args"]["type"] == "array"
 
 
 def test_pie_session_schema_exposes_blueprint_compile_error_policy():

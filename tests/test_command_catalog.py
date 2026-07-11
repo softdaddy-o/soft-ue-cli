@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import pytest
 
-
 from soft_ue_cli.command_catalog import (  # noqa: E402
     command_metadata_as_json,
     filter_command_metadata,

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
 from unittest.mock import patch
-
 
 from soft_ue_cli import __main__ as main_mod
 from soft_ue_cli.__main__ import build_parser

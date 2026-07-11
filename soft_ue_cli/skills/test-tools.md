@@ -1343,8 +1343,15 @@ def _run_single_mode(mode_name: str, caller) -> list[dict]:
     run_cli("run-python-script saved", "run-python-script", "--name", script_name,
             check_stdout=lambda s: "output" in s or "soft-ue-cli" in s)
     run_cli("run-python-script help", "run-python-script", "--help",
-            check_stdout=lambda s: "--allow-unsafe-python-calls" in s and "--script-path" in s)
+            check_stdout=lambda s: "--allow-unsafe-python-calls" in s and "--script-path" in s and "--args" in s)
     run_cli("delete-script", "delete-script", script_name)
+
+    argv_script = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_PATH)), f"soft_ue_argv_{RUN_TS}_{mode_name}.py")
+    with open(argv_script, "w", encoding="utf-8") as fh:
+        fh.write("import sys\nprint('ARGV_CHECK', '|'.join(sys.argv[1:]))\n")
+    run_cli("run-python-script argv args", "run-python-script", "--script-path", argv_script,
+            "--args", "alpha", "--flag=value",
+            check_stdout=lambda s: "ARGV_CHECK alpha|--flag=value" in s)
 
     helper_script = os.path.join(os.path.dirname(os.path.abspath(OUTPUT_PATH)), f"soft_ue_helper_{RUN_TS}_{mode_name}.py")
     with open(helper_script, "w", encoding="utf-8") as fh:

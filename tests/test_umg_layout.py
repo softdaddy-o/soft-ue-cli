@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 
-
 def test_normalize_layout_extracts_widget_bounds_and_contract():
     from soft_ue_cli.umg_layout import normalize_layout
 

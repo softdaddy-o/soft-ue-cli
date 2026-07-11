@@ -43,6 +43,25 @@ def _plugin_root() -> Path:
     return root / "soft_ue_cli" / "plugin_data" / "SoftUEBridge"
 
 
+def _agent_guide_path() -> Path | None:
+    root = _repo_root()
+    for candidate in (
+        root / "AGENTS.md",
+        root.parent / "AGENTS.md",
+    ):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _skill_path(relative: str) -> Path:
+    root = _repo_root()
+    monorepo_path = root / "cli" / "soft_ue_cli" / "skills" / relative
+    if monorepo_path.exists():
+        return monorepo_path
+    return root / "soft_ue_cli" / "skills" / relative
+
+
 def test_editor_dependency_plugins_are_editor_target_only():
     descriptor = json.loads(_descriptor_path().read_text(encoding="utf-8"))
     plugin_refs = {entry["Name"]: entry for entry in descriptor["Plugins"]}
@@ -56,7 +75,7 @@ def test_json_object_value_access_uses_ue58_compatible_helpers():
         "Source/SoftUEBridge/Public/Utils/BridgeJsonObjectUtils.h"
     ).read_text(encoding="utf-8")
 
-    assert "FJsonObject::FStringType" in helper
+    assert "FJsonObject::FStringType" not in helper
     assert "KeyToString" in helper
     assert "FindField" in helper
     assert "GetFieldNames" in helper
@@ -380,9 +399,10 @@ def test_bridge_registry_remove_tools_does_not_shadow_singleton_instance():
 
 
 def test_agent_guide_warns_new_tools_against_static_registration_macro():
-    guide_path = _repo_root() / "AGENTS.md"
-    if not guide_path.exists():
-        pytest.skip("AGENTS.md is not included in the public export")
+    guide_path = _agent_guide_path()
+    if guide_path is None:
+        pytest.skip("AGENTS.md is not exported in the public package repo")
+
     guide = guide_path.read_text(encoding="utf-8")
 
     assert "Do not use REGISTER_BRIDGE_TOOL" in guide
@@ -484,6 +504,21 @@ def test_run_python_script_defers_to_slate_ticker_and_does_not_force_gc_after_ex
     assert "GetExecutionContextRequirement" in header
     assert "EBridgeToolExecutionContext::SlateTicker" in header
     assert "CollectGarbage" not in source
+
+
+def test_run_python_script_supports_sys_argv_script_args():
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Scripting/RunPythonScriptTool.h"
+    ).read_text(encoding="utf-8")
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Scripting/RunPythonScriptTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert 'Schema.Add(TEXT("script_args")' in source
+    assert 'TryGetArrayField(TEXT("script_args")' in source
+    assert "_sub_sys.argv" in source
+    assert "ScriptArgv0" in header
+    assert "ScriptArgv0" in source
 
 
 def test_customizable_object_mesh_helpers_refresh_soft_mesh_references():
@@ -688,9 +723,10 @@ def test_bridge_health_includes_process_identity_for_restart_detection():
 
 
 def test_agent_guide_requires_deferred_registration_for_new_uclass_tools():
-    guide_path = _repo_root() / "AGENTS.md"
-    if not guide_path.exists():
-        pytest.skip("AGENTS.md is not included in the public export")
+    guide_path = _agent_guide_path()
+    if guide_path is None:
+        pytest.skip("AGENTS.md is not exported in the public package repo")
+
     guide = guide_path.read_text(encoding="utf-8")
 
     assert "OnPostEngineInit" in guide
@@ -940,13 +976,11 @@ def test_set_node_position_supports_customizable_object_graphs():
 
 
 def test_live_smoke_skill_expects_slot_wiring_macro():
-    root = _repo_root()
-    skills_path = root / "cli" / "soft_ue_cli" / "skills" / "test-tools.md"
-    if not skills_path.exists():
-        skills_path = root / "soft_ue_cli" / "skills" / "test-tools.md"
-    content = skills_path.read_text(encoding="utf-8")
+    content = _skill_path("test-tools.md").read_text(encoding="utf-8")
 
     assert "wire-customizable-object-slot-from-table" in content
+    assert "run-python-script argv args" in content
+    assert "--args" in content
 
 
 def test_datatable_row_tool_uses_field_level_bridge_deserializer():

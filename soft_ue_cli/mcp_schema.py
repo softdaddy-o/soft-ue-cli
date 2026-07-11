@@ -128,6 +128,12 @@ TOOL_OVERRIDES: dict[str, dict[str, Any]] = {
         "properties_remove": ["calls_file"],
         "required_add": ["calls"],
     },
+    # run-python-script: script_args is a native JSON array in MCP, forwarded to sys.argv[1:].
+    "run-python-script": {
+        "properties": {
+            "script_args": {"type": "array", "description": "Array of string arguments exposed as sys.argv[1:]"},
+        },
+    },
     # exec-console-command: MCP callers may pass a complete command string while
     # argparse exposes the legacy command_parts positional.
     "exec-console-command": {

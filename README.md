@@ -413,7 +413,7 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 
 | Command | Description |
 |---------|-------------|
-| `run-python-script` | Execute a Python script inside UE's embedded Python interpreter, preserving normal file semantics for `--script-path`, exposing optional PIE-world helpers, and blocking known crash-prone native batch calls unless `--allow-unsafe-python-calls` is supplied |
+| `run-python-script` | Execute a Python script inside UE's embedded Python interpreter, preserving normal file semantics for `--script-path`, forwarding optional `--args` values to `sys.argv[1:]`, exposing optional PIE-world helpers, and blocking known crash-prone native batch calls unless `--allow-unsafe-python-calls` is supplied |
 | `save-script` | Save a reusable Python script to the local script library |
 | `list-scripts` | List all saved Python scripts |
 | `delete-script` | Delete a saved script |

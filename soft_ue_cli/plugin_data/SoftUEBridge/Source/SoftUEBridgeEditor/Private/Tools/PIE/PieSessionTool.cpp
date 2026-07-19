@@ -4,6 +4,7 @@
 #include "SoftUEBridgeEditorModule.h"
 #include "Tools/Widget/WidgetPreviewRegistry.h"
 #include "Editor.h"
+#include "Editor/Transactor.h"
 #include "LevelEditor.h"
 #include "LevelEditorSubsystem.h"
 #include "Engine/World.h"
@@ -61,6 +62,20 @@ namespace
 		return GBridgePIETransitionStartedAt > 0.0
 			? FPlatformTime::Seconds() - GBridgePIETransitionStartedAt
 			: 0.0;
+	}
+
+	bool ClearPIETransactionsIfNeeded()
+	{
+		if (!GEditor || !GEditor->Trans || !GEditor->Trans->ContainsPieObjects())
+		{
+			return false;
+		}
+
+		GEditor->ResetTransaction(NSLOCTEXT(
+			"SoftUEBridgeEditor",
+			"BridgePIEStopTransactionContainedPIEObject",
+			"SoftUEBridge PIE stop cleared editor undo history because it contained PIE objects"));
+		return true;
 	}
 }
 
@@ -350,6 +365,7 @@ FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Ar
 	const bool bRunning = GEditor->IsPlaySessionInProgress();
 	const bool bCleanupToolPreviews = GetBoolArgOrDefault(Arguments, TEXT("cleanup_tool_previews"), true);
 	int32 RemovedToolPreviews = 0;
+	bool bClearedPIETransactions = false;
 	if (!bRunning && GBridgePIETransition != EBridgePIETransition::Starting)
 	{
 		ClearPIETransition();
@@ -358,6 +374,7 @@ FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Ar
 		Result->SetStringField(TEXT("state"), TEXT("not_running"));
 		Result->SetBoolField(TEXT("cleanup_tool_previews"), bCleanupToolPreviews);
 		Result->SetNumberField(TEXT("removed_tool_previews"), RemovedToolPreviews);
+		Result->SetBoolField(TEXT("cleared_pie_transactions"), bClearedPIETransactions);
 		return FBridgeToolResult::Json(Result);
 	}
 
@@ -370,6 +387,7 @@ FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Ar
 				RemovedToolPreviews = FWidgetPreviewRegistry::RemovePreviewsForWorld(PIEWorld);
 			}
 		}
+		bClearedPIETransactions = ClearPIETransactionsIfNeeded();
 		GEditor->RequestEndPlayMap();
 	}
 
@@ -388,7 +406,8 @@ FBridgeToolResult UPieSessionTool::ExecuteStop(const TSharedPtr<FJsonObject>& Ar
 	Result->SetStringField(TEXT("state"), GEditor->IsPlaySessionInProgress() ? TEXT("stopping") : TEXT("stopped"));
 	Result->SetBoolField(TEXT("cleanup_tool_previews"), bCleanupToolPreviews);
 	Result->SetNumberField(TEXT("removed_tool_previews"), RemovedToolPreviews);
-	Result->SetStringField(TEXT("stop_diagnostics"), TEXT("tool previews are removed before PIE shutdown by default"));
+	Result->SetBoolField(TEXT("cleared_pie_transactions"), bClearedPIETransactions);
+	Result->SetStringField(TEXT("stop_diagnostics"), TEXT("tool previews are removed and PIE object transactions are cleared before PIE shutdown by default"));
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("pie-session: Stop requested"));
 	return FBridgeToolResult::Json(Result);

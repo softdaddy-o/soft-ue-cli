@@ -22,6 +22,20 @@ from .diagnostics import (
     validate_data_files,
 )
 from .discovery import get_server_url
+from .surface_selector import (
+    DEFAULT_OFFICIAL_MCP_ENDPOINT,
+    SurfaceProbe,
+    build_surface_report,
+    probe_official_mcp,
+    probe_soft_ue_bridge,
+)
+from .runtime_binary import (
+    build_runtime_smoke_plan,
+    inspect_packaged_readiness,
+    plan_binary_install,
+    plan_binary_rollback,
+    plan_binary_update,
+)
 
 
 _VECTOR_ARGUMENT_RE = re.compile(
@@ -452,6 +466,56 @@ def cmd_status(args: argparse.Namespace) -> None:
         "status": "not_ready",
         "diagnostics": _bridge_readiness_diagnostics(health, modal=modal),
     })
+
+
+def cmd_mcp_surface_status(args: argparse.Namespace) -> None:
+    timeout = float(args.probe_timeout)
+    official = probe_official_mcp(args.official_url, timeout=timeout)
+    bridge = probe_soft_ue_bridge(timeout=timeout)
+    _print_json(build_surface_report(official_mcp=official, soft_ue_bridge=bridge))
+
+
+def cmd_runtime_readiness(args: argparse.Namespace) -> None:
+    _print_json(inspect_packaged_readiness(args.project, configuration=args.configuration))
+
+
+def cmd_binary_install_plan(args: argparse.Namespace) -> None:
+    _print_json(
+        plan_binary_install(
+            args.project,
+            args.manifest,
+            ue_version=args.ue_version,
+            platform=args.platform,
+            configuration=args.configuration,
+        )
+    )
+
+
+def cmd_binary_update_plan(args: argparse.Namespace) -> None:
+    _print_json(
+        plan_binary_update(
+            args.project,
+            args.manifest,
+            ue_version=args.ue_version,
+            platform=args.platform,
+            configuration=args.configuration,
+        )
+    )
+
+
+def cmd_binary_rollback_plan(args: argparse.Namespace) -> None:
+    _print_json(plan_binary_rollback(args.project))
+
+
+def cmd_runtime_smoke_plan(args: argparse.Namespace) -> None:
+    _print_json(
+        build_runtime_smoke_plan(
+            executable=args.executable,
+            bridge_url=args.bridge_url,
+            timeout=args.timeout,
+            log_path=args.log_path,
+        )
+    )
 
 
 def _launch_editor_for_wait(path: str) -> None:
@@ -1377,6 +1441,14 @@ def cmd_build_and_relaunch(args: argparse.Namespace) -> None:
         arguments["compiler_version"] = args.compiler_version
     if args.toolchain:
         arguments["toolchain"] = args.toolchain
+    if getattr(args, "no_uba", False):
+        arguments["no_uba"] = True
+    if getattr(args, "no_xge", False):
+        arguments["no_xge"] = True
+    if getattr(args, "local_build_fallback", True) is False:
+        arguments["local_build_fallback"] = False
+    if getattr(args, "skip_package_restore", True) is False:
+        arguments["skip_package_restore"] = False
     result = _run_tool("build-and-relaunch", arguments)
 
     if not args.wait:
@@ -1432,6 +1504,42 @@ def _read_uproject_engine_association(project_path: Path) -> str | None:
     return association if isinstance(association, str) and association.strip() else None
 
 
+def _candidate_engine_dirs_from_registry(association: str) -> list[Path]:
+    """Return engine dirs registered for a Windows Unreal EngineAssociation."""
+    try:
+        import winreg
+    except ImportError:
+        return []
+
+    roots = [
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Epic Games\Unreal Engine\Builds"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Epic Games\Unreal Engine\Builds"),
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\EpicGames\Unreal Engine\{association}"),
+    ]
+    candidates: list[Path] = []
+    for hive, key_path in roots:
+        try:
+            with winreg.OpenKey(hive, key_path) as key:
+                try:
+                    value, _value_type = winreg.QueryValueEx(key, association)
+                    if isinstance(value, str) and value.strip():
+                        root = Path(value.strip()).expanduser()
+                        candidates.append(root / "Engine" if root.name.lower() != "engine" else root)
+                except OSError:
+                    pass
+
+                try:
+                    value, _value_type = winreg.QueryValueEx(key, "InstalledDirectory")
+                    if isinstance(value, str) and value.strip():
+                        root = Path(value.strip()).expanduser()
+                        candidates.append(root / "Engine" if root.name.lower() != "engine" else root)
+                except OSError:
+                    pass
+        except OSError:
+            continue
+    return candidates
+
+
 def _candidate_engine_dirs_from_project(project_path: Path) -> list[Path]:
     association = _read_uproject_engine_association(project_path)
     if not association:
@@ -1441,6 +1549,7 @@ def _candidate_engine_dirs_from_project(project_path: Path) -> list[Path]:
     association_path = Path(association).expanduser()
     if association_path.is_absolute():
         candidates.append(association_path / "Engine" if association_path.name.lower() != "engine" else association_path)
+    candidates.extend(_candidate_engine_dirs_from_registry(association))
 
     roots: list[Path] = []
     for env_name in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"):
@@ -1503,6 +1612,75 @@ def _discover_unreal_build_tools(args: argparse.Namespace, project_path: Path) -
     return editor_exe, build_bat
 
 
+def _discover_unreal_editor_exe(args: argparse.Namespace, project_path: Path) -> Path:
+    editor_value = getattr(args, "editor_exe", None) or os.environ.get("UNREAL_EDITOR_EXE") or os.environ.get("UE_EDITOR_EXE")
+    engine_value = os.environ.get("UNREAL_ENGINE_DIR") or os.environ.get("UE_ENGINE_DIR")
+
+    editor_exe = Path(editor_value).expanduser() if editor_value else None
+    engine_dir: Path | None = Path(engine_value).expanduser() if engine_value else None
+    if engine_dir is None and editor_exe is not None:
+        engine_dir = _find_engine_dir_from_editor(editor_exe)
+    if engine_dir is None:
+        for candidate in _candidate_engine_dirs_from_project(project_path):
+            if candidate.exists():
+                engine_dir = candidate
+                break
+    if editor_exe is None and engine_dir is not None:
+        editor_exe = engine_dir / "Binaries" / "Win64" / "UnrealEditor.exe"
+    if editor_exe is None:
+        raise FileNotFoundError("could not discover UnrealEditor.exe; pass --editor-exe or set UNREAL_ENGINE_DIR")
+    editor_exe = editor_exe.resolve()
+    if not editor_exe.exists():
+        raise FileNotFoundError(f"editor executable not found: {editor_exe}")
+    return editor_exe
+
+
+def _append_local_build_flags(command: list[str], *, no_uba: bool, no_xge: bool) -> list[str]:
+    result = list(command)
+    existing = {item.lower() for item in result}
+    if no_uba and "-nouba" not in existing:
+        result.append("-NoUBA")
+    if no_xge and "-noxge" not in existing:
+        result.append("-NoXGE")
+    return result
+
+
+def _run_unreal_build_command(command: list[str], project_path: Path, build_timeout: float) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        command,
+        cwd=str(project_path.parent),
+        capture_output=True,
+        text=True,
+        timeout=build_timeout,
+    )
+
+
+def _move_package_restore_marker(project_path: Path) -> dict:
+    marker = project_path.parent / "Saved" / "PackageRestoreData.json"
+    if not marker.exists():
+        return {"package_restore_skipped": False}
+
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    backup = marker.with_name(f"{marker.name}.soft-ue-skipped-{timestamp}")
+    suffix = 1
+    while backup.exists():
+        backup = marker.with_name(f"{marker.name}.soft-ue-skipped-{timestamp}-{suffix}")
+        suffix += 1
+    try:
+        marker.replace(backup)
+    except OSError as exc:
+        return {
+            "package_restore_skipped": False,
+            "package_restore_marker": str(marker),
+            "package_restore_skip_error": str(exc),
+        }
+    return {
+        "package_restore_skipped": True,
+        "package_restore_marker": str(marker),
+        "package_restore_marker_backup": str(backup),
+    }
+
+
 def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
     """Build and launch without a live bridge, for the editor-closed workflow."""
     try:
@@ -1538,15 +1716,13 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
         command.append(f"-Compiler={compiler}")
     if compiler_version:
         command.append(f"-CompilerVersion={compiler_version}")
+    no_uba = bool(getattr(args, "no_uba", False))
+    no_xge = bool(getattr(args, "no_xge", False))
+    local_build_fallback = bool(getattr(args, "local_build_fallback", True))
+    command = _append_local_build_flags(command, no_uba=no_uba, no_xge=no_xge)
 
     try:
-        completed = subprocess.run(
-            command,
-            cwd=str(project_path.parent),
-            capture_output=True,
-            text=True,
-            timeout=build_timeout,
-        )
+        completed = _run_unreal_build_command(command, project_path, build_timeout)
     except subprocess.TimeoutExpired as exc:
         output = (exc.stdout or "") + (exc.stderr or "")
         return {
@@ -1570,6 +1746,43 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
         }
 
     build_output = (completed.stdout or "") + (completed.stderr or "")
+    local_build_fallback_used = False
+    if completed.returncode != 0 and local_build_fallback and not (no_uba and no_xge):
+        fallback_command = _append_local_build_flags(command, no_uba=True, no_xge=True)
+        try:
+            fallback_completed = _run_unreal_build_command(fallback_command, project_path, build_timeout)
+        except subprocess.TimeoutExpired as exc:
+            output = build_output + "\n\nLocal build fallback timed out:\n" + (exc.stdout or "") + (exc.stderr or "")
+            return {
+                "success": False,
+                "status": "build_timeout",
+                "exit_code": 2,
+                "project": str(project_path),
+                "build_time_seconds": build_timeout,
+                "build_command": fallback_command,
+                "initial_build_command": command,
+                "build_output": output,
+                "local_build_fallback_used": True,
+                "message": f"Offline local build fallback did not finish within {build_timeout:.0f}s.",
+            }
+        except OSError as exc:
+            return {
+                "success": False,
+                "status": "build_launch_failed",
+                "exit_code": 2,
+                "project": str(project_path),
+                "build_command": fallback_command,
+                "initial_build_command": command,
+                "local_build_fallback_used": True,
+                "message": str(exc),
+            }
+        fallback_output = (fallback_completed.stdout or "") + (fallback_completed.stderr or "")
+        build_output = build_output + "\n\nLocal build fallback (-NoUBA -NoXGE):\n" + fallback_output
+        if fallback_completed.returncode == 0:
+            command = fallback_command
+            completed = fallback_completed
+            local_build_fallback_used = True
+
     if completed.returncode != 0:
         return {
             "success": False,
@@ -1578,6 +1791,10 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
             "project": str(project_path),
             "build_command": command,
             "build_output": build_output,
+            "no_uba": no_uba,
+            "no_xge": no_xge,
+            "local_build_fallback": local_build_fallback,
+            "local_build_fallback_used": local_build_fallback_used,
             "message": "Build failed. See build_output for compiler errors.",
         }
 
@@ -1590,8 +1807,16 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
             "build_output": build_output,
             "compiler": compiler,
             "compiler_version": compiler_version,
+            "no_uba": no_uba,
+            "no_xge": no_xge,
+            "local_build_fallback": local_build_fallback,
+            "local_build_fallback_used": local_build_fallback_used,
             "message": "Offline build completed successfully (editor not relaunched).",
         }
+
+    package_restore_info = {"package_restore_skipped": False}
+    if getattr(args, "skip_package_restore", True):
+        package_restore_info = _move_package_restore_marker(project_path)
 
     launch_command = [str(editor_exe), str(project_path)]
     try:
@@ -1611,6 +1836,11 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
             "build_command": command,
             "launch_command": launch_command,
             "build_output": build_output,
+            "no_uba": no_uba,
+            "no_xge": no_xge,
+            "local_build_fallback": local_build_fallback,
+            "local_build_fallback_used": local_build_fallback_used,
+            **package_restore_info,
             "message": str(exc),
         }
 
@@ -1624,6 +1854,11 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
             "build_output": build_output,
             "compiler": compiler,
             "compiler_version": compiler_version,
+            "no_uba": no_uba,
+            "no_xge": no_xge,
+            "local_build_fallback": local_build_fallback,
+            "local_build_fallback_used": local_build_fallback_used,
+            **package_restore_info,
             "message": "Offline build succeeded and editor launch was started.",
         }
 
@@ -1642,6 +1877,11 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
                 "build_output": build_output,
                 "compiler": compiler,
                 "compiler_version": compiler_version,
+                "no_uba": no_uba,
+                "no_xge": no_xge,
+                "local_build_fallback": local_build_fallback,
+                "local_build_fallback_used": local_build_fallback_used,
+                **package_restore_info,
                 "ready_time_seconds": round(time.monotonic() - start, 1),
                 "health": last_health,
                 "message": "Offline build succeeded, editor launched, and bridge is ready.",
@@ -1658,6 +1898,11 @@ def _run_offline_build_and_relaunch(args: argparse.Namespace) -> dict:
         "build_output": build_output,
         "compiler": compiler,
         "compiler_version": compiler_version,
+        "no_uba": no_uba,
+        "no_xge": no_xge,
+        "local_build_fallback": local_build_fallback,
+        "local_build_fallback_used": local_build_fallback_used,
+        **package_restore_info,
         "last_health": last_health,
         "message": f"Editor launched but bridge did not become ready within {relaunch_timeout:.0f}s.",
     }
@@ -2932,6 +3177,126 @@ def _validate_script_name(name: str) -> None:
         sys.exit(1)
 
 
+def _editor_terminated_result(last_health: dict | None = None) -> dict:
+    result = {
+        "success": False,
+        "error_code": "EDITOR_TERMINATED_DURING_EXECUTION",
+        "error": "run-python-script: editor terminated during execution / bridge connection lost",
+        "message": "The bridge returned an empty result and the editor bridge is no longer reachable.",
+    }
+    if last_health is not None:
+        result["last_health"] = last_health
+    return result
+
+
+def _bridge_error_to_result(exc: Exception, last_health: dict | None = None) -> dict:
+    message = getattr(exc, "message", str(exc))
+    result = _editor_terminated_result(last_health)
+    result["bridge_error"] = message
+    return result
+
+
+def _run_tool_capturing_bridge_error(tool_name: str, arguments: dict) -> tuple[dict | None, Exception | None]:
+    from .errors import BridgeError
+
+    try:
+        return call_tool(tool_name, arguments), None
+    except BridgeError as exc:
+        return None, exc
+
+
+def _print_bridge_error_and_exit(exc: Exception) -> None:
+    from .errors import ErrorKind, format_bug_nudge
+
+    message = getattr(exc, "message", str(exc))
+    kind = getattr(exc, "kind", None)
+    tool_name = getattr(exc, "tool_name", "run-python-script")
+    print(f"error: {message}", file=sys.stderr)
+    if kind == ErrorKind.UNEXPECTED:
+        print(format_bug_nudge(tool_name, message), file=sys.stderr)
+    sys.exit(1)
+
+
+def _launch_editor_and_wait_for_bridge(args: argparse.Namespace) -> dict:
+    project_path = _discover_uproject_path(getattr(args, "project", None))
+    editor_exe = _discover_unreal_editor_exe(args, project_path)
+    launch_command = [str(editor_exe), str(project_path)]
+    subprocess.Popen(
+        launch_command,
+        cwd=str(project_path.parent),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    timeout = float(getattr(args, "relaunch_timeout", 120.0) or 120.0)
+    start = time.monotonic()
+    last_health: dict = {}
+    while time.monotonic() - start < timeout:
+        last_health = health_check(timeout=5.0)
+        if _bridge_health_is_ready(last_health):
+            return {
+                "success": True,
+                "project": str(project_path),
+                "editor_exe": str(editor_exe),
+                "launch_command": launch_command,
+                "ready_time_seconds": round(time.monotonic() - start, 1),
+                "health": last_health,
+            }
+        time.sleep(2.0)
+
+    return {
+        "success": False,
+        "project": str(project_path),
+        "editor_exe": str(editor_exe),
+        "launch_command": launch_command,
+        "last_health": last_health,
+        "message": f"Editor launched but bridge did not become ready within {timeout:.0f}s.",
+    }
+
+
+def _run_python_script_with_crash_recovery(args: argparse.Namespace, arguments: dict) -> dict:
+    if getattr(args, "relaunch_on_crash", False):
+        result, bridge_error = _run_tool_capturing_bridge_error("run-python-script", arguments)
+    else:
+        result = _run_tool("run-python-script", arguments)
+        bridge_error = None
+
+    if result:
+        return result
+
+    last_health = health_check(timeout=2.0)
+    if _bridge_health_is_ready(last_health):
+        if bridge_error:
+            _print_bridge_error_and_exit(bridge_error)
+        return result
+
+    if not getattr(args, "relaunch_on_crash", False):
+        _print_json(_editor_terminated_result(last_health))
+        sys.exit(1)
+
+    try:
+        relaunch = _launch_editor_and_wait_for_bridge(args)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        failure = _bridge_error_to_result(bridge_error, last_health) if bridge_error else _editor_terminated_result(last_health)
+        failure["relaunch_attempted"] = True
+        failure["relaunch_error"] = str(exc)
+        _print_json(failure)
+        sys.exit(1)
+
+    if not relaunch.get("success"):
+        failure = _bridge_error_to_result(bridge_error, last_health) if bridge_error else _editor_terminated_result(last_health)
+        failure["relaunch_attempted"] = True
+        failure["relaunch"] = relaunch
+        _print_json(failure)
+        sys.exit(1)
+
+    retry_result = _run_tool("run-python-script", arguments)
+    retry_result["retried_after_editor_relaunch"] = True
+    retry_result["relaunch"] = relaunch
+    return retry_result
+
+
 def cmd_run_python_script(args: argparse.Namespace) -> None:
     arguments: dict = {}
     if args.name:
@@ -2970,7 +3335,7 @@ def cmd_run_python_script(args: argparse.Namespace) -> None:
         arguments["script_args"] = args.script_args
     if getattr(args, "allow_unsafe_python_calls", False):
         arguments["allow_unsafe_python_calls"] = True
-    _print_json(_run_tool("run-python-script", arguments))
+    _print_json(_run_python_script_with_crash_recovery(args, arguments))
 
 
 def cmd_request_gameplay_tag(args: argparse.Namespace) -> None:
@@ -3502,6 +3867,213 @@ def cmd_add_component(args: argparse.Namespace) -> None:
     _print_json(_run_tool("add-component", arguments))
 
 
+def cmd_blueprint_component_add(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "asset_path": args.asset_path,
+        "component_class": args.component_class,
+    }
+    if args.component_name:
+        arguments["component_name"] = args.component_name
+    if args.attach_to:
+        arguments["attach_to"] = args.attach_to
+    if args.attach_socket:
+        arguments["attach_socket"] = args.attach_socket
+    _print_json(_run_tool("blueprint-component-add", arguments))
+
+
+def _cloth_base_arguments(args: argparse.Namespace) -> dict:
+    arguments: dict = {"skeletal_mesh": args.skeletal_mesh}
+    if getattr(args, "asset_name", None):
+        arguments["asset_name"] = args.asset_name
+    if getattr(args, "save", False):
+        arguments["save"] = True
+    return arguments
+
+
+def _parse_cloth_section_indices(raw_values: list[str]) -> list[int]:
+    indices: list[int] = []
+    for raw_value in raw_values:
+        for token in str(raw_value).split(","):
+            token = token.strip()
+            if not token:
+                continue
+            index = int(token)
+            if index not in indices:
+                indices.append(index)
+    if not indices:
+        raise ValueError("at least one --section-index value is required")
+    return indices
+
+
+def _parse_int_range_list(value: str, flag: str) -> list[int]:
+    indices: list[int] = []
+    for token in str(value).split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "-" in token:
+            start_text, end_text = token.split("-", 1)
+            start = int(start_text.strip())
+            end = int(end_text.strip())
+            step = 1 if end >= start else -1
+            for index in range(start, end + step, step):
+                if index not in indices:
+                    indices.append(index)
+        else:
+            index = int(token)
+            if index not in indices:
+                indices.append(index)
+    if not indices:
+        raise ValueError(f"{flag} must contain at least one vertex index")
+    return indices
+
+
+def _parse_vertex_pairs_arg(value: str) -> list[list[int]]:
+    pairs = _parse_json_array_arg(value, "--vertex-pairs")
+    parsed: list[list[int]] = []
+    for item in pairs:
+        if not isinstance(item, list) or len(item) != 2:
+            raise ValueError("--vertex-pairs must be a JSON array of [a, b] pairs")
+        if type(item[0]) is not int or type(item[1]) is not int:
+            raise ValueError("--vertex-pairs must contain JSON integer vertex ids")
+        parsed.append([item[0], item[1]])
+    if not parsed:
+        raise ValueError("--vertex-pairs must contain at least one pair")
+    return parsed
+
+
+def cmd_cloth_query(args: argparse.Namespace) -> None:
+    arguments = _cloth_base_arguments(args)
+    if args.lod_index is not None:
+        arguments["lod_index"] = args.lod_index
+    _print_json(_run_tool("cloth-query", arguments))
+
+
+def cmd_cloth_chaos_query(args: argparse.Namespace) -> None:
+    arguments: dict = {"cloth_asset": args.cloth_asset}
+    if args.include_nodes:
+        arguments["include_nodes"] = True
+    _print_json(_run_tool("cloth-chaos-query", arguments))
+
+
+def cmd_cloth_convert(args: argparse.Namespace) -> None:
+    arguments = _cloth_base_arguments(args)
+    arguments["output_asset"] = args.output_asset
+    if args.no_save:
+        arguments["save"] = False
+    _print_json(_run_tool("cloth-convert", arguments))
+
+
+def cmd_cloth_chaos_stitch(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "cloth_asset": args.cloth_asset,
+        "lod_index": args.lod_index,
+        "mode": args.mode,
+        "index_space": args.index_space,
+    }
+    if args.vertex_pairs:
+        arguments["vertex_pairs"] = _parse_vertex_pairs_arg(args.vertex_pairs)
+    if args.first_vertices:
+        arguments["first_vertices"] = _parse_int_range_list(args.first_vertices, "--first-vertices")
+    if args.second_vertices:
+        arguments["second_vertices"] = _parse_int_range_list(args.second_vertices, "--second-vertices")
+    if args.tolerance is not None:
+        arguments["tolerance"] = args.tolerance
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("cloth-chaos-stitch", arguments))
+
+
+def cmd_cloth_chaos_set_config(args: argparse.Namespace) -> None:
+    arguments: dict = {
+        "cloth_asset": args.cloth_asset,
+        "lod_index": args.lod_index,
+        "properties": _parse_json_object_arg(args.properties, "--properties"),
+    }
+    if args.save:
+        arguments["save"] = True
+    _print_json(_run_tool("cloth-chaos-set-config", arguments))
+
+
+def cmd_cloth_create(args: argparse.Namespace) -> None:
+    arguments = _cloth_base_arguments(args)
+    section_indices = _parse_cloth_section_indices(args.section_index)
+    arguments.update({
+        "asset_name": args.asset_name,
+        "lod_index": args.lod_index,
+    })
+    if len(section_indices) == 1:
+        arguments["section_index"] = section_indices[0]
+    else:
+        arguments["section_indices"] = section_indices
+    if args.weld_tolerance is not None:
+        arguments["weld_tolerance"] = args.weld_tolerance
+    if args.physics_asset:
+        arguments["physics_asset"] = args.physics_asset
+    if args.remove_from_mesh:
+        arguments["remove_from_mesh"] = True
+    if args.bind:
+        arguments["bind"] = True
+    _print_json(_run_tool("cloth-create", arguments))
+
+
+def cmd_cloth_bind(args: argparse.Namespace) -> None:
+    arguments = _cloth_base_arguments(args)
+    arguments.update({
+        "asset_name": args.asset_name,
+        "lod_index": args.lod_index,
+        "section_index": args.section_index,
+    })
+    if args.cloth_lod_index is not None:
+        arguments["cloth_lod_index"] = args.cloth_lod_index
+    _print_json(_run_tool("cloth-bind", arguments))
+
+
+def cmd_cloth_set_config(args: argparse.Namespace) -> None:
+    arguments = _cloth_base_arguments(args)
+    arguments["asset_name"] = args.asset_name
+    if args.config_class:
+        arguments["config_class"] = args.config_class
+    arguments["properties"] = _parse_json_object_arg(args.properties, "--properties")
+    _print_json(_run_tool("cloth-set-config", arguments))
+
+
+def cmd_cloth_apply_weightmap(args: argparse.Namespace) -> None:
+    arguments = _cloth_base_arguments(args)
+    arguments.update({
+        "asset_name": args.asset_name,
+        "lod_index": args.lod_index,
+        "target": args.target,
+        "rule": args.rule,
+    })
+    if args.value is not None:
+        arguments["value"] = args.value
+    if args.channel:
+        arguments["channel"] = args.channel
+    if args.scale is not None:
+        arguments["scale"] = args.scale
+    if args.root_bone:
+        arguments["root_bone"] = args.root_bone
+    if args.min_distance is not None:
+        arguments["min_distance"] = args.min_distance
+    if args.max_distance is not None:
+        arguments["max_distance"] = args.max_distance
+    if args.curve:
+        arguments["curve"] = args.curve
+    if args.invert:
+        arguments["invert"] = True
+    _print_json(_run_tool("cloth-apply-weightmap", arguments))
+
+
+def cmd_cloth_set_collision(args: argparse.Namespace) -> None:
+    arguments = _cloth_base_arguments(args)
+    arguments.update({
+        "asset_name": args.asset_name,
+        "physics_asset": args.physics_asset,
+    })
+    _print_json(_run_tool("cloth-set-collision", arguments))
+
+
 def cmd_add_widget(args: argparse.Namespace) -> None:
     arguments: dict = {
         "asset_path": args.asset_path,
@@ -3889,6 +4461,55 @@ def cmd_check_setup(args: argparse.Namespace) -> None:
 def cmd_knowledge(args: argparse.Namespace) -> None:
     """Query the optional knowledge server (RAG)."""
     print("Coming soon. Follow https://github.com/softdaddy-o/soft-ue-cli for updates.")
+
+
+def _load_expert_context_evidence(path: str | None) -> list[dict[str, str]]:
+    if not path:
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            evidence = json.load(handle)
+    except OSError:
+        print("error: failed to read --evidence-json", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print("error: --evidence-json must contain valid JSON", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(evidence, list):
+        print("error: --evidence-json must contain a JSON list", file=sys.stderr)
+        sys.exit(1)
+    return evidence
+
+
+def cmd_expert_context(args: argparse.Namespace) -> None:
+    """Request opt-in public Expert Context for a sanitized task."""
+    from .expert_context import (
+        ExpertContextClient,
+        ExpertContextError,
+        build_context_request,
+    )
+
+    environment = {
+        key: value
+        for key, value in {
+            "ue_version": args.ue_version,
+            "platform": args.platform,
+            "execution_mode": args.execution_mode,
+            "plugins": args.plugin or [],
+        }.items()
+        if value
+    }
+    try:
+        request = build_context_request(
+            task=args.task,
+            evidence=_load_expert_context_evidence(args.evidence_json),
+            environment=environment,
+        )
+        _print_json(ExpertContextClient.from_environment().context(request))
+    except (ExpertContextError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
 
 def cmd_skills(args: argparse.Namespace) -> None:
     from .skills import get_skill, list_skills
@@ -4534,6 +5155,83 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_commands.add_argument("--include-removed", action="store_true", help="Include removed flat commands and their canonical migrations")
     p_commands.add_argument("--plugin", help="Only show commands that require the named Unreal plugin")
     p_commands.set_defaults(func=cmd_commands)
+
+    p_mcp_surface = sub.add_parser(
+        "mcp-surface-status",
+        help="Report official Unreal MCP and SoftUEBridge availability with a local recommendation.",
+        description=(
+            "Probe the local UE 5.8 official MCP endpoint and SoftUEBridge health endpoint, then emit a "
+            "machine-readable recommendation. This command does not execute editor mutations and does not "
+            "include private Expert Pack content."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_mcp_surface.add_argument(
+        "--official-url",
+        default=os.environ.get("SOFT_UE_OFFICIAL_MCP_URL", DEFAULT_OFFICIAL_MCP_ENDPOINT),
+        help=f"Official Unreal MCP endpoint to probe (default: {DEFAULT_OFFICIAL_MCP_ENDPOINT})",
+    )
+    p_mcp_surface.add_argument(
+        "--probe-timeout",
+        type=float,
+        default=1.0,
+        metavar="SEC",
+        help="Per-surface probe timeout in seconds (default: 1)",
+    )
+    p_mcp_surface.set_defaults(func=cmd_mcp_surface_status)
+
+    p_runtime = sub.add_parser(
+        "runtime",
+        help="Plan packaged runtime, binary install, and runtime smoke workflows.",
+        description="Runtime/binary planning helpers for SoftUEBridge packaged Development and DebugGame workflows.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    runtime_sub = p_runtime.add_subparsers(dest="runtime_action", required=True)
+    p_runtime_readiness = runtime_sub.add_parser(
+        "readiness",
+        help="Report packaged runtime SoftUEBridge readiness as JSON.",
+    )
+    p_runtime_readiness.add_argument("--project", default=".", help="UE project root (default: current directory)")
+    p_runtime_readiness.add_argument(
+        "--configuration",
+        default="Development",
+        choices=["Development", "DebugGame", "Shipping"],
+        help="Packaged target configuration to check (default: Development)",
+    )
+    p_runtime_readiness.set_defaults(func=cmd_runtime_readiness)
+
+    p_runtime_binary = runtime_sub.add_parser("binary", help="Plan SoftUEBridge binary install/update operations.")
+    binary_sub = p_runtime_binary.add_subparsers(dest="runtime_binary_action", required=True)
+
+    def add_binary_match_args(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--project", default=".", help="UE project root (default: current directory)")
+        parser.add_argument("--manifest", required=True, help="SoftUEBridge binary manifest JSON")
+        parser.add_argument("--ue-version", required=True, help="Unreal Engine version, e.g. 5.8")
+        parser.add_argument("--platform", required=True, help="Unreal platform, e.g. Win64")
+        parser.add_argument("--configuration", required=True, help="Build configuration, e.g. Development")
+
+    p_binary_install = binary_sub.add_parser("plan-install", help="Plan binary plugin installation.")
+    add_binary_match_args(p_binary_install)
+    p_binary_install.set_defaults(func=cmd_binary_install_plan)
+
+    p_binary_update = binary_sub.add_parser("plan-update", help="Plan binary plugin update with ownership checks.")
+    add_binary_match_args(p_binary_update)
+    p_binary_update.set_defaults(func=cmd_binary_update_plan)
+
+    p_binary_rollback = binary_sub.add_parser("plan-rollback", help="Plan rollback to the previous SoftUEBridge payload.")
+    p_binary_rollback.add_argument("--project", default=".", help="UE project root (default: current directory)")
+    p_binary_rollback.set_defaults(func=cmd_binary_rollback_plan)
+
+    p_runtime_smoke = runtime_sub.add_parser(
+        "smoke-plan",
+        help="Emit a CLI/CI-friendly packaged runtime smoke plan.",
+    )
+    smoke_target = p_runtime_smoke.add_mutually_exclusive_group(required=True)
+    smoke_target.add_argument("--executable", help="Packaged game executable to launch")
+    smoke_target.add_argument("--bridge-url", help="Existing SoftUEBridge runtime URL to attach to")
+    p_runtime_smoke.add_argument("--timeout", type=float, default=120.0, help="Readiness timeout in seconds (default: 120)")
+    p_runtime_smoke.add_argument("--log-path", help="Runtime log path to collect in diagnostics")
+    p_runtime_smoke.set_defaults(func=cmd_runtime_smoke_plan)
 
     # setup
     p_setup = sub.add_parser(
@@ -5551,6 +6249,22 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_bar.add_argument("--project", metavar="PATH", help=".uproject path for offline fallback when the bridge is unavailable")
     p_bar.add_argument("--editor-exe", metavar="PATH", help="UnrealEditor.exe path for offline fallback")
     p_bar.add_argument("--build-bat", metavar="PATH", help="Unreal Build.bat path for offline fallback")
+    p_bar.add_argument("--no-uba", action="store_true", help="Forward -NoUBA to Unreal Build Tool")
+    p_bar.add_argument("--no-xge", action="store_true", help="Forward -NoXGE to Unreal Build Tool")
+    p_bar.add_argument(
+        "--no-local-build-fallback",
+        action="store_false",
+        dest="local_build_fallback",
+        default=True,
+        help="Disable automatic retry with -NoUBA -NoXGE after a failed distributed build",
+    )
+    p_bar.add_argument(
+        "--keep-package-restore",
+        action="store_false",
+        dest="skip_package_restore",
+        default=True,
+        help="Keep Unreal's Saved/PackageRestoreData.json marker and allow the editor restore prompt after relaunch",
+    )
     p_bar.add_argument(
         "--no-offline-fallback",
         action="store_false",
@@ -6734,6 +7448,19 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
         action="store_true",
         help="Allow known crash-prone native UE Python calls instead of returning a guard error",
     )
+    p_rps.add_argument(
+        "--relaunch-on-crash",
+        action="store_true",
+        help="If the editor terminates during execution, relaunch it, wait for the bridge, and retry once",
+    )
+    p_rps.add_argument("--project", metavar="PATH", help=".uproject path used by --relaunch-on-crash")
+    p_rps.add_argument("--editor-exe", metavar="PATH", help="UnrealEditor.exe path used by --relaunch-on-crash")
+    p_rps.add_argument(
+        "--relaunch-timeout",
+        type=float,
+        default=120.0,
+        help="Seconds to wait for the bridge after --relaunch-on-crash starts the editor (default: 120)",
+    )
     p_rps.set_defaults(func=cmd_run_python_script)
 
     p_rgt = sub.add_parser(
@@ -7078,6 +7805,140 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     p_ac.add_argument("--component-name", metavar="NAME", help="Name for the new component")
     p_ac.add_argument("--attach-to", metavar="NAME", help="Parent component to attach to")
     p_ac.set_defaults(func=cmd_add_component)
+
+    p_bca = sub.add_parser(
+        "blueprint-component-add",
+        help="Add a component to a Blueprint Simple Construction Script.",
+        description=(
+            "Adds a component template to a Blueprint's Simple Construction Script.\n"
+            "Use --attach-to to parent under another Blueprint component and\n"
+            "--attach-socket to set the SCS parent socket/bone name.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli blueprint-component-add /Game/BP_Player SkeletalMeshComponent --component-name Charm --attach-to Mesh --attach-socket hand_r_socket"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_bca.add_argument("asset_path", help="Blueprint asset path (e.g. /Game/Blueprints/BP_Player)")
+    p_bca.add_argument("component_class", help="Component class (e.g. StaticMeshComponent, SkeletalMeshComponent)")
+    p_bca.add_argument("--component-name", metavar="NAME", help="Name for the new Blueprint component")
+    p_bca.add_argument("--attach-to", metavar="NAME", help="Parent SCS component variable/template name")
+    p_bca.add_argument("--attach-socket", metavar="NAME", help="Parent socket or bone name for USCS_Node.AttachToName")
+    p_bca.set_defaults(func=cmd_blueprint_component_add)
+
+    p_cloth = sub.add_parser(
+        "cloth",
+        help="Create, bind, configure, and inspect skeletal mesh cloth data.",
+        description=(
+            "Automate legacy in-mesh Chaos/Nv clothing data on skeletal meshes.\n\n"
+            "EXAMPLES:\n"
+            "  soft-ue-cli cloth query /Game/Characters/SK_Cape\n"
+            "  soft-ue-cli cloth create /Game/Characters/SK_Cape --asset-name CapeCloth --section-index 2 --bind --save\n"
+            "  soft-ue-cli cloth apply-weightmap /Game/Characters/SK_Cape --asset-name CapeCloth --rule vertex-color --channel red --scale 50 --save"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cloth_sub = p_cloth.add_subparsers(dest="cloth_action", required=True)
+
+    p_cloth_query = cloth_sub.add_parser("query", help="Report cloth setup state for a skeletal mesh")
+    p_cloth_query.add_argument("skeletal_mesh", help="Skeletal mesh asset path")
+    p_cloth_query.add_argument("--asset-name", metavar="NAME", help="Filter to one clothing asset by object name")
+    p_cloth_query.add_argument("--lod-index", type=int, metavar="LOD", help="Filter bindings to a skeletal mesh LOD")
+    p_cloth_query.set_defaults(func=cmd_cloth_query)
+
+    p_cloth_chaos_query = cloth_sub.add_parser("chaos-query", help="Report Dataflow Chaos Cloth Asset state")
+    p_cloth_chaos_query.add_argument("cloth_asset", help="Chaos Cloth Asset path")
+    p_cloth_chaos_query.add_argument("--include-nodes", action="store_true", help="Include Dataflow graph/node metadata when available")
+    p_cloth_chaos_query.set_defaults(func=cmd_cloth_chaos_query)
+
+    p_cloth_convert = cloth_sub.add_parser("convert", help="Convert legacy in-mesh clothing data to a Chaos Cloth Asset")
+    p_cloth_convert.add_argument("skeletal_mesh", help="Skeletal mesh asset path")
+    p_cloth_convert.add_argument("--asset-name", required=True, metavar="NAME", help="Legacy clothing asset object name")
+    p_cloth_convert.add_argument("--output-asset", required=True, metavar="PATH", help="Output Chaos Cloth Asset path")
+    p_cloth_convert.add_argument("--no-save", action="store_true", help="Create the asset but leave the package unsaved")
+    p_cloth_convert.set_defaults(func=cmd_cloth_convert)
+
+    p_cloth_chaos_stitch = cloth_sub.add_parser("chaos-stitch", help="Add a seam/stitch chain to a Chaos Cloth Asset")
+    p_cloth_chaos_stitch.add_argument("cloth_asset", help="Chaos Cloth Asset path")
+    p_cloth_chaos_stitch.add_argument("--lod-index", type=int, default=0, metavar="LOD", help="Chaos Cloth Asset LOD (default: 0)")
+    p_cloth_chaos_stitch.add_argument("--mode", choices=["pairs", "proximity"], default="pairs", help="How stitch pairs are produced")
+    p_cloth_chaos_stitch.add_argument("--index-space", choices=["2d", "3d"], default="2d", help="Whether vertex indices refer to sim 2D or sim 3D vertices")
+    p_cloth_chaos_stitch.add_argument("--vertex-pairs", help="JSON array of [a, b] vertex index pairs for --mode pairs")
+    p_cloth_chaos_stitch.add_argument("--first-vertices", help="Comma-separated index/range list for --mode proximity, e.g. 0-4,8")
+    p_cloth_chaos_stitch.add_argument("--second-vertices", help="Comma-separated index/range list for --mode proximity")
+    p_cloth_chaos_stitch.add_argument("--tolerance", type=float, metavar="CM", help="Maximum pairing distance for proximity mode")
+    p_cloth_chaos_stitch.add_argument("--save", action="store_true", help="Save the Chaos Cloth Asset after mutation")
+    p_cloth_chaos_stitch.set_defaults(func=cmd_cloth_chaos_stitch)
+
+    p_cloth_chaos_set_config = cloth_sub.add_parser("chaos-set-config", help="Set Chaos Cloth Asset simulation config properties")
+    p_cloth_chaos_set_config.add_argument("cloth_asset", help="Chaos Cloth Asset path")
+    p_cloth_chaos_set_config.add_argument("--lod-index", type=int, default=0, metavar="LOD", help="Chaos Cloth Asset LOD (default: 0)")
+    p_cloth_chaos_set_config.add_argument("--properties", required=True, help="JSON object of property names to values")
+    p_cloth_chaos_set_config.add_argument("--save", action="store_true", help="Save the Chaos Cloth Asset after mutation")
+    p_cloth_chaos_set_config.set_defaults(func=cmd_cloth_chaos_set_config)
+
+    p_cloth_create = cloth_sub.add_parser("create", help="Create clothing data from a skeletal mesh section")
+    p_cloth_create.add_argument("skeletal_mesh", help="Skeletal mesh asset path")
+    p_cloth_create.add_argument("--asset-name", required=True, metavar="NAME", help="Name for the new clothing asset")
+    p_cloth_create.add_argument("--lod-index", type=int, default=0, metavar="LOD", help="Source skeletal mesh LOD (default: 0)")
+    p_cloth_create.add_argument(
+        "--section-index",
+        action="append",
+        required=True,
+        metavar="INDEX",
+        help="Source section/material slot index. Repeat or pass comma-separated values to build one cloth asset from multiple sections.",
+    )
+    p_cloth_create.add_argument(
+        "--weld-tolerance",
+        type=float,
+        metavar="CM",
+        help="Position tolerance in Unreal centimeters for welding coincident sim vertices when merging multiple sections.",
+    )
+    p_cloth_create.add_argument("--physics-asset", metavar="PATH", help="Physics asset to use for cloth collision")
+    p_cloth_create.add_argument("--remove-from-mesh", action="store_true", help="Remove the render section while creating cloth")
+    p_cloth_create.add_argument("--bind", action="store_true", help="Bind the new clothing asset back to the source section")
+    p_cloth_create.add_argument("--save", action="store_true", help="Save the skeletal mesh after mutation")
+    p_cloth_create.set_defaults(func=cmd_cloth_create)
+
+    p_cloth_bind = cloth_sub.add_parser("bind", help="Bind an existing clothing asset to a skeletal mesh section")
+    p_cloth_bind.add_argument("skeletal_mesh", help="Skeletal mesh asset path")
+    p_cloth_bind.add_argument("--asset-name", required=True, metavar="NAME", help="Existing clothing asset object name")
+    p_cloth_bind.add_argument("--lod-index", type=int, default=0, metavar="LOD", help="Target skeletal mesh LOD (default: 0)")
+    p_cloth_bind.add_argument("--section-index", type=int, required=True, metavar="INDEX", help="Target section/material slot index")
+    p_cloth_bind.add_argument("--cloth-lod-index", type=int, metavar="LOD", help="Clothing asset LOD to bind (default: 0)")
+    p_cloth_bind.add_argument("--save", action="store_true", help="Save the skeletal mesh after mutation")
+    p_cloth_bind.set_defaults(func=cmd_cloth_bind)
+
+    p_cloth_set_config = cloth_sub.add_parser("set-config", help="Set reflected properties on a clothing config object")
+    p_cloth_set_config.add_argument("skeletal_mesh", help="Skeletal mesh asset path")
+    p_cloth_set_config.add_argument("--asset-name", required=True, metavar="NAME", help="Clothing asset object name")
+    p_cloth_set_config.add_argument("--config-class", metavar="CLASS", help="Optional config class/name filter")
+    p_cloth_set_config.add_argument("--properties", required=True, help="JSON object of config properties to set")
+    p_cloth_set_config.add_argument("--save", action="store_true", help="Save the skeletal mesh after mutation")
+    p_cloth_set_config.set_defaults(func=cmd_cloth_set_config)
+
+    p_cloth_apply_weightmap = cloth_sub.add_parser("apply-weightmap", help="Apply a data-driven cloth weight map")
+    p_cloth_apply_weightmap.add_argument("skeletal_mesh", help="Skeletal mesh asset path")
+    p_cloth_apply_weightmap.add_argument("--asset-name", required=True, metavar="NAME", help="Clothing asset object name")
+    p_cloth_apply_weightmap.add_argument("--lod-index", type=int, default=0, metavar="LOD", help="Clothing LOD index (default: 0)")
+    p_cloth_apply_weightmap.add_argument("--target", choices=["max-distance"], default="max-distance", help="Weight map target")
+    p_cloth_apply_weightmap.add_argument("--rule", choices=["constant", "vertex-color", "bone-distance"], required=True, help="Weight map generation rule")
+    p_cloth_apply_weightmap.add_argument("--value", type=float, help="Constant value for --rule constant")
+    p_cloth_apply_weightmap.add_argument("--channel", choices=["red", "green", "blue", "alpha"], help="Vertex color channel for --rule vertex-color")
+    p_cloth_apply_weightmap.add_argument("--scale", type=float, help="Scale applied to vertex color values")
+    p_cloth_apply_weightmap.add_argument("--root-bone", metavar="NAME", help="Reference bone for --rule bone-distance")
+    p_cloth_apply_weightmap.add_argument("--min-distance", type=float, metavar="VALUE", help="Output max-distance value at the nearest cloth vertices")
+    p_cloth_apply_weightmap.add_argument("--max-distance", type=float, metavar="VALUE", help="Output max-distance value at the farthest cloth vertices")
+    p_cloth_apply_weightmap.add_argument("--curve", choices=["linear", "smooth", "ease"], help="Falloff curve for --rule bone-distance")
+    p_cloth_apply_weightmap.add_argument("--invert", action="store_true", help="Invert the bone-distance falloff")
+    p_cloth_apply_weightmap.add_argument("--save", action="store_true", help="Save the skeletal mesh after mutation")
+    p_cloth_apply_weightmap.set_defaults(func=cmd_cloth_apply_weightmap)
+
+    p_cloth_collision = cloth_sub.add_parser("set-collision", help="Assign a physics asset for cloth collision")
+    p_cloth_collision.add_argument("skeletal_mesh", help="Skeletal mesh asset path")
+    p_cloth_collision.add_argument("--asset-name", required=True, metavar="NAME", help="Clothing asset object name")
+    p_cloth_collision.add_argument("--physics-asset", required=True, metavar="PATH", help="Physics asset path")
+    p_cloth_collision.add_argument("--save", action="store_true", help="Save the skeletal mesh after mutation")
+    p_cloth_collision.set_defaults(func=cmd_cloth_set_collision)
 
     p_aw = sub.add_parser(
         "add-widget",
@@ -7561,6 +8422,36 @@ def build_parser(*, include_removed: bool = False) -> argparse.ArgumentParser:
     # -------------------------------------------------------------------------
     # Knowledge
     # -------------------------------------------------------------------------
+
+    p_expert = sub.add_parser(
+        "expert",
+        help="Opt-in public Expert context workflows.",
+        description="Opt-in public Expert context workflows.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    expert_sub = p_expert.add_subparsers(dest="expert_action", required=True)
+    p_expert_context = expert_sub.add_parser(
+        "context",
+        help="Request public Expert Context for a sanitized Unreal task.",
+        description=(
+            "Request public Expert Context for a sanitized Unreal task.\n\n"
+            "The endpoint is opt-in and must be configured with SOFT_UE_EXPERT_SERVER_URL.\n"
+            "Do not include project names, personal paths, raw files, or tokens.\n\n"
+            "EXAMPLE:\n"
+            '  soft-ue-cli expert context --task "Build fails" --ue-version 5.8'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_expert_context.add_argument("--task", required=True, help="Sanitized task or question")
+    p_expert_context.add_argument("--ue-version", help="Unreal Engine version, e.g. 5.8")
+    p_expert_context.add_argument("--platform", help="Target platform, e.g. Win64")
+    p_expert_context.add_argument("--execution-mode", help="Execution context, e.g. editor, pie, packaged")
+    p_expert_context.add_argument("--plugin", action="append", help="Relevant Unreal plugin; repeat as needed")
+    p_expert_context.add_argument(
+        "--evidence-json",
+        help="Path to a JSON list of {kind,value,source} evidence objects",
+    )
+    p_expert_context.set_defaults(func=cmd_expert_context)
 
     p_k = sub.add_parser(
         "query-ue-knowledge",

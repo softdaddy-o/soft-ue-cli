@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
+
 from soft_ue_cli.skills import get_skill, list_skills
 from soft_ue_cli.__main__ import build_parser, cmd_skills
 
@@ -77,6 +79,10 @@ def test_test_tools_contains_idempotent_teardown_and_insights_stop():
     assert "wire-widget-navigation UMG nav contract" in content
     assert "verify-umg-workflow preview widget" in content
     assert "commands json metadata" in content
+    assert "mcp surface status" in content
+    assert "runtime readiness help" in content
+    assert "runtime binary plan install help" in content
+    assert "runtime smoke plan help" in content
     assert "commands plugin mutable json" in content
     assert "commands category capture" in content
     assert "commands category mutable" in content

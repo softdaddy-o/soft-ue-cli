@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli.mcp_schema import CLIENT_SIDE_COMMANDS, EXCLUDED_COMMANDS, extract_tools
 
@@ -55,6 +59,12 @@ def test_extract_tools_contains_known_command():
     assert "umg runtime inspect" in tool_names
     assert "status" in tool_names
     assert "commands" in tool_names
+    assert "mcp-surface-status" in tool_names
+    assert "runtime readiness" in tool_names
+    assert "runtime binary plan-install" in tool_names
+    assert "runtime binary plan-update" in tool_names
+    assert "runtime binary plan-rollback" in tool_names
+    assert "runtime smoke-plan" in tool_names
     assert "wait-for-ready" in tool_names
     assert "anim sync-marker inspect" in tool_names
     assert "anim sync-marker compare" in tool_names
@@ -152,6 +162,10 @@ def test_commands_is_client_side_tool():
     assert "commands" in CLIENT_SIDE_COMMANDS
 
 
+def test_mcp_surface_status_is_client_side_tool():
+    assert "mcp-surface-status" in CLIENT_SIDE_COMMANDS
+
+
 def test_nested_umg_family_root_is_not_auto_exposed_to_mcp():
     assert "umg" in EXCLUDED_COMMANDS
 
@@ -161,7 +175,7 @@ def test_nested_capture_family_root_is_not_auto_exposed_to_mcp():
 
 
 def test_nested_taxonomy_family_roots_are_not_auto_exposed_to_mcp():
-    for family in ["mutable", "statetree", "anim", "asset", "blueprint"]:
+    for family in ["mutable", "statetree", "anim", "asset", "blueprint", "runtime", "cloth"]:
         assert family in EXCLUDED_COMMANDS
 
 
@@ -176,6 +190,8 @@ def test_canonical_leaf_commands_are_exposed_to_mcp():
         "anim rewind status",
         "asset query",
         "blueprint node add",
+        "cloth query",
+        "cloth apply-weightmap",
     ]:
         assert name in tool_names
 
@@ -504,7 +520,7 @@ def test_tool_count_is_reasonable():
     """Should have a stable, non-trivial tool count after exclusions."""
     tools = extract_tools()
     assert len(tools) >= 60
-    assert len(tools) <= 230
+    assert len(tools) <= 260
 
 
 def test_skeletal_socket_tools_are_exposed():

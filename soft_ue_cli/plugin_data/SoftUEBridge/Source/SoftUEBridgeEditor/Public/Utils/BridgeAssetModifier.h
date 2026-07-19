@@ -6,6 +6,8 @@
 #include "UObject/Object.h"
 
 class UBlueprint;
+class UEdGraph;
+class UEdGraphNode;
 class FScopedTransaction;
 
 /**

@@ -4,6 +4,7 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Engine/World.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Misc/Guid.h"
 
 namespace
@@ -19,6 +20,25 @@ namespace
 	{
 		static TArray<FRegisteredWidgetPreview> Registry;
 		return Registry;
+	}
+
+	void RemovePreviewWidget(UUserWidget* Widget)
+	{
+		if (!Widget)
+		{
+			return;
+		}
+
+		Widget->RemoveFromParent();
+		Widget->ReleaseSlateResources(true);
+	}
+
+	void FlushSlateAfterPreviewRemoval(bool bRemovedAnyWidget)
+	{
+		if (bRemovedAnyWidget && FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().FlushRenderState();
+		}
 	}
 }
 
@@ -49,6 +69,7 @@ int32 FWidgetPreviewRegistry::RemovePreviewsForWorld(UWorld* World, TArray<FStri
 {
 	TArray<FRegisteredWidgetPreview>& Registry = GetWidgetPreviewRegistry();
 	int32 RemovedCount = 0;
+	bool bRemovedAnyWidget = false;
 
 	for (int32 Index = Registry.Num() - 1; Index >= 0; --Index)
 	{
@@ -64,7 +85,8 @@ int32 FWidgetPreviewRegistry::RemovePreviewsForWorld(UWorld* World, TArray<FStri
 		{
 			if (UUserWidget* Widget = Entry.Widget.Get())
 			{
-				Widget->RemoveFromParent();
+				RemovePreviewWidget(Widget);
+				bRemovedAnyWidget = true;
 			}
 			if (OutRemovedHandles)
 			{
@@ -76,6 +98,7 @@ int32 FWidgetPreviewRegistry::RemovePreviewsForWorld(UWorld* World, TArray<FStri
 		Registry.RemoveAtSwap(Index, 1, EAllowShrinking::No);
 	}
 
+	FlushSlateAfterPreviewRemoval(bRemovedAnyWidget);
 	return RemovedCount;
 }
 
@@ -88,6 +111,7 @@ int32 FWidgetPreviewRegistry::RemovePreviewByHandle(const FString& Handle, TArra
 
 	TArray<FRegisteredWidgetPreview>& Registry = GetWidgetPreviewRegistry();
 	int32 RemovedCount = 0;
+	bool bRemovedAnyWidget = false;
 
 	for (int32 Index = Registry.Num() - 1; Index >= 0; --Index)
 	{
@@ -99,7 +123,8 @@ int32 FWidgetPreviewRegistry::RemovePreviewByHandle(const FString& Handle, TArra
 
 		if (UUserWidget* Widget = Entry.Widget.Get())
 		{
-			Widget->RemoveFromParent();
+			RemovePreviewWidget(Widget);
+			bRemovedAnyWidget = true;
 		}
 		if (OutRemovedHandles)
 		{
@@ -109,6 +134,7 @@ int32 FWidgetPreviewRegistry::RemovePreviewByHandle(const FString& Handle, TArra
 		Registry.RemoveAtSwap(Index, 1, EAllowShrinking::No);
 	}
 
+	FlushSlateAfterPreviewRemoval(bRemovedAnyWidget);
 	return RemovedCount;
 }
 

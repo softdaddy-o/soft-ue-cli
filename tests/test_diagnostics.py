@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
 
 from soft_ue_cli import __main__ as main_mod
 from soft_ue_cli.__main__ import build_parser

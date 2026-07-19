@@ -200,6 +200,30 @@ TMap<FString, FBridgeSchemaProperty> UBuildAndRelaunchTool::GetInputSchema() con
 	Toolchain.bRequired = false;
 	Schema.Add(TEXT("toolchain"), Toolchain);
 
+	FBridgeSchemaProperty NoUBA;
+	NoUBA.Type = TEXT("boolean");
+	NoUBA.Description = TEXT("Forward -NoUBA to Unreal Build Tool");
+	NoUBA.bRequired = false;
+	Schema.Add(TEXT("no_uba"), NoUBA);
+
+	FBridgeSchemaProperty NoXGE;
+	NoXGE.Type = TEXT("boolean");
+	NoXGE.Description = TEXT("Forward -NoXGE to Unreal Build Tool");
+	NoXGE.bRequired = false;
+	Schema.Add(TEXT("no_xge"), NoXGE);
+
+	FBridgeSchemaProperty LocalBuildFallback;
+	LocalBuildFallback.Type = TEXT("boolean");
+	LocalBuildFallback.Description = TEXT("Retry failed distributed builds with -NoUBA -NoXGE (default: true)");
+	LocalBuildFallback.bRequired = false;
+	Schema.Add(TEXT("local_build_fallback"), LocalBuildFallback);
+
+	FBridgeSchemaProperty SkipPackageRestore;
+	SkipPackageRestore.Type = TEXT("boolean");
+	SkipPackageRestore.Description = TEXT("Move Saved/PackageRestoreData.json before relaunch to avoid Unreal's package restore prompt (default: true)");
+	SkipPackageRestore.bRequired = false;
+	Schema.Add(TEXT("skip_package_restore"), SkipPackageRestore);
+
 	return Schema;
 }
 
@@ -216,6 +240,10 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 		TEXT("compiler_version"),
 		GetStringArgOrDefault(Arguments, TEXT("toolchain"), TEXT("")));
 	const FString Toolchain = GetStringArgOrDefault(Arguments, TEXT("toolchain"), TEXT(""));
+	const bool bNoUBA = GetBoolArgOrDefault(Arguments, TEXT("no_uba"), false);
+	const bool bNoXGE = GetBoolArgOrDefault(Arguments, TEXT("no_xge"), false);
+	const bool bLocalBuildFallback = GetBoolArgOrDefault(Arguments, TEXT("local_build_fallback"), true);
+	const bool bSkipPackageRestore = GetBoolArgOrDefault(Arguments, TEXT("skip_package_restore"), true);
 	const float StartupMarkerTimeoutSeconds = FMath::Clamp(
 		GetFloatArgOrDefault(Arguments, TEXT("startup_marker_timeout"), 30.0f),
 		5.0f,
@@ -283,6 +311,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	FString BuildLogPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.log"));
 	FString BuildStatusPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.status.json"));
 	FString StartupMarkerPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Temp"), TEXT("BuildAndRelaunch.started"));
+	FString PackageRestoreMarkerPath = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("PackageRestoreData.json"));
 
 	// Remove stale artifacts so CLI doesn't read an old result.
 	PlatformFile.DeleteFile(*BuildStatusPath);
@@ -293,6 +322,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	const FString EscapedBuildLogPath = EscapePowerShellSingleQuotedString(BuildLogPath);
 	const FString EscapedBuildStatusPath = EscapePowerShellSingleQuotedString(BuildStatusPath);
 	const FString EscapedStartupMarkerPath = EscapePowerShellSingleQuotedString(StartupMarkerPath);
+	const FString EscapedPackageRestoreMarkerPath = EscapePowerShellSingleQuotedString(PackageRestoreMarkerPath);
 	const FString EscapedBuildBatchFile = EscapePowerShellSingleQuotedString(BuildBatchFile);
 	const FString EscapedEditorExecutable = EscapePowerShellSingleQuotedString(EditorExecutable);
 	const FString EscapedProjectPath = EscapePowerShellSingleQuotedString(ProjectPath);
@@ -307,6 +337,7 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += FString::Printf(TEXT("$BuildLogPath = '%s'\n"), *EscapedBuildLogPath);
 	WorkerScript += FString::Printf(TEXT("$BuildStatusPath = '%s'\n"), *EscapedBuildStatusPath);
 	WorkerScript += FString::Printf(TEXT("$StartupMarkerPath = '%s'\n"), *EscapedStartupMarkerPath);
+	WorkerScript += FString::Printf(TEXT("$PackageRestoreMarkerPath = '%s'\n"), *EscapedPackageRestoreMarkerPath);
 	WorkerScript += FString::Printf(TEXT("$BuildBatchFile = '%s'\n"), *EscapedBuildBatchFile);
 	WorkerScript += FString::Printf(TEXT("$EditorExecutable = '%s'\n"), *EscapedEditorExecutable);
 	WorkerScript += FString::Printf(TEXT("$ProjectPath = '%s'\n"), *EscapedProjectPath);
@@ -317,6 +348,10 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += FString::Printf(TEXT("$Toolchain = '%s'\n"), *EscapedToolchain);
 	WorkerScript += FString::Printf(TEXT("$EditorPid = %u\n"), CurrentPID);
 	WorkerScript += FString::Printf(TEXT("$SkipRelaunch = $%s\n"), bSkipRelaunch ? TEXT("true") : TEXT("false"));
+	WorkerScript += FString::Printf(TEXT("$NoUBA = $%s\n"), bNoUBA ? TEXT("true") : TEXT("false"));
+	WorkerScript += FString::Printf(TEXT("$NoXGE = $%s\n"), bNoXGE ? TEXT("true") : TEXT("false"));
+	WorkerScript += FString::Printf(TEXT("$LocalBuildFallback = $%s\n"), bLocalBuildFallback ? TEXT("true") : TEXT("false"));
+	WorkerScript += FString::Printf(TEXT("$SkipPackageRestore = $%s\n"), bSkipPackageRestore ? TEXT("true") : TEXT("false"));
 	WorkerScript += TEXT("\n");
 	WorkerScript += TEXT("$StartedAt = Get-Date -Format o\n");
 	WorkerScript += TEXT("\n");
@@ -360,8 +395,19 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += TEXT("    if ($Compiler) { $BuildArgs += \"-Compiler=$Compiler\" }\n");
 	WorkerScript += TEXT("    if ($CompilerVersion) { $BuildArgs += \"-CompilerVersion=$CompilerVersion\" }\n");
 	WorkerScript += TEXT("    elseif ($Toolchain) { $BuildArgs += \"-CompilerVersion=$Toolchain\" }\n");
+	WorkerScript += TEXT("    if ($NoUBA) { $BuildArgs += '-NoUBA' }\n");
+	WorkerScript += TEXT("    if ($NoXGE) { $BuildArgs += '-NoXGE' }\n");
 	WorkerScript += TEXT("    & $BuildBatchFile @BuildArgs 2>&1 | Out-File -FilePath $BuildLogPath -Append -Encoding utf8\n");
 	WorkerScript += TEXT("    $BuildExit = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }\n");
+	WorkerScript += TEXT("    if (($BuildExit -ne 0) -and $LocalBuildFallback -and (-not ($NoUBA -and $NoXGE))) {\n");
+	WorkerScript += TEXT("        \"Initial build failed with exit code $BuildExit. Retrying locally with -NoUBA -NoXGE...\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("        Write-BridgeStatus -Stage 'building_local_fallback' -Message 'Distributed build failed; retrying with -NoUBA -NoXGE.'\n");
+	WorkerScript += TEXT("        $FallbackArgs = @($BuildArgs)\n");
+	WorkerScript += TEXT("        if (-not ($FallbackArgs -contains '-NoUBA')) { $FallbackArgs += '-NoUBA' }\n");
+	WorkerScript += TEXT("        if (-not ($FallbackArgs -contains '-NoXGE')) { $FallbackArgs += '-NoXGE' }\n");
+	WorkerScript += TEXT("        & $BuildBatchFile @FallbackArgs 2>&1 | Out-File -FilePath $BuildLogPath -Append -Encoding utf8\n");
+	WorkerScript += TEXT("        $BuildExit = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }\n");
+	WorkerScript += TEXT("    }\n");
 	WorkerScript += TEXT("    if ($BuildExit -ne 0) {\n");
 	WorkerScript += TEXT("        Write-BridgeStatus -Stage 'build_failed' -Complete $true -Success $false -ExitCode $BuildExit -Message 'Build failed. See build log.'\n");
 	WorkerScript += TEXT("        exit $BuildExit\n");
@@ -370,6 +416,21 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	WorkerScript += TEXT("        \"Build completed successfully. Relaunching editor...\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
 	WorkerScript += TEXT("        Write-BridgeStatus -Stage 'relaunching_editor' -Complete $false -Success $true -ExitCode $BuildExit -Message 'Build completed; relaunching editor.'\n");
 	WorkerScript += TEXT("        Start-Sleep -Seconds 2\n");
+	WorkerScript += TEXT("        if ($SkipPackageRestore -and (Test-Path -LiteralPath $PackageRestoreMarkerPath)) {\n");
+	WorkerScript += TEXT("            $BackupPath = \"$PackageRestoreMarkerPath.soft-ue-skipped-$(Get-Date -Format 'yyyyMMdd-HHmmss')\"\n");
+	WorkerScript += TEXT("            $BackupIndex = 1\n");
+	WorkerScript += TEXT("            while (Test-Path -LiteralPath $BackupPath) {\n");
+	WorkerScript += TEXT("                $BackupPath = \"$PackageRestoreMarkerPath.soft-ue-skipped-$(Get-Date -Format 'yyyyMMdd-HHmmss')-$BackupIndex\"\n");
+	WorkerScript += TEXT("                $BackupIndex += 1\n");
+	WorkerScript += TEXT("            }\n");
+	WorkerScript += TEXT("            try {\n");
+	WorkerScript += TEXT("                Move-Item -LiteralPath $PackageRestoreMarkerPath -Destination $BackupPath -Force\n");
+	WorkerScript += TEXT("                \"Moved Unreal package restore marker to $BackupPath before relaunch.\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("            }\n");
+	WorkerScript += TEXT("            catch {\n");
+	WorkerScript += TEXT("                \"Could not move Unreal package restore marker before relaunch: $($_.Exception.Message)\" | Add-Content -Path $BuildLogPath -Encoding utf8\n");
+	WorkerScript += TEXT("            }\n");
+	WorkerScript += TEXT("        }\n");
 	WorkerScript += TEXT("        Start-Process -FilePath $EditorExecutable -ArgumentList @($ProjectPath) | Out-Null\n");
 	WorkerScript += TEXT("        Write-BridgeStatus -Stage 'completed' -Complete $true -Success $true -ExitCode $BuildExit -Message 'Build completed and editor relaunch was requested.'\n");
 	WorkerScript += TEXT("    }\n");
@@ -477,11 +538,16 @@ FBridgeToolResult UBuildAndRelaunchTool::Execute(
 	{
 		Result->SetStringField(TEXT("toolchain"), Toolchain);
 	}
+	Result->SetBoolField(TEXT("no_uba"), bNoUBA);
+	Result->SetBoolField(TEXT("no_xge"), bNoXGE);
+	Result->SetBoolField(TEXT("local_build_fallback"), bLocalBuildFallback);
+	Result->SetBoolField(TEXT("skip_package_restore"), bSkipPackageRestore);
 	Result->SetBoolField(TEXT("will_relaunch"), !bSkipRelaunch);
 	Result->SetNumberField(TEXT("editor_pid"), CurrentPID);
 	Result->SetStringField(TEXT("build_log_path"), BuildLogPath);
 	Result->SetStringField(TEXT("build_status_path"), BuildStatusPath);
 	Result->SetStringField(TEXT("startup_marker_path"), StartupMarkerPath);
+	Result->SetStringField(TEXT("package_restore_marker_path"), PackageRestoreMarkerPath);
 	Result->SetStringField(TEXT("worker_started_path"), StartupMarkerPath);
 	Result->SetStringField(TEXT("progress_status_path"), BuildStatusPath);
 	Result->SetNumberField(TEXT("startup_marker_timeout"), StartupMarkerTimeoutSeconds);

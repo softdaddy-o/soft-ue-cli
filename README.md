@@ -66,6 +66,8 @@ Recent releases moved soft-ue-cli from a flat list of one-off bridge calls towar
 
 ## UE 5.8 MCP Positioning
 
+UE 5.8 official MCP is preferred when it covers native execution for the workflow you need.
+
 UE 5.8 is adding first-party Unreal MCP support. Use it when you want an Epic-managed, UE 5.8-native MCP endpoint and it already covers the workflow you need.
 
 soft-ue-cli's main development target is now **Unreal Engine 5.8**. UE 5.7 compatibility remains maintained, so fixes and bridge code should continue to compile and run on UE 5.7 unless a release note explicitly says otherwise.
@@ -76,10 +78,15 @@ soft-ue-cli is intentionally a different layer rather than a replacement for fir
 - It includes offline commands for `.uasset`, `.uexp`, `.ini`, `.uproject`, `.uplugin`, and `BuildConfiguration.xml` files, even when the editor is closed.
 - It ships curated LLM skill prompts and a `test-tools` smoke workflow for repeatable agent execution, not just raw editor operations.
 - It supports UE 5.7 today and also runs in Development/DebugGame cooked builds, while still exposing a normal terminal CLI and an MCP server from the same package.
+- Runtime bridge support and future binary install/update workflows are treated as primary post-UE-5.8-MCP differentiators, especially for packaged Development/DebugGame builds and CI automation.
 - It reports command requirements and optional plugin dependencies in structured metadata so agents can choose the right workflow without guessing.
 - It reports optional plugin requirements and missing-plugin failures in structured JSON so agents can recover instead of guessing.
 
 The two can coexist: use UE's first-party MCP for native UE 5.8 editor coverage when it fits, and use soft-ue-cli for UE 5.7 projects, cooked Development/DebugGame builds, CLI/CI automation, offline inspection, curated workflows, visual capture transforms, optional plugin diagnostics, and bridge tools that move independently of engine releases.
+
+Run `soft-ue-cli mcp-surface-status` inside a project workspace to probe the local UE 5.8 official MCP endpoint and SoftUEBridge health endpoint. It reports `official-only`, `bridge-only`, `both`, or `neither`, plus a recommendation without executing editor mutations.
+
+Private soft-ue-expert Pro distribution is separate from this public package. Expert Packs provide skills, cases, rules, agents, and verification through local owner operation; hosted Pro is deferred.
 
 ---
 
@@ -253,13 +260,14 @@ The public command system is organized by domain:
 | `statetree` | StateTree inspection, state editing, task authoring, and transitions |
 | `metasound` | Read-only MetaSound Source/Patch graph inspection |
 | `anim` | Animation instance inspection, sync markers, AnimBlueprint graph authoring, AnimMontage slot repair, retarget migration, PoseSearch schema/database remapping, and Rewind Debugger workflows |
+| `cloth` | Chaos Cloth setup, binding, weight maps, collision extraction, legacy conversion, Dataflow asset inspection, seam stitching, and simulation config updates |
 | `umg` | Widget Blueprint designer trees, navigation contracts, runtime verification, preview lifecycle, and layout comparison |
 
 Use `soft-ue-cli <family> --help` to see the family, then drill down with subcommands such as `soft-ue-cli blueprint graph inspect --help`, `soft-ue-cli mutable graph add-node --help`, or `soft-ue-cli anim pose-search inspect --help`.
 
 ## Complete Command Reference
 
-Canonical commands are grouped under command families such as `blueprint`, `asset`, `mutable`, `metasound`, `anim`, `capture`, `umg`, and `statetree`. Run `soft-ue-cli <family> --help` or `soft-ue-cli <family> <subcommand> --help` for detailed options.
+Canonical commands are grouped under command families such as `blueprint`, `asset`, `mutable`, `metasound`, `anim`, `cloth`, `capture`, `umg`, and `statetree`. Run `soft-ue-cli <family> --help` or `soft-ue-cli <family> <subcommand> --help` for detailed options.
 
 ### Setup and Diagnostics
 
@@ -268,8 +276,14 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 | `setup` | Copy SoftUEBridge plugin into a UE project |
 | `check-setup` | Verify plugin files, .uproject settings, and bridge server reachability |
 | `status` | Health check -- returns server status |
+| `mcp-surface-status` | Report UE 5.8 official MCP and SoftUEBridge availability with a local recommendation |
 | `wait-for-ready` | Poll the same bridge health probe as `status` until it is ready (`await-bridge` alias) |
 | `project-info` | Get project name, engine version, target platforms, and module info |
+| `runtime readiness` | Report packaged Development/DebugGame SoftUEBridge readiness |
+| `runtime binary plan-install` | Plan binary SoftUEBridge installation from a manifest |
+| `runtime binary plan-update` | Plan binary SoftUEBridge update with ownership checks |
+| `runtime binary plan-rollback` | Plan rollback to a previous SoftUEBridge payload |
+| `runtime smoke-plan` | Emit a CLI/CI-friendly packaged runtime smoke plan |
 
 ### Actor and Level Operations
 
@@ -350,6 +364,22 @@ Canonical commands are grouped under command families such as `blueprint`, `asse
 | `query-mpc` | Read or write Material Parameter Collection scalar/vector values |
 | `metasound` | Canonical MetaSound inspection command family |
 | `metasound inspect` | Read a MetaSound Source or Patch graph -- interface inputs/outputs, nodes, edges, and input defaults |
+
+### Chaos Cloth Automation
+
+| Command | Description |
+|---------|-------------|
+| `cloth` | Canonical Chaos Cloth setup, inspection, binding, config, weight-map, collision, conversion, and seam-stitching command family |
+| `cloth query` | Inspect SkeletalMesh cloth assets, section bindings, LOD maps, configs, physical mesh stats, and section cloth state |
+| `cloth create` | Create a legacy in-mesh clothing asset from one or more SkeletalMesh material sections, optionally welding coincident boundary vertices |
+| `cloth bind` | Bind an existing clothing asset to a SkeletalMesh section and repair stale LOD/section metadata |
+| `cloth set-config` | Patch properties on a legacy clothing config object from JSON |
+| `cloth apply-weightmap` | Author common cloth weight maps from constants, gradients, vertex lists, texture channels, or bone-distance falloff |
+| `cloth extract-collision` | Extract cloth collision primitives from a PhysicsAsset into a clothing asset |
+| `cloth chaos-query` | Inspect a Dataflow-based Chaos Cloth Asset's LOD collections, seams, sim/render mesh counts, weight maps, and config state |
+| `cloth convert` | Convert a legacy in-mesh clothing asset into a Dataflow-based Chaos Cloth Asset |
+| `cloth chaos-stitch` | Add seam/stitch pairs to a Chaos Cloth Asset simulation mesh using explicit vertex pairs or proximity matching |
+| `cloth chaos-set-config` | Set Chaos Cloth Asset simulation config properties from a JSON object |
 
 ### Class and Type Inspection
 
@@ -942,7 +972,7 @@ The plugin descriptor restricts SoftUEBridge's editor-only dependency plugins to
 
 ### What Unreal Engine versions are supported?
 
-soft-ue-cli is actively developed against Unreal Engine 5.7. That matters if your project cannot move to UE 5.8 yet but still needs an agent-friendly CLI/MCP automation surface.
+soft-ue-cli's main development target is Unreal Engine 5.8, while UE 5.7 compatibility remains maintained. That matters if your project cannot move to UE 5.8 yet but still needs an agent-friendly CLI/MCP automation surface.
 
 ### Is there any runtime performance impact?
 

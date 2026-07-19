@@ -11,7 +11,10 @@ from unittest.mock import patch
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).parents[2] / "cli"))
+
 from soft_ue_cli import __main__ as main_mod
+from soft_ue_cli.errors import BridgeError, ErrorKind
 from soft_ue_cli.__main__ import (
     _SCRIPTS_DIR,
     _claude_md_section,
@@ -34,6 +37,7 @@ from soft_ue_cli.__main__ import (
     cmd_add_anim_state_machine,
     cmd_add_anim_transition,
     cmd_batch_call,
+    cmd_blueprint_component_add,
     cmd_build_and_relaunch,
     cmd_call_function,
     cmd_capture_pie_screenshot,
@@ -50,6 +54,7 @@ from soft_ue_cli.__main__ import (
     cmd_inspect_mutable_parameters,
     cmd_inspect_pawn_possession,
     cmd_list_scripts,
+    cmd_mcp_surface_status,
     cmd_pie_session,
     cmd_pie_tick,
     cmd_query_enum,
@@ -138,6 +143,41 @@ def test_cmd_status_adds_diagnostics_for_stale_or_wrong_bridge_endpoint(capsys, 
     assert "SOFT_UE_BRIDGE_PORT" in payload["diagnostics"]["recovery_hint"]
 
 
+def test_cmd_mcp_surface_status_outputs_selector_report(capsys, monkeypatch):
+    parser = build_parser()
+    args = parser.parse_args(["mcp-surface-status"])
+
+    monkeypatch.setattr(
+        main_mod,
+        "probe_official_mcp",
+        lambda endpoint, timeout=1.0: main_mod.SurfaceProbe(
+            name="official_mcp",
+            available=True,
+            endpoint=endpoint,
+            status="available",
+            detail=None,
+        ),
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "probe_soft_ue_bridge",
+        lambda timeout=1.0: main_mod.SurfaceProbe(
+            name="soft_ue_bridge",
+            available=False,
+            endpoint="http://127.0.0.1:8080",
+            status="unreachable",
+            detail="connection refused",
+        ),
+    )
+
+    cmd_mcp_surface_status(args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema"] == "soft-ue.mcp-surface.v1"
+    assert payload["availability"] == "official-only"
+    assert payload["recommendation"]["primary"] == "official-mcp"
+
+
 def test_parse_vector_three_components():
     assert _parse_vector("1.0,2.0,3.0") == [1.0, 2.0, 3.0]
 
@@ -211,6 +251,173 @@ def test_parser_setup_with_plugin_src():
     parser = build_parser()
     args = parser.parse_args(["setup", "--plugin-src", "/opt/plugin"])
     assert args.plugin_src == "/opt/plugin"
+
+
+def test_expert_context_parser_recognizes_args():
+    args = build_parser().parse_args([
+        "expert",
+        "context",
+        "--task",
+        "Build fails",
+        "--ue-version",
+        "5.8",
+        "--platform",
+        "Win64",
+        "--execution-mode",
+        "editor",
+        "--plugin",
+        "GameplayAbilities",
+        "--plugin",
+        "StateTree",
+        "--evidence-json",
+        "evidence.json",
+    ])
+
+    assert args.command == "expert"
+    assert args.expert_action == "context"
+    assert args.task == "Build fails"
+    assert args.ue_version == "5.8"
+    assert args.platform == "Win64"
+    assert args.execution_mode == "editor"
+    assert args.plugin == ["GameplayAbilities", "StateTree"]
+    assert args.evidence_json == "evidence.json"
+
+
+def test_expert_context_handler_builds_request_and_prints_response(monkeypatch, tmp_path):
+    evidence_file = tmp_path / "evidence.json"
+    evidence_file.write_text(
+        json.dumps([{"kind": "log", "value": "UHT failed", "source": "build-log"}]),
+        encoding="utf-8",
+    )
+    args = build_parser().parse_args([
+        "expert",
+        "context",
+        "--task",
+        "Build fails",
+        "--ue-version",
+        "5.8",
+        "--platform",
+        "Win64",
+        "--execution-mode",
+        "editor",
+        "--plugin",
+        "GameplayAbilities",
+        "--evidence-json",
+        str(evidence_file),
+    ])
+    calls: dict[str, object] = {}
+
+    class FakeClient:
+        @classmethod
+        def from_environment(cls):
+            calls["from_environment"] = True
+            return cls()
+
+        def context(self, request: dict[str, object]) -> dict[str, object]:
+            calls["request"] = request
+            return {"schema": "soft-ue.expert-context.v1", "answer": "ok"}
+
+    monkeypatch.setattr("soft_ue_cli.expert_context.ExpertContextClient", FakeClient)
+
+    with patch("soft_ue_cli.__main__._print_json") as print_json:
+        args.func(args)
+
+    assert calls["from_environment"] is True
+    request = calls["request"]
+    assert request["task"] == "Build fails"
+    assert request["evidence"] == [{"kind": "log", "value": "UHT failed", "source": "build-log"}]
+    assert request["environment"] == {
+        "ue_version": "5.8",
+        "platform": "Win64",
+        "execution_mode": "editor",
+        "plugins": ["GameplayAbilities"],
+    }
+    print_json.assert_called_once_with({"schema": "soft-ue.expert-context.v1", "answer": "ok"})
+
+
+def test_expert_context_rejects_non_list_evidence_file(tmp_path, capsys):
+    evidence_file = tmp_path / "evidence.json"
+    evidence_file.write_text(json.dumps({"kind": "log"}), encoding="utf-8")
+    args = build_parser().parse_args([
+        "expert",
+        "context",
+        "--task",
+        "Build fails",
+        "--evidence-json",
+        str(evidence_file),
+    ])
+
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+
+    assert exc.value.code == 1
+    assert "--evidence-json must contain a JSON list" in capsys.readouterr().err
+
+
+def test_expert_context_rejects_malformed_evidence_items(tmp_path, capsys):
+    evidence_file = tmp_path / "evidence.json"
+    evidence_file.write_text(json.dumps([{"kind": "log", "value": "missing source"}]), encoding="utf-8")
+    args = build_parser().parse_args([
+        "expert",
+        "context",
+        "--task",
+        "Build fails",
+        "--evidence-json",
+        str(evidence_file),
+    ])
+
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+
+    assert exc.value.code == 1
+    assert "evidence item 0" in capsys.readouterr().err
+
+
+def test_expert_context_evidence_read_error_does_not_echo_absolute_path(monkeypatch, capsys):
+    private_path = r"D:\srcp\PrivateProject\evidence.json"
+    original_open = open
+
+    def raising_open(path, *args, **kwargs):
+        if path == private_path:
+            raise OSError(f"cannot read {private_path}")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", raising_open)
+    args = build_parser().parse_args([
+        "expert",
+        "context",
+        "--task",
+        "Build fails",
+        "--evidence-json",
+        private_path,
+    ])
+
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+
+    stderr = capsys.readouterr().err
+    assert exc.value.code == 1
+    assert "failed to read --evidence-json" in stderr
+    assert private_path not in stderr
+
+
+def test_build_parser_and_commands_json_do_not_require_expert_env(monkeypatch, capsys):
+    monkeypatch.delenv("SOFT_UE_EXPERT_SERVER_URL", raising=False)
+
+    parser = build_parser()
+    args = parser.parse_args(["commands", "--json"])
+    cmd_commands(args)
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema"] == "soft-ue.commands.v1"
+
+
+def test_query_ue_knowledge_still_parses():
+    args = build_parser().parse_args(["query-ue-knowledge", "movement mode", "--type", "skill"])
+
+    assert args.command == "query-ue-knowledge"
+    assert args.query == "movement mode"
+    assert args.type == "skill"
 
 
 def test_parser_spawn_actor():
@@ -290,6 +497,9 @@ def test_parser_build_and_relaunch_flags():
         "--remember-startup-recovery",
         "--startup-marker-timeout",
         "30",
+        "--no-uba",
+        "--no-xge",
+        "--no-local-build-fallback",
     ])
     assert args.config == "Debug"
     assert args.skip_relaunch is True
@@ -299,6 +509,9 @@ def test_parser_build_and_relaunch_flags():
     assert args.startup_recovery == "skip"
     assert args.remember_startup_recovery is True
     assert args.startup_marker_timeout == 30
+    assert args.no_uba is True
+    assert args.no_xge is True
+    assert args.local_build_fallback is False
 
 
 def test_cmd_build_and_relaunch_forwards_startup_marker_timeout():
@@ -310,6 +523,37 @@ def test_cmd_build_and_relaunch_forwards_startup_marker_timeout():
         with patch("soft_ue_cli.__main__._print_json"):
             args.func(args)
     mock_run.assert_called_once_with("build-and-relaunch", {"startup_marker_timeout": 45})
+
+
+def test_cmd_build_and_relaunch_forwards_local_build_flags():
+    parser = build_parser()
+    args = parser.parse_args(["build-and-relaunch", "--no-uba", "--no-xge", "--no-local-build-fallback"])
+    with patch("soft_ue_cli.__main__.health_check", return_value={"running": True}), patch(
+        "soft_ue_cli.__main__._run_tool", return_value={"success": True}
+    ) as mock_run:
+        with patch("soft_ue_cli.__main__._print_json"):
+            args.func(args)
+
+    mock_run.assert_called_once_with(
+        "build-and-relaunch",
+        {
+            "no_uba": True,
+            "no_xge": True,
+            "local_build_fallback": False,
+        },
+    )
+
+
+def test_cmd_build_and_relaunch_forwards_keep_package_restore():
+    parser = build_parser()
+    args = parser.parse_args(["build-and-relaunch", "--keep-package-restore"])
+    with patch("soft_ue_cli.__main__.health_check", return_value={"running": True}), patch(
+        "soft_ue_cli.__main__._run_tool", return_value={"success": True}
+    ) as mock_run:
+        with patch("soft_ue_cli.__main__._print_json"):
+            args.func(args)
+
+    mock_run.assert_called_once_with("build-and-relaunch", {"skip_package_restore": False})
 
 
 def test_parser_wait_for_ready_alias_and_timeout():
@@ -699,6 +943,115 @@ def test_run_python_script_args_route_to_bridge_tool_sys_argv(tmp_path):
     )
 
 
+def test_run_python_script_empty_result_with_dead_bridge_reports_editor_terminated(capsys):
+    parser = build_parser()
+    args = parser.parse_args(["run-python-script", "--script", "print('maybe')"])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={}), patch(
+        "soft_ue_cli.__main__.health_check", return_value={"error": "connection refused"}
+    ):
+        with pytest.raises(SystemExit) as exc:
+            cmd_run_python_script(args)
+
+    assert exc.value.code == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"] is False
+    assert result["error_code"] == "EDITOR_TERMINATED_DURING_EXECUTION"
+    assert "terminated during execution" in result["error"]
+
+
+def test_run_python_script_relaunch_on_crash_retries_once(tmp_path, monkeypatch, capsys):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    editor_exe.write_text("", encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args([
+        "run-python-script",
+        "--script",
+        "print('retry')",
+        "--relaunch-on-crash",
+        "--project",
+        str(project),
+        "--editor-exe",
+        str(editor_exe),
+        "--relaunch-timeout",
+        "5",
+    ])
+
+    call_results = iter([{}, {"success": True, "output": "retry"}])
+    health_results = iter([
+        {"error": "connection refused"},
+        {"error": "not ready"},
+        {"running": True},
+    ])
+    popen_calls = []
+
+    monkeypatch.setattr(main_mod.subprocess, "Popen", lambda command, **kwargs: popen_calls.append((command, kwargs)))
+    monkeypatch.setattr(main_mod.time, "sleep", lambda _seconds: None)
+
+    with patch("soft_ue_cli.__main__.call_tool", side_effect=lambda *_args, **_kwargs: next(call_results)) as mock_call, patch(
+        "soft_ue_cli.__main__.health_check", side_effect=lambda **_kwargs: next(health_results)
+    ):
+        cmd_run_python_script(args)
+
+    assert mock_call.call_count == 2
+    assert popen_calls[0][0] == [str(editor_exe.resolve()), str(project.resolve())]
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"] is True
+    assert result["retried_after_editor_relaunch"] is True
+
+
+def test_run_python_script_relaunch_on_bridge_error_retries_once(tmp_path, monkeypatch, capsys):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    editor_exe.write_text("", encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args([
+        "run-python-script",
+        "--script",
+        "print('retry')",
+        "--relaunch-on-crash",
+        "--project",
+        str(project),
+        "--editor-exe",
+        str(editor_exe),
+        "--relaunch-timeout",
+        "5",
+    ])
+
+    call_results = iter([
+        BridgeError(ErrorKind.EXPECTED, "cannot connect to SoftUEBridge", "run-python-script", {"script": "print('retry')"}),
+        {"success": True, "output": "retry"},
+    ])
+    health_results = iter([
+        {"error": "connection refused"},
+        {"error": "not ready"},
+        {"running": True},
+    ])
+    popen_calls = []
+
+    def fake_call_tool(*_args, **_kwargs):
+        result = next(call_results)
+        if isinstance(result, BridgeError):
+            raise result
+        return result
+
+    monkeypatch.setattr(main_mod.subprocess, "Popen", lambda command, **kwargs: popen_calls.append((command, kwargs)))
+    monkeypatch.setattr(main_mod.time, "sleep", lambda _seconds: None)
+
+    with patch("soft_ue_cli.__main__.call_tool", side_effect=fake_call_tool), patch(
+        "soft_ue_cli.__main__.health_check", side_effect=lambda **_kwargs: next(health_results)
+    ):
+        cmd_run_python_script(args)
+
+    assert popen_calls[0][0] == [str(editor_exe.resolve()), str(project.resolve())]
+    result = json.loads(capsys.readouterr().out)
+    assert result["success"] is True
+    assert result["retried_after_editor_relaunch"] is True
+
+
 def test_run_python_script_world_pie_auto_start():
     parser = build_parser()
     args = parser.parse_args(["run-python-script", "--script", "print('ok')", "--world", "pie", "--auto-start-pie"])
@@ -958,12 +1311,30 @@ def test_parser_build_and_relaunch_offline_fallback_flags():
         "--build-bat",
         "D:/UE/Engine/Build/BatchFiles/Build.bat",
         "--no-offline-fallback",
+        "--no-uba",
+        "--no-xge",
     ])
 
     assert args.project == "D:/Project/Game.uproject"
     assert args.editor_exe == "D:/UE/Engine/Binaries/Win64/UnrealEditor.exe"
     assert args.build_bat == "D:/UE/Engine/Build/BatchFiles/Build.bat"
     assert args.offline_fallback is False
+    assert args.no_uba is True
+    assert args.no_xge is True
+
+
+def test_parser_build_and_relaunch_skips_package_restore_by_default():
+    parser = build_parser()
+    args = parser.parse_args(["build-and-relaunch"])
+
+    assert args.skip_package_restore is True
+
+
+def test_parser_build_and_relaunch_can_keep_package_restore_prompt():
+    parser = build_parser()
+    args = parser.parse_args(["build-and-relaunch", "--keep-package-restore"])
+
+    assert args.skip_package_restore is False
 
 
 def test_cmd_build_and_relaunch_uses_offline_fallback_when_bridge_unavailable(capsys):
@@ -1031,6 +1402,165 @@ def test_offline_build_and_relaunch_builds_launches_and_waits(tmp_path, monkeypa
     assert popen_calls[0][0] == [str(editor_exe), str(project)]
 
 
+def test_offline_build_and_relaunch_moves_package_restore_marker_before_launch(tmp_path, monkeypatch):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    marker = tmp_path / "Saved" / "PackageRestoreData.json"
+    marker.parent.mkdir()
+    marker.write_text('{"Packages":["/Game/DirtyAsset"]}', encoding="utf-8")
+    build_bat = tmp_path / "Build.bat"
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    build_bat.write_text("@echo off", encoding="utf-8")
+    editor_exe.write_text("", encoding="utf-8")
+    launch_observations = []
+
+    monkeypatch.setattr(
+        main_mod.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="ok", stderr=""),
+    )
+
+    def fake_popen(command, **kwargs):
+        launch_observations.append({
+            "command": command,
+            "marker_exists": marker.exists(),
+            "backup_files": [str(path) for path in marker.parent.glob("PackageRestoreData.json.soft-ue-skipped-*")],
+        })
+        return object()
+
+    monkeypatch.setattr(main_mod.subprocess, "Popen", fake_popen)
+
+    args = argparse.Namespace(
+        project=str(project),
+        editor_exe=str(editor_exe),
+        build_bat=str(build_bat),
+        config="Development",
+        wait=False,
+        skip_relaunch=False,
+        build_timeout=30,
+        relaunch_timeout=5,
+        compiler=None,
+        compiler_version=None,
+        toolchain=None,
+        no_uba=False,
+        no_xge=False,
+        local_build_fallback=True,
+        skip_package_restore=True,
+    )
+
+    result = main_mod._run_offline_build_and_relaunch(args)
+
+    assert result["success"] is True
+    assert result["package_restore_skipped"] is True
+    assert launch_observations == [
+        {
+            "command": [str(editor_exe), str(project)],
+            "marker_exists": False,
+            "backup_files": [result["package_restore_marker_backup"]],
+        }
+    ]
+    assert Path(result["package_restore_marker_backup"]).read_text(encoding="utf-8") == '{"Packages":["/Game/DirtyAsset"]}'
+
+
+def test_offline_build_and_relaunch_can_keep_package_restore_marker(tmp_path, monkeypatch):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    marker = tmp_path / "Saved" / "PackageRestoreData.json"
+    marker.parent.mkdir()
+    marker.write_text("{}", encoding="utf-8")
+    build_bat = tmp_path / "Build.bat"
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    build_bat.write_text("@echo off", encoding="utf-8")
+    editor_exe.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(
+        main_mod.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="ok", stderr=""),
+    )
+    monkeypatch.setattr(main_mod.subprocess, "Popen", lambda *_args, **_kwargs: object())
+
+    args = argparse.Namespace(
+        project=str(project),
+        editor_exe=str(editor_exe),
+        build_bat=str(build_bat),
+        config="Development",
+        wait=False,
+        skip_relaunch=False,
+        build_timeout=30,
+        relaunch_timeout=5,
+        compiler=None,
+        compiler_version=None,
+        toolchain=None,
+        no_uba=False,
+        no_xge=False,
+        local_build_fallback=True,
+        skip_package_restore=False,
+    )
+
+    result = main_mod._run_offline_build_and_relaunch(args)
+
+    assert result["success"] is True
+    assert result["package_restore_skipped"] is False
+    assert marker.exists()
+
+
+def test_offline_build_and_relaunch_still_launches_when_package_restore_marker_move_fails(tmp_path, monkeypatch):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    marker = tmp_path / "Saved" / "PackageRestoreData.json"
+    marker.parent.mkdir()
+    marker.write_text("{}", encoding="utf-8")
+    build_bat = tmp_path / "Build.bat"
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    build_bat.write_text("@echo off", encoding="utf-8")
+    editor_exe.write_text("", encoding="utf-8")
+    popen_calls = []
+
+    monkeypatch.setattr(
+        main_mod.subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout="ok", stderr=""),
+    )
+    monkeypatch.setattr(main_mod.subprocess, "Popen", lambda command, **kwargs: popen_calls.append(command) or object())
+
+    original_replace = Path.replace
+
+    def fail_marker_replace(self, target):
+        if self == marker:
+            raise PermissionError("marker is locked")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_marker_replace)
+
+    args = argparse.Namespace(
+        project=str(project),
+        editor_exe=str(editor_exe),
+        build_bat=str(build_bat),
+        config="Development",
+        wait=False,
+        skip_relaunch=False,
+        build_timeout=30,
+        relaunch_timeout=5,
+        compiler=None,
+        compiler_version=None,
+        toolchain=None,
+        no_uba=False,
+        no_xge=False,
+        local_build_fallback=True,
+        skip_package_restore=True,
+    )
+
+    result = main_mod._run_offline_build_and_relaunch(args)
+
+    assert result["success"] is True
+    assert result["status"] == "launched"
+    assert result["package_restore_skipped"] is False
+    assert "marker is locked" in result["package_restore_skip_error"]
+    assert popen_calls == [[str(editor_exe), str(project)]]
+    assert marker.exists()
+
+
 def test_offline_build_and_relaunch_passes_toolchain_overrides(tmp_path, monkeypatch):
     project = tmp_path / "MyGame.uproject"
     project.write_text("{}", encoding="utf-8")
@@ -1070,6 +1600,94 @@ def test_offline_build_and_relaunch_passes_toolchain_overrides(tmp_path, monkeyp
     assert result["compiler_version"] == "14.38.33130"
 
 
+def test_offline_build_and_relaunch_passes_no_uba_no_xge(tmp_path, monkeypatch):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    build_bat = tmp_path / "Build.bat"
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    build_bat.write_text("@echo off", encoding="utf-8")
+    editor_exe.write_text("", encoding="utf-8")
+    run_calls = []
+
+    def fake_run(command, **kwargs):
+        run_calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(main_mod.subprocess, "Popen", lambda *_args, **_kwargs: None)
+
+    args = argparse.Namespace(
+        project=str(project),
+        editor_exe=str(editor_exe),
+        build_bat=str(build_bat),
+        config="Development",
+        wait=True,
+        skip_relaunch=True,
+        build_timeout=30,
+        relaunch_timeout=5,
+        compiler=None,
+        compiler_version=None,
+        toolchain=None,
+        no_uba=True,
+        no_xge=True,
+        local_build_fallback=True,
+    )
+
+    result = main_mod._run_offline_build_and_relaunch(args)
+
+    assert result["success"] is True
+    assert "-NoUBA" in run_calls[0]
+    assert "-NoXGE" in run_calls[0]
+    assert result["no_uba"] is True
+    assert result["no_xge"] is True
+
+
+def test_offline_build_and_relaunch_retries_failed_distributed_build_locally(tmp_path, monkeypatch):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text("{}", encoding="utf-8")
+    build_bat = tmp_path / "Build.bat"
+    editor_exe = tmp_path / "UnrealEditor.exe"
+    build_bat.write_text("@echo off", encoding="utf-8")
+    editor_exe.write_text("", encoding="utf-8")
+    run_calls = []
+
+    def fake_run(command, **kwargs):
+        run_calls.append(command)
+        if len(run_calls) == 1:
+            return subprocess.CompletedProcess(command, 6, stdout="", stderr="mspdbcore.dll not found")
+        return subprocess.CompletedProcess(command, 0, stdout="local ok", stderr="")
+
+    monkeypatch.setattr(main_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(main_mod.subprocess, "Popen", lambda *_args, **_kwargs: None)
+
+    args = argparse.Namespace(
+        project=str(project),
+        editor_exe=str(editor_exe),
+        build_bat=str(build_bat),
+        config="Development",
+        wait=True,
+        skip_relaunch=True,
+        build_timeout=30,
+        relaunch_timeout=5,
+        compiler=None,
+        compiler_version=None,
+        toolchain=None,
+        no_uba=False,
+        no_xge=False,
+        local_build_fallback=True,
+    )
+
+    result = main_mod._run_offline_build_and_relaunch(args)
+
+    assert result["success"] is True
+    assert len(run_calls) == 2
+    assert "-NoUBA" not in run_calls[0]
+    assert "-NoXGE" not in run_calls[0]
+    assert "-NoUBA" in run_calls[1]
+    assert "-NoXGE" in run_calls[1]
+    assert result["local_build_fallback_used"] is True
+
+
 def test_offline_build_discovers_engine_from_uproject_engine_association(tmp_path, monkeypatch):
     project = tmp_path / "MyGame.uproject"
     project.write_text('{"EngineAssociation": "5.6"}', encoding="utf-8")
@@ -1084,10 +1702,72 @@ def test_offline_build_discovers_engine_from_uproject_engine_association(tmp_pat
     monkeypatch.setenv("ProgramFiles", str(program_files))
     monkeypatch.delenv("UNREAL_ENGINE_DIR", raising=False)
     monkeypatch.delenv("UE_ENGINE_DIR", raising=False)
+    monkeypatch.delenv("UNREAL_EDITOR_EXE", raising=False)
+    monkeypatch.delenv("UE_EDITOR_EXE", raising=False)
+    monkeypatch.delenv("UNREAL_BUILD_BAT", raising=False)
+    monkeypatch.delenv("UE_BUILD_BAT", raising=False)
+    monkeypatch.setattr(main_mod, "_candidate_engine_dirs_from_registry", lambda _association: [])
 
     args = argparse.Namespace(editor_exe=None, build_bat=None)
 
     assert main_mod._discover_unreal_build_tools(args, project) == (editor_exe.resolve(), build_bat.resolve())
+
+
+def test_offline_build_discovers_custom_registry_engine_association(tmp_path, monkeypatch):
+    project = tmp_path / "MyGame.uproject"
+    project.write_text('{"EngineAssociation": "{CUSTOM-ENGINE}"}', encoding="utf-8")
+    engine_dir = tmp_path / "CustomUE" / "Engine"
+    build_bat = engine_dir / "Build" / "BatchFiles" / "Build.bat"
+    editor_exe = engine_dir / "Binaries" / "Win64" / "UnrealEditor.exe"
+    build_bat.parent.mkdir(parents=True)
+    editor_exe.parent.mkdir(parents=True)
+    build_bat.write_text("@echo off", encoding="utf-8")
+    editor_exe.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        main_mod,
+        "_candidate_engine_dirs_from_registry",
+        lambda association: [engine_dir] if association == "{CUSTOM-ENGINE}" else [],
+    )
+    monkeypatch.delenv("UNREAL_ENGINE_DIR", raising=False)
+    monkeypatch.delenv("UE_ENGINE_DIR", raising=False)
+    monkeypatch.delenv("UNREAL_EDITOR_EXE", raising=False)
+    monkeypatch.delenv("UE_EDITOR_EXE", raising=False)
+    monkeypatch.delenv("UNREAL_BUILD_BAT", raising=False)
+    monkeypatch.delenv("UE_BUILD_BAT", raising=False)
+
+    args = argparse.Namespace(editor_exe=None, build_bat=None)
+
+    assert main_mod._discover_unreal_build_tools(args, project) == (editor_exe.resolve(), build_bat.resolve())
+
+
+def test_blueprint_component_add_forwards_attach_socket():
+    parser = build_parser()
+    args = parser.parse_args([
+        "blueprint-component-add",
+        "/Game/BP_Player",
+        "SkeletalMeshComponent",
+        "--component-name",
+        "Charm",
+        "--attach-to",
+        "Mesh",
+        "--attach-socket",
+        "hand_r_socket",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        with patch("soft_ue_cli.__main__._print_json"):
+            cmd_blueprint_component_add(args)
+
+    mock_run.assert_called_once_with(
+        "blueprint-component-add",
+        {
+            "asset_path": "/Game/BP_Player",
+            "component_class": "SkeletalMeshComponent",
+            "component_name": "Charm",
+            "attach_to": "Mesh",
+            "attach_socket": "hand_r_socket",
+        },
+    )
 
 
 def test_offline_build_and_relaunch_reports_build_failure(tmp_path, monkeypatch):
@@ -2716,6 +3396,7 @@ def test_capture_screenshot_family_region_uses_region_arg():
         (["blueprint", "inspect", "/Game/Blueprints/BP_Player"], {"command": "blueprint", "blueprint_action": "inspect"}),
         (["blueprint", "graph", "inspect", "/Game/Blueprints/BP_Player"], {"command": "blueprint", "blueprint_action": "graph", "blueprint_graph_action": "inspect"}),
         (["blueprint", "node", "add", "/Game/Blueprints/BP_Player", "K2Node_CallFunction"], {"command": "blueprint", "blueprint_action": "node", "blueprint_node_action": "add"}),
+        (["cloth", "query", "/Game/Characters/SK_Cape"], {"command": "cloth", "cloth_action": "query"}),
     ],
 )
 def test_canonical_command_families_parse_as_canonical_commands(argv, expected_attrs):
@@ -2823,6 +3504,360 @@ def test_anim_rewind_snapshot_family_routes_to_existing_tool():
         {
             "actor_tag": "Player",
             "time": 1.25,
+        },
+    )
+
+
+def test_cloth_create_family_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "create",
+        "/Game/Characters/SK_Cape",
+        "--asset-name",
+        "CapeCloth",
+        "--lod-index",
+        "0",
+        "--section-index",
+        "2",
+        "--physics-asset",
+        "/Game/Physics/PA_Character",
+        "--bind",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-create",
+        {
+            "skeletal_mesh": "/Game/Characters/SK_Cape",
+            "asset_name": "CapeCloth",
+            "lod_index": 0,
+            "section_index": 2,
+            "physics_asset": "/Game/Physics/PA_Character",
+            "bind": True,
+            "save": True,
+        },
+    )
+
+
+def test_cloth_create_accepts_multiple_section_indices():
+    args = build_parser().parse_args([
+        "cloth",
+        "create",
+        "/Game/Characters/SK_Cape",
+        "--asset-name",
+        "CapeCloth",
+        "--section-index",
+        "0,1",
+        "--section-index",
+        "2",
+        "--bind",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-create",
+        {
+            "skeletal_mesh": "/Game/Characters/SK_Cape",
+            "asset_name": "CapeCloth",
+            "lod_index": 0,
+            "section_indices": [0, 1, 2],
+            "bind": True,
+        },
+    )
+
+
+def test_cloth_create_accepts_weld_tolerance():
+    args = build_parser().parse_args([
+        "cloth",
+        "create",
+        "/Game/Characters/SK_Cape",
+        "--asset-name",
+        "CapeCloth",
+        "--section-index",
+        "0,1",
+        "--weld-tolerance",
+        "0.25",
+        "--bind",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-create",
+        {
+            "skeletal_mesh": "/Game/Characters/SK_Cape",
+            "asset_name": "CapeCloth",
+            "lod_index": 0,
+            "section_indices": [0, 1],
+            "weld_tolerance": 0.25,
+            "bind": True,
+        },
+    )
+
+
+def test_cloth_chaos_query_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "chaos-query",
+        "/Game/Cloth/CA_Cape",
+        "--include-nodes",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-chaos-query",
+        {
+            "cloth_asset": "/Game/Cloth/CA_Cape",
+            "include_nodes": True,
+        },
+    )
+
+
+def test_cloth_convert_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "convert",
+        "/Game/Characters/SK_Cape",
+        "--asset-name",
+        "CapeCloth",
+        "--output-asset",
+        "/Game/Cloth/CA_Cape",
+        "--no-save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-convert",
+        {
+            "skeletal_mesh": "/Game/Characters/SK_Cape",
+            "asset_name": "CapeCloth",
+            "output_asset": "/Game/Cloth/CA_Cape",
+            "save": False,
+        },
+    )
+
+
+def test_cloth_chaos_stitch_routes_vertex_pairs_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "chaos-stitch",
+        "/Game/Cloth/CA_Cape",
+        "--lod-index",
+        "1",
+        "--vertex-pairs",
+        "[[10, 20], [11, 21]]",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-chaos-stitch",
+        {
+            "cloth_asset": "/Game/Cloth/CA_Cape",
+            "lod_index": 1,
+            "mode": "pairs",
+            "index_space": "2d",
+            "vertex_pairs": [[10, 20], [11, 21]],
+            "save": True,
+        },
+    )
+
+
+@pytest.mark.parametrize("vertex_pairs", [
+    "[[10.5, 20]]",
+    "[[true, 20]]",
+    "[[\"10\", 20]]",
+])
+def test_cloth_chaos_stitch_rejects_non_integer_vertex_pairs(vertex_pairs):
+    args = build_parser().parse_args([
+        "cloth",
+        "chaos-stitch",
+        "/Game/Cloth/CA_Cape",
+        "--vertex-pairs",
+        vertex_pairs,
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool") as mock_run:
+        with pytest.raises(ValueError, match="--vertex-pairs must contain JSON integer vertex ids"):
+            args.func(args)
+
+    mock_run.assert_not_called()
+
+
+def test_cloth_chaos_stitch_routes_proximity_ranges_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "chaos-stitch",
+        "/Game/Cloth/CA_Cape",
+        "--mode",
+        "proximity",
+        "--first-vertices",
+        "0-2,8",
+        "--second-vertices",
+        "10,12-13",
+        "--tolerance",
+        "1.5",
+        "--index-space",
+        "3d",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-chaos-stitch",
+        {
+            "cloth_asset": "/Game/Cloth/CA_Cape",
+            "lod_index": 0,
+            "mode": "proximity",
+            "index_space": "3d",
+            "first_vertices": [0, 1, 2, 8],
+            "second_vertices": [10, 12, 13],
+            "tolerance": 1.5,
+        },
+    )
+
+
+def test_cloth_chaos_set_config_routes_json_properties_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "chaos-set-config",
+        "/Game/Cloth/CA_Cape",
+        "--lod-index",
+        "0",
+        "--properties",
+        "{\"XPBDEdgeSpringStiffness\": [0.2, 0.8], \"NumIterations\": 12}",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-chaos-set-config",
+        {
+            "cloth_asset": "/Game/Cloth/CA_Cape",
+            "lod_index": 0,
+            "properties": {
+                "XPBDEdgeSpringStiffness": [0.2, 0.8],
+                "NumIterations": 12,
+            },
+            "save": True,
+        },
+    )
+
+
+def test_cloth_apply_weightmap_constant_family_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "apply-weightmap",
+        "/Game/Characters/SK_Cape",
+        "--asset-name",
+        "CapeCloth",
+        "--lod-index",
+        "0",
+        "--target",
+        "max-distance",
+        "--rule",
+        "constant",
+        "--value",
+        "25",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-apply-weightmap",
+        {
+            "skeletal_mesh": "/Game/Characters/SK_Cape",
+            "asset_name": "CapeCloth",
+            "lod_index": 0,
+            "target": "max-distance",
+            "rule": "constant",
+            "value": 25.0,
+            "save": True,
+        },
+    )
+
+
+def test_cloth_apply_weightmap_bone_distance_family_routes_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "apply-weightmap",
+        "/Game/Characters/SK_Cape",
+        "--asset-name",
+        "CapeCloth",
+        "--rule",
+        "bone-distance",
+        "--root-bone",
+        "spine_03",
+        "--min-distance",
+        "0",
+        "--max-distance",
+        "80",
+        "--curve",
+        "smooth",
+        "--invert",
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-apply-weightmap",
+        {
+            "skeletal_mesh": "/Game/Characters/SK_Cape",
+            "asset_name": "CapeCloth",
+            "lod_index": 0,
+            "target": "max-distance",
+            "rule": "bone-distance",
+            "root_bone": "spine_03",
+            "min_distance": 0.0,
+            "max_distance": 80.0,
+            "curve": "smooth",
+            "invert": True,
+            "save": True,
+        },
+    )
+
+
+def test_cloth_set_config_family_routes_properties_json_to_bridge_tool():
+    args = build_parser().parse_args([
+        "cloth",
+        "set-config",
+        "/Game/Characters/SK_Cape",
+        "--asset-name",
+        "CapeCloth",
+        "--properties",
+        '{"GravityScale":0.75,"SelfCollisionThickness":1.2}',
+        "--save",
+    ])
+
+    with patch("soft_ue_cli.__main__._run_tool", return_value={"success": True}) as mock_run:
+        args.func(args)
+
+    mock_run.assert_called_once_with(
+        "cloth-set-config",
+        {
+            "skeletal_mesh": "/Game/Characters/SK_Cape",
+            "asset_name": "CapeCloth",
+            "properties": {"GravityScale": 0.75, "SelfCollisionThickness": 1.2},
+            "save": True,
         },
     )
 

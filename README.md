@@ -1,5 +1,7 @@
 # soft-ue-cli (+mcp)
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fsoftdaddy-o%2Fsoft-ue-cli.svg)](https://mcptoplist.com/server/glama%2Fsoftdaddy-o%2Fsoft-ue-cli)
+
 [![PyPI version](https://img.shields.io/pypi/v/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/soft-ue-cli.svg)](https://pypi.org/project/soft-ue-cli/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)

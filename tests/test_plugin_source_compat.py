@@ -83,6 +83,29 @@ def test_editor_tools_avoid_ue58_deprecated_object_and_package_apis():
     assert "GIsSavingPackage" not in wire_source
 
 
+def test_cloth_tools_guard_ue58_only_dataflow_and_unbind_apis():
+    source = _read("SoftUEBridgeEditor/Private/Tools/Cloth/ClothTools.cpp")
+
+    # UChaosClothAssetBase::HasDataflow() is UE 5.8+. It is defined there as
+    # GetDataflow() != nullptr, and GetDataflow() exists in 5.7 too, so the
+    # helper needs no version guard - but it must not call HasDataflow directly.
+    assert "bool ClothAssetHasDataflow(" in source
+    assert "Asset->GetDataflow() != nullptr" in source
+    assert "->HasDataflow()" not in source
+
+    # The per-section UnbindFromSkeletalMesh overload is UE 5.8+; 5.7 only has
+    # the LOD-wide one, so this call genuinely needs a version guard.
+    assert "void UnbindClothFromSkeletalMesh(" in source
+    assert "ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8" in source
+    unbind_block = source.split("void UnbindClothFromSkeletalMesh(", 1)[1].split("\n}", 1)[0]
+    assert "Asset->UnbindFromSkeletalMesh(Mesh, LodIndex, SectionIndex)" in unbind_block
+    assert "Asset->UnbindFromSkeletalMesh(Mesh, LodIndex)" in unbind_block
+
+    # Every call site must route through the helper, so the only two raw calls
+    # to the engine API are the two guarded ones inside it.
+    assert source.count("->UnbindFromSkeletalMesh(") == 2
+
+
 def test_rewind_helper_avoids_removed_trace_file_loaded_check():
     source = _read("SoftUEBridgeEditor/Private/Tools/Rewind/RewindHelper.cpp")
 

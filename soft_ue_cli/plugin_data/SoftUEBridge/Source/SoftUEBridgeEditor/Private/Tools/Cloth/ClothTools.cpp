@@ -193,6 +193,37 @@ bool SaveMeshIfRequested(USkeletalMesh* Mesh, bool bSave, TSharedPtr<FJsonObject
 	return true;
 }
 
+// UChaosClothAssetBase::HasDataflow() was only added in UE 5.8. It is defined
+// there as GetDataflow() != nullptr, and GetDataflow() already exists in 5.7,
+// so this spelling is correct on both versions with no version guard needed.
+bool ClothAssetHasDataflow(const UChaosClothAsset* Asset)
+{
+	return Asset && Asset->GetDataflow() != nullptr;
+}
+
+// UE 5.8 added the per-section overload UnbindFromSkeletalMesh(Mesh, Lod, Section)
+// and deprecated the LOD-only one; UE 5.7 only has the LOD-only overload.
+void UnbindClothFromSkeletalMesh(
+	UClothingAssetBase* Asset,
+	USkeletalMesh* Mesh,
+	int32 LodIndex,
+	int32 SectionIndex)
+{
+	if (!Asset || !Mesh)
+	{
+		return;
+	}
+
+#if ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8)
+	Asset->UnbindFromSkeletalMesh(Mesh, LodIndex, SectionIndex);
+#else
+	// 5.7 cannot unbind a single section. SectionIndex == INDEX_NONE already means
+	// "all sections of this LOD", so those call sites are exactly equivalent; a
+	// specific SectionIndex necessarily unbinds the whole LOD on 5.7.
+	Asset->UnbindFromSkeletalMesh(Mesh, LodIndex);
+#endif
+}
+
 void ClearOriginalSectionClothData(FSkelMeshSourceSectionUserData& OriginalSectionData)
 {
 	OriginalSectionData.CorrespondClothAssetIndex = INDEX_NONE;
@@ -237,14 +268,14 @@ bool BindClothAssetToSection(
 	if (UClothingAssetBase* CurrentAsset = Mesh->GetSectionClothingAsset(LodIndex, SectionIndex))
 	{
 		CurrentAsset->Modify();
-		CurrentAsset->UnbindFromSkeletalMesh(Mesh, LodIndex, SectionIndex);
+		UnbindClothFromSkeletalMesh(CurrentAsset, Mesh, LodIndex, SectionIndex);
 	}
 
 	Asset->Modify();
 	// Repair assets left with a populated LodMap but no section binding by older bridge versions.
 	if (bClearExistingAssetBindings)
 	{
-		Asset->UnbindFromSkeletalMesh(Mesh, LodIndex, INDEX_NONE);
+		UnbindClothFromSkeletalMesh(Asset, Mesh, LodIndex, INDEX_NONE);
 	}
 
 	FSkelMeshSection& Section = Mesh->GetImportedModel()->LODModels[LodIndex].Sections[SectionIndex];
@@ -975,7 +1006,7 @@ bool ValidateConvertedChaosClothAsset(UChaosClothAsset* Asset, FString& OutError
 		return false;
 	}
 
-	if (Asset->HasDataflow() || Asset->HasValidClothSimulationModels() || HasChaosClothCollectionData(Asset))
+	if (ClothAssetHasDataflow(Asset) || Asset->HasValidClothSimulationModels() || HasChaosClothCollectionData(Asset))
 	{
 		return true;
 	}
@@ -2831,8 +2862,9 @@ FBridgeToolResult UClothConvertTool::Execute(const TSharedPtr<FJsonObject>& Argu
 
 	TSharedPtr<FJsonObject> Result = ChaosClothAssetToJson(NewAsset, OutputAssetPath, false);
 	Result->SetBoolField(TEXT("converted"), true);
-	Result->SetBoolField(TEXT("dataflow_based"), NewAsset->HasDataflow());
-	Result->SetStringField(TEXT("conversion_mode"), NewAsset->HasDataflow() ? TEXT("dataflow") : TEXT("legacy_collection"));
+	const bool bNewAssetHasDataflow = ClothAssetHasDataflow(NewAsset);
+	Result->SetBoolField(TEXT("dataflow_based"), bNewAssetHasDataflow);
+	Result->SetStringField(TEXT("conversion_mode"), bNewAssetHasDataflow ? TEXT("dataflow") : TEXT("legacy_collection"));
 	Result->SetStringField(TEXT("skeletal_mesh"), SkeletalMeshPath);
 	Result->SetStringField(TEXT("source_asset_name"), SourceAsset->GetName());
 	Result->SetStringField(TEXT("output_asset"), OutputAssetPath);

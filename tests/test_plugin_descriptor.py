@@ -910,7 +910,11 @@ def test_cloth_bind_persists_original_section_user_data_and_repairs_stale_lod_ma
 
     assert "BindClothAssetToSection" in source
     assert "FScopedSkeletalMeshPostEditChange BindingPostEditChange(Mesh)" in source
-    assert "Asset->UnbindFromSkeletalMesh(Mesh, LodIndex, INDEX_NONE)" in source
+    # Routed through a compat helper: the 3-arg per-section overload is UE 5.8+,
+    # while 5.7 only has the LOD-wide one. INDEX_NONE means "all sections of the
+    # LOD", which is what both engine versions do here.
+    assert "UnbindClothFromSkeletalMesh(Asset, Mesh, LodIndex, INDEX_NONE)" in source
+    assert "void UnbindClothFromSkeletalMesh(" in source
     assert "UserSectionsData.FindOrAdd" in source
     assert "OriginalSectionData.CorrespondClothAssetIndex" in source
     assert "OriginalSectionData.ClothingData.AssetGuid" in source

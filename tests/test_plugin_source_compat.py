@@ -83,6 +83,19 @@ def test_editor_tools_avoid_ue58_deprecated_object_and_package_apis():
     assert "GIsSavingPackage" not in wire_source
 
 
+def test_skeletal_mesh_loaders_are_unique_for_unity_builds():
+    cloth_source = _read("SoftUEBridgeEditor/Private/Tools/Cloth/ClothTools.cpp")
+    socket_source = _read("SoftUEBridgeEditor/Private/Tools/Asset/SkeletalMeshSocketTool.cpp")
+
+    # Both files defined LoadSkeletalMesh in an anonymous namespace. Anonymous
+    # namespaces do not isolate translation units under a unity build - both
+    # files land in one .cpp and the second definition is a redefinition error.
+    assert "USkeletalMesh* LoadSkeletalMesh(" not in cloth_source
+    assert "USkeletalMesh* LoadSkeletalMesh(" not in socket_source
+    assert "ClothLoadSkeletalMesh" in cloth_source
+    assert "SocketToolLoadSkeletalMesh" in socket_source
+
+
 def test_rewind_helper_avoids_removed_trace_file_loaded_check():
     source = _read("SoftUEBridgeEditor/Private/Tools/Rewind/RewindHelper.cpp")
 

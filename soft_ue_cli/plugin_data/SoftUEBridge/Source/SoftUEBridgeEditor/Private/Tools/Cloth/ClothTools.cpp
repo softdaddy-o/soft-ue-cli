@@ -65,7 +65,7 @@ FBridgeSchemaProperty ClothSchemaProperty(
 	return Property;
 }
 
-USkeletalMesh* LoadSkeletalMesh(const FString& AssetPath, FString& OutError)
+USkeletalMesh* ClothLoadSkeletalMesh(const FString& AssetPath, FString& OutError)
 {
 	return FBridgeAssetModifier::LoadAssetByPath<USkeletalMesh>(AssetPath, OutError);
 }
@@ -2622,7 +2622,7 @@ FBridgeToolResult LoadMeshAndAsset(
 	}
 
 	FString LoadError;
-	OutMesh = LoadSkeletalMesh(OutSkeletalMeshPath, LoadError);
+	OutMesh = ClothLoadSkeletalMesh(OutSkeletalMeshPath, LoadError);
 	if (!OutMesh)
 	{
 		return FBridgeToolResult::Error(LoadError);
@@ -2668,7 +2668,7 @@ FBridgeToolResult UClothQueryTool::Execute(const TSharedPtr<FJsonObject>& Argume
 	}
 
 	FString LoadError;
-	USkeletalMesh* Mesh = LoadSkeletalMesh(SkeletalMeshPath, LoadError);
+	USkeletalMesh* Mesh = ClothLoadSkeletalMesh(SkeletalMeshPath, LoadError);
 	if (!Mesh)
 	{
 		return FBridgeToolResult::Error(LoadError);
@@ -2772,7 +2772,7 @@ FBridgeToolResult UClothConvertTool::Execute(const TSharedPtr<FJsonObject>& Argu
 	}
 
 	FString LoadError;
-	USkeletalMesh* Mesh = LoadSkeletalMesh(SkeletalMeshPath, LoadError);
+	USkeletalMesh* Mesh = ClothLoadSkeletalMesh(SkeletalMeshPath, LoadError);
 	if (!Mesh)
 	{
 		return FBridgeToolResult::Error(LoadError);
@@ -3259,7 +3259,7 @@ FBridgeToolResult UClothCreateTool::Execute(const TSharedPtr<FJsonObject>& Argum
 	}
 
 	FString LoadError;
-	USkeletalMesh* Mesh = LoadSkeletalMesh(SkeletalMeshPath, LoadError);
+	USkeletalMesh* Mesh = ClothLoadSkeletalMesh(SkeletalMeshPath, LoadError);
 	if (!Mesh)
 	{
 		return FBridgeToolResult::Error(LoadError);

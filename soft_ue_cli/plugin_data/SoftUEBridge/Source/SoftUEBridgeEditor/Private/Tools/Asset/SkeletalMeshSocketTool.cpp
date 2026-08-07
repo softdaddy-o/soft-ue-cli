@@ -72,7 +72,7 @@ TArray<TSharedPtr<FJsonValue>> RotatorToJsonArray(const FRotator& Value)
 	return Result;
 }
 
-USkeletalMesh* LoadSkeletalMesh(const FString& AssetPath, FString& OutError)
+USkeletalMesh* SocketToolLoadSkeletalMesh(const FString& AssetPath, FString& OutError)
 {
 	USkeletalMesh* Mesh = FBridgeAssetModifier::LoadAssetByPath<USkeletalMesh>(AssetPath, OutError);
 	if (!Mesh)
@@ -186,7 +186,7 @@ FBridgeToolResult USkeletalMeshSocketCreateTool::Execute(
 	}
 
 	FString Error;
-	USkeletalMesh* Mesh = LoadSkeletalMesh(AssetPath, Error);
+	USkeletalMesh* Mesh = SocketToolLoadSkeletalMesh(AssetPath, Error);
 	if (!Mesh)
 	{
 		return FBridgeToolResult::Error(Error);
@@ -295,7 +295,7 @@ FBridgeToolResult USkeletalMeshSocketRemoveTool::Execute(
 	}
 
 	FString Error;
-	USkeletalMesh* Mesh = LoadSkeletalMesh(AssetPath, Error);
+	USkeletalMesh* Mesh = SocketToolLoadSkeletalMesh(AssetPath, Error);
 	if (!Mesh)
 	{
 		return FBridgeToolResult::Error(Error);

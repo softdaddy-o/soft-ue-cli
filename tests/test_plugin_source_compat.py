@@ -225,3 +225,54 @@ def test_legacy_cloth_weight_maps_use_public_runtime_targets_and_section_provena
     assert "rejects an empty combined selection" in spec
     assert "records dual membership through the merge helper" in spec
     assert "round-trips extended target values through read and apply helpers" in spec
+
+
+def test_insights_analyze_reads_session_only_inside_a_read_scope():
+    source = _read("SoftUEBridgeEditor/Private/Tools/Performance/InsightsAnalyzeTool.cpp")
+
+    # IAnalysisSession::GetName()/GetDurationSeconds() look like plain accessors but
+    # are session reads: TraceServices asserts "Trying to read from session outside
+    # of a ReadScope" at runtime. This compiles cleanly either way, so the ordering
+    # has to be pinned by a test.
+    for analysis in ("AnalyzeFrameStats", "AnalyzeBottlenecks"):
+        body = source.split(f"UInsightsAnalyzeTool::{analysis}(", 1)[1]
+        scope_at = body.index("FAnalysisSessionReadScope")
+        assert body.index("Session.GetName()") > scope_at, f"{analysis} reads GetName() before its read scope"
+        assert body.index("Session.GetDurationSeconds()") > scope_at, (
+            f"{analysis} reads GetDurationSeconds() before its read scope"
+        )
+
+    # ResolveAgainstSession() also calls GetDurationSeconds(), so its call site in
+    # Execute() needs its own scope.
+    execute_body = source.split("UInsightsAnalyzeTool::Execute(", 1)[1]
+    resolve_at = execute_body.index("Window.ResolveAgainstSession(")
+    preceding = execute_body[:resolve_at]
+    assert "FAnalysisSessionReadScope" in preceding, (
+        "ResolveAgainstSession() reads the session and must be called inside a read scope"
+    )
+
+
+def test_insights_capture_starts_traces_without_console_string_parsing():
+    source = _read("SoftUEBridgeEditor/Private/Tools/Performance/InsightsCaptureTool.cpp")
+
+    # UE splits console command arguments on whitespace without honouring quotes, so
+    # "Trace.File <path> <channels>" is rejected as "Invalid arguments" whenever the
+    # project path contains a space - and GEngine->Exec still returns true because the
+    # command was handled, which made the failure silent.
+    assert "FTraceAuxiliary::Start(" in source
+    assert "FTraceAuxiliary::EConnectionType::File" in source
+    assert "FTraceAuxiliary::Stop()" in source
+
+    # No console command may be executed at all. The comments explaining why still
+    # name Trace.File and GEngine->Exec, so check code lines only.
+    code = "\n".join(
+        line for line in source.splitlines() if not line.strip().startswith("//")
+    )
+    assert "GEngine->Exec" not in code
+    assert "Trace.Start" not in code
+    assert "Trace.Stop" not in code
+
+    # The reported path must be absolute: ProjectSavedDir() is relative to the engine
+    # binaries dir, and the path is handed back to callers for insights-analyze.
+    assert "ConvertRelativePathToFull" in source
+    assert '.utrace' in source

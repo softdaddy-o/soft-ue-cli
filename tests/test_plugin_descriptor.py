@@ -1785,3 +1785,202 @@ def test_trigger_input_routes_keys_through_player_controller_and_enhanced_input(
     assert "FindEnhancedInputAction" in source
     assert '"EnhancedInput"' in build_cs
     assert '"Name": "EnhancedInput"' in descriptor
+
+
+def test_insights_analyze_reads_traces_through_trace_services_providers():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Performance/InsightsAnalyzeTool.cpp"
+    ).read_text(encoding="utf-8")
+    header = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Public/Tools/Performance/InsightsAnalyzeTool.h"
+    ).read_text(encoding="utf-8")
+    build_cs = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/SoftUEBridgeEditor.Build.cs"
+    ).read_text(encoding="utf-8")
+
+    assert '"TraceServices"' in build_cs
+    assert '"TraceAnalysis"' in build_cs
+
+    # The trace must actually be parsed, not just stat()-ed as it was before.
+    assert "ITraceServicesModule" in source
+    assert "GetAnalysisService" in source
+    assert "AnalysisService->Analyze" in source
+    # Every provider read has to happen under the session read lock.
+    assert "FAnalysisSessionReadScope" in source
+
+    # One provider per analysis type.
+    assert "ReadFrameProvider" in source
+    assert "ReadTimingProfilerProvider" in source
+    assert "ReadCounterProvider" in source
+    assert "ReadThreadProvider" in source
+    assert "CreateAggregation" in source
+
+    for analysis_type in (
+        "basic_info",
+        "frame_stats",
+        "top_functions",
+        "call_tree",
+        "counters",
+        "csv_stats",
+        "threads",
+        "bottlenecks",
+    ):
+        assert f'TEXT("{analysis_type}")' in source
+
+    # Aggregation must span every CPU thread and GPU queue, not a filtered subset.
+    assert "Params.CpuThreadFilter" in source
+    assert "Params.GpuQueueFilter" in source
+
+    # Reporting both orderings is what makes the bottleneck report actionable:
+    # self time localises the cost, inclusive time shows the expensive call tree.
+    assert "top_timers_by_inclusive_time" in source
+    assert "top_timers_by_self_time" in source
+
+    # TableEntryLimit is applied AFTER sorting by total inclusive time, so
+    # bottlenecks must aggregate unlimited (0) and rank each metric over the full
+    # set. Limiting first would reduce the self-time list to a re-sort of the
+    # heaviest call trees and omit a timer whose self time leads but whose
+    # inclusive time does not.
+    bottlenecks = source.split("UInsightsAnalyzeTool::AnalyzeBottlenecks(", 1)[1]
+    assert "CreateTimerAggregation(*TimingProvider, Window, 0)" in bottlenecks
+    assert "timers_considered" in bottlenecks
+    assert bottlenecks.count("Rows.Sort(") == 2
+    assert "A.TotalInclusiveTime > B.TotalInclusiveTime" in bottlenecks
+    assert "A.TotalExclusiveTime > B.TotalExclusiveTime" in bottlenecks
+
+    # Percentiles matter more than averages for hitch hunting.
+    for field in ("median_ms", "p90_ms", "p95_ms", "p99_ms", "hitch_count"):
+        assert field in source
+
+    # A frame still open when tracing stops has an infinite duration, and even one
+    # poisons total/max/average and drives average_fps to zero. Drop them, but say so.
+    assert "incomplete_frames_skipped" in source
+    assert "TNumericLimits<double>::Max()" in source
+
+    # GetRowCount() is already capped by TableEntryLimit, so it must not be
+    # presented as the number of timers in the trace.
+    assert '"timer_count"' not in source
+    assert "returned_count" in source
+
+    assert "FInsightsAnalysisWindow" in header
+
+
+def test_insights_analyze_cli_exposes_every_analysis_type():
+    from soft_ue_cli.__main__ import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "insights-analyze",
+            "T.utrace",
+            "--analysis-type",
+            "bottlenecks",
+            "--top-n",
+            "50",
+            "--start-time",
+            "10",
+            "--end-time",
+            "20",
+            "--hitch-threshold-ms",
+            "16.7",
+        ]
+    )
+
+    assert args.trace_file == "T.utrace"
+    assert args.analysis_type == "bottlenecks"
+    assert args.top_n == 50
+    assert args.start_time == 10.0
+    assert args.end_time == 20.0
+    assert args.hitch_threshold_ms == 16.7
+
+    for analysis_type in (
+        "basic_info",
+        "frame_stats",
+        "top_functions",
+        "call_tree",
+        "counters",
+        "csv_stats",
+        "threads",
+        "bottlenecks",
+    ):
+        parsed = parser.parse_args(["insights-analyze", "T.utrace", "--analysis-type", analysis_type])
+        assert parsed.analysis_type == analysis_type
+
+    tree = parser.parse_args(
+        [
+            "insights-analyze",
+            "T.utrace",
+            "--analysis-type",
+            "call_tree",
+            "--timer-name",
+            "UWorld_Tick",
+            "--direction",
+            "callers",
+            "--max-depth",
+            "6",
+        ]
+    )
+    assert tree.timer_name == "UWorld_Tick"
+    assert tree.direction == "callers"
+    assert tree.max_depth == 6
+
+    csv = parser.parse_args(
+        ["insights-analyze", "T.utrace", "--analysis-type", "csv_stats", "--column-filter", "Ticks/"]
+    )
+    assert csv.column_filter == "Ticks/"
+
+
+def test_insights_call_tree_uses_butterfly_and_resolves_timer_names():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Performance/InsightsAnalyzeTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    # The butterfly aggregation is the hierarchical view a flat aggregation cannot give.
+    assert "CreateButterfly" in source
+    assert "GenerateCalleesTree" in source
+    assert "GenerateCallersTree" in source
+    assert "FCreateButterflyParams" in source
+
+    # Callers pass a timer *name*; it has to be resolved to an id via the timer reader.
+    assert "ResolveTimerId" in source
+    assert "GetTimerCount" in source
+
+    # ReadTimers() was deprecated in 5.8 for GetTimerReader(), which 5.7 lacks -
+    # both paths must stay guarded or one engine version breaks.
+    assert "GetTimerReader()" in source
+    assert "ReadTimers(ScanTimers)" in source
+    assert "ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 8" in source
+
+    # A failed lookup must suggest near-misses rather than just failing.
+    assert "Did you mean one of" in source
+
+    # A truncated tree must never be mistaken for a leaf.
+    assert "omitted_children" in source
+    assert "depth_limited" in source
+
+    # Shipping strips CPU scopes entirely - the error has to say so, since no
+    # amount of re-analysis will recover them.
+    assert "CPUPROFILERTRACE_ENABLED" in source
+    assert "UE_BUILD_SHIPPING" in source
+
+
+def test_insights_csv_stats_reads_the_csv_profiler_provider():
+    source = _plugin_source_path(
+        "Source/SoftUEBridgeEditor/Private/Tools/Performance/InsightsAnalyzeTool.cpp"
+    ).read_text(encoding="utf-8")
+
+    # CSV stats live in their own provider, separate from CPU timers and counters.
+    assert "ReadCsvProfilerProvider" in source
+    assert "EnumerateCaptures" in source
+    assert "GetTable" in source
+    assert "ITableLayout" in source
+    assert "IUntypedTableReader" in source
+
+    # Column names are cheap to list and are how an agent discovers what to filter on.
+    assert "column_names" in source
+    assert "column_filter" in source
+
+    # The residual-bucket nature of exclusive CSV stats is the key interpretive
+    # point; without it a large WorldTickMisc reads as "a slow function".
+    assert "WorldTickMisc" in source
+    assert "residual" in source

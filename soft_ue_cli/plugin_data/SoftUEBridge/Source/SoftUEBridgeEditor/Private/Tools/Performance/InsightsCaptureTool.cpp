@@ -101,9 +101,17 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
 		OutputFile = FString::Printf(TEXT("BridgeTrace_%s.utrace"), *Timestamp);
 	}
 
-	// Build trace file path
-	FString TraceDir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Profiling"));
+	// Build trace file path. ProjectSavedDir() is relative to the engine binaries
+	// directory, so make it absolute - the trace path is reported back to callers
+	// and is later handed to insights-analyze.
+	FString TraceDir = FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Profiling")));
 	IFileManager::Get().MakeDirectory(*TraceDir, true);
+
+	if (!OutputFile.EndsWith(TEXT(".utrace")))
+	{
+		OutputFile += TEXT(".utrace");
+	}
 	FString TraceFilePath = FPaths::Combine(TraceDir, OutputFile);
 
 	// Build channel string
@@ -112,34 +120,43 @@ FBridgeToolResult UInsightsCaptureTool::StartCapture(const TSharedPtr<FJsonObjec
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Starting trace with channels: %s"), *ChannelString);
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Output file: %s"), *TraceFilePath);
 
-	// Use the documented console command shape: filename first, channels second.
-	FString StartCommand = FString::Printf(TEXT("Trace.Start \"%s\" %s"), *TraceFilePath, *ChannelString);
-
-	// Execute trace start via console command
-	if (GEngine && GEngine->Exec(nullptr, *StartCommand))
+	// Call FTraceAuxiliary directly rather than issuing "Trace.File <path> <channels>".
+	// UE splits console command arguments on whitespace without honouring quotes, so
+	// any project path containing a space (e.g. "Unreal Projects") arrives as 3+ args
+	// and the command is rejected with "Invalid arguments". Worse, GEngine->Exec still
+	// returns true because the command was *handled*, so the failure was silent.
+	// This API takes the path as a real parameter and returns a genuine success bool.
+	if (!FTraceAuxiliary::Start(
+			FTraceAuxiliary::EConnectionType::File,
+			*TraceFilePath,
+			*ChannelString,
+			nullptr,
+			LogSoftUEBridgeEditor))
 	{
-		GBridgeInsightsCaptureRequested = true;
-		GBridgeInsightsTraceFile = TraceFilePath;
+		return FBridgeToolResult::Error(FString::Printf(
+			TEXT("Failed to start trace capture to '%s'. Check the editor log for the reason "
+			     "(a trace connection may already be active, or the path may not be writable)."),
+			*TraceFilePath));
+	}
 
-		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
-		Result->SetStringField(TEXT("status"), TEXT("started"));
-		Result->SetStringField(TEXT("trace_file"), TraceFilePath);
-		Result->SetArrayField(TEXT("channels"), [&Channels]()
+	GBridgeInsightsCaptureRequested = true;
+	GBridgeInsightsTraceFile = TraceFilePath;
+
+	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+	Result->SetStringField(TEXT("status"), TEXT("started"));
+	Result->SetStringField(TEXT("trace_file"), TraceFilePath);
+	Result->SetBoolField(TEXT("is_capturing"), FTraceAuxiliary::IsConnected());
+	Result->SetArrayField(TEXT("channels"), [&Channels]()
+	{
+		TArray<TSharedPtr<FJsonValue>> ChannelsJson;
+		for (const FString& Channel : Channels)
 		{
-			TArray<TSharedPtr<FJsonValue>> ChannelsJson;
-			for (const FString& Channel : Channels)
-			{
-				ChannelsJson.Add(MakeShareable(new FJsonValueString(Channel)));
-			}
-			return ChannelsJson;
-		}());
+			ChannelsJson.Add(MakeShareable(new FJsonValueString(Channel)));
+		}
+		return ChannelsJson;
+	}());
 
-		return FBridgeToolResult::Json(Result);
-	}
-	else
-	{
-		return FBridgeToolResult::Error(TEXT("Failed to start trace capture. Ensure Trace system is available."));
-	}
+	return FBridgeToolResult::Json(Result);
 }
 
 FBridgeToolResult UInsightsCaptureTool::StopCapture()
@@ -154,34 +171,37 @@ FBridgeToolResult UInsightsCaptureTool::StopCapture()
 
 	UE_LOG(LogSoftUEBridgeEditor, Log, TEXT("insights-capture: Stopping trace"));
 
-	// Stop trace
-	if (GEngine && GEngine->Exec(nullptr, TEXT("Trace.Stop")))
+	// Stop via the API for the same reason as StartCapture: GEngine->Exec reports
+	// whether the command was handled, not whether tracing actually stopped.
+	const bool bStopped = FTraceAuxiliary::Stop();
+
+	GBridgeInsightsCaptureRequested = false;
+
+	TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
+	if (!bStopped && !FTraceAuxiliary::IsConnected())
 	{
-		GBridgeInsightsCaptureRequested = false;
-
-		TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
-		Result->SetStringField(TEXT("status"), TEXT("stopped"));
-		Result->SetStringField(TEXT("message"), TEXT("Trace capture stopped successfully"));
-		if (!GBridgeInsightsTraceFile.IsEmpty())
-		{
-			Result->SetStringField(TEXT("trace_file"), GBridgeInsightsTraceFile);
-		}
-
+		Result->SetStringField(TEXT("status"), TEXT("idle"));
+		Result->SetStringField(TEXT("message"), TEXT("Trace capture was already inactive"));
 		return FBridgeToolResult::Json(Result);
 	}
-	else
-	{
-		if (!FTraceAuxiliary::IsConnected())
-		{
-			GBridgeInsightsCaptureRequested = false;
 
-			TSharedPtr<FJsonObject> Result = MakeShareable(new FJsonObject);
-			Result->SetStringField(TEXT("status"), TEXT("idle"));
-			Result->SetStringField(TEXT("message"), TEXT("Trace capture was already inactive"));
-			return FBridgeToolResult::Json(Result);
-		}
-		return FBridgeToolResult::Error(TEXT("Failed to stop trace capture"));
+	if (FTraceAuxiliary::IsConnected())
+	{
+		return FBridgeToolResult::Error(TEXT("Failed to stop trace capture; the trace connection is still active."));
 	}
+
+	Result->SetStringField(TEXT("status"), TEXT("stopped"));
+	Result->SetStringField(TEXT("message"), TEXT("Trace capture stopped successfully"));
+	if (!GBridgeInsightsTraceFile.IsEmpty())
+	{
+		Result->SetStringField(TEXT("trace_file"), GBridgeInsightsTraceFile);
+
+		// The file is only complete once tracing has stopped, so report whether it
+		// actually landed rather than leaving the caller to discover an absent file.
+		Result->SetBoolField(TEXT("trace_file_exists"), FPaths::FileExists(GBridgeInsightsTraceFile));
+	}
+
+	return FBridgeToolResult::Json(Result);
 }
 
 FBridgeToolResult UInsightsCaptureTool::GetStatus()
